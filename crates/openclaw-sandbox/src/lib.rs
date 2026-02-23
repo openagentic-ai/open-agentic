@@ -20,7 +20,6 @@ pub use capability::*;
 pub use credential::*;
 pub use docker::*;
 pub use endpoint::*;
-pub use executor::*;
 pub use leak_detector::*;
 pub use manager::*;
 pub use permission::*;

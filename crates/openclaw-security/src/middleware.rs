@@ -24,6 +24,10 @@ impl<T> SecureToolExecutor<T> {
         }
     }
 
+    pub fn inner(&self) -> &T {
+        &self.inner
+    }
+
     pub async fn check_input(&self, input: &str) -> Result<FilterResult, String> {
         let result = self.input_filter.check(input).await;
 

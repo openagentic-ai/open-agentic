@@ -6,6 +6,12 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[features]
+default = ["native"]
+sandbox-wasm = []
+sandbox-docker = []
+native = []
+
 [dependencies]
 openclaw-core.workspace = true
 openclaw-security.workspace = true
@@ -19,16 +25,9 @@ tracing.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 futures.workspace = true
+regex.workspace = true
 
-# Docker
+wasmtime = "25.0"
 bollard = "0.18"
-
-# Security
 sha2 = "0.10"
-base64 = "0.22"
-
-# WASM runtime
-wasmtime.workspace = true
-
-# Regex for pattern matching
-regex = "1.11"
+base64 = { version = "0.22", features = ["std"] }

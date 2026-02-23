@@ -139,6 +139,7 @@ impl MemoryRateLimiter {
         }
     }
     
+    #[allow(dead_code)]
     async fn get_or_create_bucket(&self, key: &str) -> TokenBucket {
         let mut buckets = self.buckets.write().await;
         if let Some(bucket) = buckets.get(key) {

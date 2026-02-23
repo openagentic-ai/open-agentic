@@ -28,16 +28,11 @@ license = "MIT"
 repository = "https://github.com/openclaw/openclaw-rust"
 
 [workspace.dependencies]
-# Async runtime
-tokio = { version = "1.43", features = [
-    "rt-multi-thread",
-    "macros",
-    "sync",
-    "time",
-    "net",
-    "io-util",
+# Async runtime - base features (individual crates can extend)
+tokio = { version = "1.43", default-features = false, features = [
     "rt",
-    "fs",
+    "sync",
+    "macros",
 ] }
 async-trait = "0.1"
 futures = "0.3"
@@ -91,7 +86,6 @@ tokio-stream = "0.1"
 tokio-tungstenite = "0.26"
 
 # Vector stores
-# lancedb = "0.26"  # 需要更新版本
 qdrant-client = "1.13"
 
 # SQLite with FTS5

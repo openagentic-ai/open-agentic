@@ -5,9 +5,8 @@
 use crate::capability::{Capability, CapabilityService};
 use crate::credential::CredentialService;
 use crate::rate_limit::{RateLimitConfig, RateLimiter};
-use crate::leak_detector::{LeakDetector, create_default_detector};
+use crate::leak_detector::LeakDetector;
 use crate::endpoint::{EndpointAllowlist, HttpRequest};
-use crate::leak_detector::LeakResult;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -42,9 +42,7 @@ pub struct SandboxManager {
 /// 沙箱记录
 #[derive(Debug, Clone)]
 struct SandboxRecord {
-    config: SandboxConfig,
     owner_id: String,
-    created_at: chrono::DateTime<chrono::Utc>,
 }
 
 impl SandboxManager {
@@ -110,9 +108,7 @@ impl SandboxManager {
             sandboxes.insert(
                 sandbox_id.clone(),
                 SandboxRecord {
-                    config,
                     owner_id: user_id.to_string(),
-                    created_at: chrono::Utc::now(),
                 },
             );
         }

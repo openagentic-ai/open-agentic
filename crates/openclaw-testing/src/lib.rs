@@ -169,13 +169,8 @@ pub mod config {
             vector: Default::default(),
             channels: Default::default(),
             security: openclaw_core::config::SecurityConfig::default(),
-            agents: AgentsConfig::default(),
-            devices: DevicesConfig {
-                enabled: false,
-                ..Default::default()
-            },
-            workspaces: Default::default(),
             voice: Default::default(),
+            browser: None,
         }
     }
 }
