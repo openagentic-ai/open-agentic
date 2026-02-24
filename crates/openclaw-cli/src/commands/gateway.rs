@@ -2,7 +2,8 @@
 
 use anyhow::Result;
 use openclaw_core::Config;
-use openclaw_server::{Gateway, server_config::ServerConfig};
+use openclaw_server::gateway_service::Gateway;
+use openclaw_server::server_config::ServerConfig;
 use std::path::PathBuf;
 
 fn get_config_path() -> Option<PathBuf> {
@@ -67,7 +68,7 @@ pub async fn run(
         canvas
     );
 
-    let gateway = Gateway::new(config).await?;
+    let gateway: openclaw_server::gateway_service::Gateway = Gateway::new(config).await?;
     gateway.start().await?;
 
     Ok(())

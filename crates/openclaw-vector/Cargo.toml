@@ -23,10 +23,12 @@ rusqlite.workspace = true
 lancedb.workspace = true
 qdrant-client.workspace = true
 sqlx.workspace = true
+milvus.workspace = true
 
 [features]
 default = []
 lancedb = []
 qdrant = []
 pgvector = []
+milvus = []
 sqlite = []

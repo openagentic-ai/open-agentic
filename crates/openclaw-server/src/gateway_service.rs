@@ -10,11 +10,14 @@ use openclaw_core::Result;
 use crate::server_config::ServerConfig;
 
 use crate::adapters::{AIProviderAdapter, SecurityPipelineAdapter, ToolRegistryAdapter};
+use crate::ports::DevicePortAdapter;
 use crate::api::create_router;
 use crate::app_context::AppContext;
 use crate::config_adapter::ConfigAdapter;
 use crate::service_factory::{DefaultServiceFactory, ServiceFactory};
 use crate::websocket::websocket_router;
+
+use openclaw_vector::init_all_factories;
 
 pub struct Gateway {
     config: ServerConfig,
@@ -24,13 +27,19 @@ pub struct Gateway {
 
 impl Gateway {
     pub async fn new(config: ServerConfig) -> Result<Self> {
+        init_all_factories();
+        
         let config_for_adapter = config.core.clone();
         let config_for_device = config.devices.clone();
 
         let config_adapter = ConfigAdapter::from_ref(&config_for_adapter);
         let vector_store_registry =
             Arc::new(crate::vector_store_registry::VectorStoreRegistry::new());
-        let device_manager = Arc::new(crate::device_manager::DeviceManager::new(config_for_device));
+        let device_manager = if config_for_device.enabled {
+            Some(Arc::new(crate::device_manager::DeviceManager::new(config_for_device)))
+        } else {
+            None
+        };
 
         let factory = DefaultServiceFactory::new(
             Arc::new(config_adapter),
@@ -48,13 +57,20 @@ impl Gateway {
     }
 
     pub async fn start(&self) -> openclaw_core::Result<()> {
-        let enabled_backends = self.config.vector.backends.clone();
+        let backends = self.config.core.vector.backends.clone().unwrap_or_else(|| vec!["memory".to_string()]);
+        let backend_type = self.config.core.vector.backend.clone();
+        let qdrant_config = self.config.core.vector.qdrant.as_ref();
+        let lancedb_config = self.config.core.vector.lancedb.as_ref();
+        let milvus_config = self.config.core.vector.milvus.as_ref();
+        
         self.context
             .vector_store_registry
-            .register_defaults(enabled_backends)
+            .register_from_config(&backends, &backend_type, qdrant_config, lancedb_config, milvus_config)
             .await;
 
-        self.context.device_manager.init().await?;
+        if let Some(ref device_manager) = self.context.device_manager {
+            device_manager.init().await?;
+        }
 
         if let Some(ref orchestrator) = *self.context.orchestrator.read().await {
             orchestrator.start().await?;
@@ -73,13 +89,17 @@ impl Gateway {
             let tool_port = Arc::new(ToolRegistryAdapter::new(self.context.tool_registry.clone()))
                 as Arc<dyn openclaw_agent::ports::ToolPort>;
 
-            let memory_port = self.context.memory_manager.as_ref().map(|m| {
+            let memory_port = self.context.memory_backend.as_ref().map(|m| {
                 Arc::new(crate::ports::adapters::MemoryPortAdapter::new(Arc::clone(m)))
                     as Arc<dyn openclaw_agent::ports::MemoryPort>
             });
 
+            let device_port = self.context.unified_device_manager.as_ref().map(|d| {
+                Arc::new(DevicePortAdapter::new(d.clone())) as Arc<dyn openclaw_agent::ports::DevicePort>
+            });
+
             orchestrator
-                .inject_ports(Some(ai_port), memory_port, Some(security_port), Some(tool_port))
+                .inject_ports(Some(ai_port), memory_port, Some(security_port), Some(tool_port), device_port)
                 .await;
 
             if self.config.server.enable_agentic_rag {
@@ -87,7 +107,7 @@ impl Gateway {
                     .factory
                     .create_agentic_rag_engine(
                         self.context.ai_provider.clone(),
-                        self.context.memory_manager.clone(),
+                        self.context.memory_backend.clone(),
                     )
                     .await?;
                 orchestrator

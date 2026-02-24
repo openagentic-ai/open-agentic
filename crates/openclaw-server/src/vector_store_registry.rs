@@ -2,105 +2,125 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use openclaw_vector::{StoreBackend, VectorStore};
+use openclaw_core::config::{LanceDbConfig, MilvusConfig, QdrantConfig, VectorBackend};
+use openclaw_vector::{init_default_factories, get_factory, BackendConfig, StoreBackend, VectorStore};
 
 pub type VectorStoreCreator = dyn Send + Sync + Fn() -> Arc<dyn VectorStore>;
 
 pub struct VectorStoreRegistry {
-    creators: Arc<RwLock<HashMap<String, Box<VectorStoreCreator>>>>,
+    stores: Arc<RwLock<HashMap<String, Arc<dyn VectorStore>>>>,
 }
 
 impl VectorStoreRegistry {
     pub fn new() -> Self {
+        init_default_factories();
         Self {
-            creators: Arc::new(RwLock::new(HashMap::new())),
+            stores: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
-    pub async fn register<F>(&self, name: String, creator: F)
-    where
-        F: Send + Sync + Fn() -> Arc<dyn VectorStore> + 'static,
-    {
-        let mut creators = self.creators.write().await;
-        creators.insert(name, Box::new(creator));
+    pub async fn register(&self, name: String, store: Arc<dyn VectorStore>) {
+        let mut stores = self.stores.write().await;
+        stores.insert(name, store);
     }
 
     pub async fn create(&self, name: &str) -> Option<Arc<dyn VectorStore>> {
-        let creators = self.creators.read().await;
-        creators.get(name).map(|f| f())
+        let stores = self.stores.read().await;
+        stores.get(name).cloned()
     }
 
     pub async fn list(&self) -> Vec<String> {
-        let creators = self.creators.read().await;
-        creators.keys().cloned().collect()
+        let stores = self.stores.read().await;
+        stores.keys().cloned().collect()
     }
 
     pub async fn register_defaults(&self, enabled_backends: Option<Vec<String>>) {
-        use openclaw_vector::MemoryStore;
+        use openclaw_vector::VectorStore;
+        
+        let backends = enabled_backends.unwrap_or_else(|| vec!["memory".to_string()]);
 
-        self.register("memory".to_string(), || {
-            Arc::new(MemoryStore::new()) as Arc<dyn VectorStore>
-        })
-        .await;
-
-        let backends = enabled_backends.unwrap_or_default();
-
-        if backends.contains(&"lancedb".to_string()) {
-            self.register_lancedb().await;
-        }
-
-        if backends.contains(&"qdrant".to_string()) {
-            self.register_qdrant().await;
-        }
-
-        if backends.contains(&"pgvector".to_string()) {
-            self.register_pgvector().await;
-        }
-    }
-
-    async fn register_lancedb(&self) {
-        #[cfg(feature = "lancedb")]
-        {
-            use openclaw_vector::LanceDbStore;
-            self.register("lancedb".to_string(), || {
-                Arc::new(
-                    LanceDbStore::new(&std::path::PathBuf::from("./data/lancedb"), "default")
-                        .unwrap(),
-                ) as Arc<dyn VectorStore>
-            })
-            .await;
-        }
-    }
-
-    async fn register_qdrant(&self) {
-        #[cfg(feature = "qdrant")]
-        {
-            use openclaw_vector::QdrantStore;
-            let store = QdrantStore::new("http://localhost:6334", "default", 384, None);
-            match store {
-                Ok(s) => {
-                    self.register("qdrant".to_string(), move || {
-                        Arc::new(s.clone()) as Arc<dyn VectorStore>
-                    })
-                    .await;
+        for name in &backends {
+            if let Some(factory) = get_factory(name) {
+                let config = BackendConfig {
+                    name: name.clone(),
+                    ..Default::default()
+                };
+                match factory.create(&config).await {
+                    Ok(store) => {
+                        self.register(name.clone(), store).await;
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to create vector store '{}': {}", name, e);
+                    }
                 }
-                Err(_) => {}
+            } else {
+                tracing::warn!("No factory registered for vector store '{}'", name);
             }
         }
     }
 
-    async fn register_pgvector(&self) {
-        #[cfg(feature = "pgvector")]
-        {
-            use openclaw_vector::PgVectorStore;
-            self.register("pgvector".to_string(), || {
-                Arc::new(
-                    PgVectorStore::new("postgres://localhost:5432/openclaw", "vectors", 384)
-                        .unwrap(),
-                ) as Arc<dyn VectorStore>
-            })
-            .await;
+    pub async fn register_from_config(
+        &self,
+        backends: &[String],
+        backend_type: &VectorBackend,
+        qdrant_config: Option<&QdrantConfig>,
+        lancedb_config: Option<&LanceDbConfig>,
+        milvus_config: Option<&MilvusConfig>,
+    ) {
+        for name in backends {
+            if let Some(factory) = get_factory(name) {
+                let config = self.build_backend_config(name, backend_type, qdrant_config, lancedb_config, milvus_config);
+                match factory.create(&config).await {
+                    Ok(store) => {
+                        self.register(name.clone(), store).await;
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to create vector store '{}': {}", name, e);
+                    }
+                }
+            } else {
+                tracing::warn!("No factory registered for vector store '{}'", name);
+            }
         }
+    }
+
+    fn build_backend_config(
+        &self,
+        name: &str,
+        backend_type: &VectorBackend,
+        qdrant_config: Option<&QdrantConfig>,
+        lancedb_config: Option<&LanceDbConfig>,
+        milvus_config: Option<&MilvusConfig>,
+    ) -> BackendConfig {
+        let mut config = BackendConfig {
+            name: name.to_string(),
+            ..Default::default()
+        };
+
+        match backend_type {
+            VectorBackend::Qdrant => {
+                if let Some(qdrant) = qdrant_config {
+                    config.url = Some(qdrant.url.clone());
+                    config.collection = Some(qdrant.collection.clone());
+                    config.api_key = qdrant.api_key.clone();
+                }
+            }
+            VectorBackend::LanceDB => {
+                if let Some(lancedb) = lancedb_config {
+                    config.path = Some(lancedb.path.clone());
+                }
+            }
+            VectorBackend::Milvus => {
+                if let Some(milvus) = milvus_config {
+                    config.url = Some(milvus.url.clone());
+                    config.collection = Some(milvus.collection.clone());
+                    config.dimensions = milvus.dimension;
+                }
+            }
+            _ => {}
+        }
+
+        config
     }
 }
 
@@ -134,17 +154,14 @@ mod tests {
     async fn test_vector_store_registry_register_and_create() {
         let registry = VectorStoreRegistry::new();
 
-        registry
-            .register("test".to_string(), || {
-                Arc::new(openclaw_vector::MemoryStore::new()) as Arc<dyn VectorStore>
-            })
-            .await;
+        let store = Arc::new(openclaw_vector::MemoryStore::new()) as Arc<dyn VectorStore>;
+        registry.register("test".to_string(), store).await;
 
         let list = registry.list().await;
         assert!(list.contains(&"test".to_string()));
 
-        let store = registry.create("test").await;
-        assert!(store.is_some());
+        let result = registry.create("test").await;
+        assert!(result.is_some());
     }
 
     #[tokio::test]
@@ -199,23 +216,106 @@ mod tests {
         registry.register_defaults(Some(vec![])).await;
 
         let list = registry.list().await;
-        assert!(list.contains(&"memory".to_string()));
+        assert!(list.is_empty());
     }
 
     #[tokio::test]
     async fn test_register_custom_backend() {
         let registry = VectorStoreRegistry::new();
 
-        registry
-            .register("custom".to_string(), || {
-                Arc::new(openclaw_vector::MemoryStore::new()) as Arc<dyn VectorStore>
-            })
-            .await;
+        let store = Arc::new(openclaw_vector::MemoryStore::new()) as Arc<dyn VectorStore>;
+        registry.register("custom".to_string(), store).await;
 
         let list = registry.list().await;
         assert!(list.contains(&"custom".to_string()));
 
-        let store = registry.create("custom").await;
-        assert!(store.is_some());
+        let result = registry.create("custom").await;
+        assert!(result.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_register_from_config_with_memory() {
+        let registry = VectorStoreRegistry::new();
+
+        registry
+            .register_from_config(
+                &["memory".to_string()],
+                &VectorBackend::LanceDB,
+                None,
+                None,
+                None,
+            )
+            .await;
+
+        let list = registry.list().await;
+        assert!(list.contains(&"memory".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_register_from_config_with_qdrant() {
+        let registry = VectorStoreRegistry::new();
+
+        let qdrant_config = QdrantConfig {
+            url: "http://localhost:6333".to_string(),
+            collection: "test".to_string(),
+            api_key: None,
+        };
+
+        registry
+            .register_from_config(
+                &["memory".to_string()],
+                &VectorBackend::Qdrant,
+                Some(&qdrant_config),
+                None,
+                None,
+            )
+            .await;
+
+        let list = registry.list().await;
+        assert!(list.contains(&"memory".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_build_backend_config_qdrant() {
+        let registry = VectorStoreRegistry::new();
+
+        let qdrant_config = QdrantConfig {
+            url: "http://localhost:6333".to_string(),
+            collection: "test_collection".to_string(),
+            api_key: Some("test_key".to_string()),
+        };
+
+        let config = registry.build_backend_config(
+            "qdrant",
+            &VectorBackend::Qdrant,
+            Some(&qdrant_config),
+            None,
+            None,
+        );
+
+        assert_eq!(config.name, "qdrant");
+        assert_eq!(config.url, Some("http://localhost:6333".to_string()));
+        assert_eq!(config.collection, Some("test_collection".to_string()));
+        assert_eq!(config.api_key, Some("test_key".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_build_backend_config_lancedb() {
+        let registry = VectorStoreRegistry::new();
+
+        let lancedb_config = LanceDbConfig {
+            path: std::path::PathBuf::from("/tmp/lancedb"),
+        };
+
+        let config = registry.build_backend_config(
+            "lancedb",
+            &VectorBackend::LanceDB,
+            None,
+            Some(&lancedb_config),
+            None,
+        );
+
+        assert_eq!(config.name, "lancedb");
+        assert_eq!(config.path, Some(std::path::PathBuf::from("/tmp/lancedb")));
     }
 }

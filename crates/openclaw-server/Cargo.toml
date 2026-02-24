@@ -46,6 +46,7 @@ testing = ["openclaw-agent/testing"]
 lancedb = ["openclaw-vector/lancedb"]
 qdrant = ["openclaw-vector/qdrant"]
 pgvector = ["openclaw-vector/pgvector"]
+milvus = ["openclaw-vector/milvus"]
 
 [dev-dependencies]
 tempfile.workspace = true

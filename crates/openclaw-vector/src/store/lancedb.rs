@@ -6,6 +6,7 @@
 
 use async_trait::async_trait;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::VectorStore;
 use crate::types::{Filter, SearchQuery, SearchResult, StoreStats, VectorItem};
@@ -71,5 +72,46 @@ impl VectorStore for LanceDbStore {
 
     async fn clear(&self) -> Result<()> {
         Ok(())
+    }
+}
+
+#[cfg(feature = "lancedb")]
+pub struct LanceDbStoreFactory;
+
+#[cfg(feature = "lancedb")]
+#[async_trait]
+impl super::factory::VectorStoreFactory for LanceDbStoreFactory {
+    fn name(&self) -> &str {
+        "lancedb"
+    }
+
+    async fn create(&self, config: &super::factory::BackendConfig) -> Result<Arc<dyn super::VectorStore>> {
+        let path = config
+            .path
+            .as_ref()
+            .ok_or_else(|| OpenClawError::Config("LanceDB requires path config".to_string()))?;
+        
+        let store = LanceDbStore::new(path, "vectors").await?;
+        Ok(Arc::new(store) as Arc<dyn super::VectorStore>)
+    }
+}
+
+#[cfg(feature = "lancedb")]
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::factory::VectorStoreFactory;
+
+    #[test]
+    fn test_lancedb_factory_name() {
+        let factory = LanceDbStoreFactory;
+        assert_eq!(factory.name(), "lancedb");
+    }
+
+    #[test]
+    fn test_lancedb_factory_supports_backend() {
+        let factory = LanceDbStoreFactory;
+        assert!(factory.supports_backend("lancedb"));
+        assert!(!factory.supports_backend("memory"));
     }
 }

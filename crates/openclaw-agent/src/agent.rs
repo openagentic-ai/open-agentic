@@ -11,7 +11,7 @@ use openclaw_memory::MemoryManager;
 use openclaw_security::{PipelineResult, SecurityPipeline};
 use openclaw_tools::ToolResult as OpenClawToolResult;
 
-use crate::ports::{AIPort, MemoryPort, SecurityPort, ToolPort};
+use crate::ports::{AIPort, DevicePort, MemoryPort, SecurityPort, ToolPort};
 use crate::task::{TaskInput, TaskOutput, TaskRequest, TaskResult, TaskStatus};
 use crate::types::{AgentConfig, AgentInfo, AgentStatus, AgentType, Capability};
 
@@ -75,6 +75,7 @@ pub trait Agent: Send + Sync {
         memory_port: Option<Arc<dyn MemoryPort>>,
         security_port: Option<Arc<dyn SecurityPort>>,
         tool_port: Option<Arc<dyn ToolPort>>,
+        device_port: Option<Arc<dyn DevicePort>>,
     );
 
     /// 获取 Port（异步）
@@ -82,6 +83,7 @@ pub trait Agent: Send + Sync {
     async fn get_memory_port(&self) -> Option<Arc<dyn MemoryPort>>;
     async fn get_security_port(&self) -> Option<Arc<dyn SecurityPort>>;
     async fn get_tool_port(&self) -> Option<Arc<dyn ToolPort>>;
+    async fn get_device_port(&self) -> Option<Arc<dyn DevicePort>>;
 
     /// 执行工具
     async fn execute_tool(
@@ -110,6 +112,7 @@ pub struct BaseAgent {
     memory_port: Arc<tokio::sync::RwLock<Option<Arc<dyn MemoryPort>>>>,
     security_port: Arc<tokio::sync::RwLock<Option<Arc<dyn SecurityPort>>>>,
     tool_port: Arc<tokio::sync::RwLock<Option<Arc<dyn ToolPort>>>>,
+    device_port: Arc<tokio::sync::RwLock<Option<Arc<dyn DevicePort>>>>,
 }
 
 impl BaseAgent {
@@ -121,13 +124,14 @@ impl BaseAgent {
             ai_provider: Arc::new(RwLock::new(None)),
             memory: Arc::new(tokio::sync::Mutex::new(None)),
             security_pipeline: Arc::new(RwLock::new(None)),
-            tool_executor: Arc::new(tokio::sync::RwLock::new(None)),
-            tool_registry: Arc::new(tokio::sync::RwLock::new(None)),
-            device_tool_registry: Arc::new(tokio::sync::RwLock::new(None)),
+            tool_executor: Arc::new(RwLock::new(None)),
+            tool_registry: Arc::new(RwLock::new(None)),
+            device_tool_registry: Arc::new(RwLock::new(None)),
             ai_port: Arc::new(RwLock::new(None)),
             memory_port: Arc::new(RwLock::new(None)),
             security_port: Arc::new(RwLock::new(None)),
             tool_port: Arc::new(RwLock::new(None)),
+            device_port: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -494,11 +498,13 @@ impl Agent for BaseAgent {
         memory_port: Option<Arc<dyn MemoryPort>>,
         security_port: Option<Arc<dyn SecurityPort>>,
         tool_port: Option<Arc<dyn ToolPort>>,
+        device_port: Option<Arc<dyn DevicePort>>,
     ) {
         *self.ai_port.write().await = ai_port;
         *self.memory_port.write().await = memory_port;
         *self.security_port.write().await = security_port;
         *self.tool_port.write().await = tool_port;
+        *self.device_port.write().await = device_port;
     }
 
     async fn get_ai_port(&self) -> Option<Arc<dyn AIPort>> {
@@ -515,6 +521,10 @@ impl Agent for BaseAgent {
 
     async fn get_tool_port(&self) -> Option<Arc<dyn ToolPort>> {
         self.tool_port.read().await.clone()
+    }
+
+    async fn get_device_port(&self) -> Option<Arc<dyn DevicePort>> {
+        self.device_port.read().await.clone()
     }
 
     fn system_prompt(&self) -> Option<&str> {

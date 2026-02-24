@@ -8,7 +8,9 @@ use tokio::sync::RwLock;
 
 use openclaw_ai::AIProvider;
 use openclaw_core::{Config, Result};
+use openclaw_device::factory::DeviceManagerFactory;
 use openclaw_device::UnifiedDeviceManager;
+use openclaw_memory::factory::{create_memory_backend, MemoryBackend};
 use openclaw_memory::MemoryManager;
 use openclaw_security::pipeline::SecurityPipeline;
 use openclaw_tools::ToolRegistry;
@@ -21,7 +23,7 @@ use crate::voice_service::VoiceService;
 #[async_trait]
 pub trait ServiceFactory: Send + Sync {
     async fn create_ai_provider(&self) -> Result<Arc<dyn AIProvider>>;
-    async fn create_memory_manager(&self) -> Result<Arc<MemoryManager>>;
+    async fn create_memory_backend(&self) -> Result<Arc<dyn MemoryBackend>>;
     fn create_security_pipeline(&self) -> Arc<SecurityPipeline>;
     fn create_tool_registry(&self) -> Arc<ToolRegistry>;
     async fn create_voice_providers(
@@ -30,11 +32,12 @@ pub trait ServiceFactory: Send + Sync {
         Arc<dyn openclaw_voice::SpeechToText>,
         Arc<dyn openclaw_voice::TextToSpeech>,
     )>;
+    async fn create_unified_device_manager(&self) -> Result<Arc<UnifiedDeviceManager>>;
     async fn create_app_context(&self, config: Config) -> Result<Arc<AppContext>>;
     async fn create_agentic_rag_engine(
         &self,
         ai_provider: Arc<dyn AIProvider>,
-        memory_manager: Option<Arc<MemoryManager>>,
+        memory_backend: Option<Arc<dyn MemoryBackend>>,
     ) -> Result<Arc<crate::agentic_rag::AgenticRAGEngine>>;
 }
 
@@ -42,24 +45,19 @@ pub trait ServiceFactory: Send + Sync {
 pub struct DefaultServiceFactory {
     config: Arc<super::config_adapter::ConfigAdapter>,
     vector_store_registry: Arc<super::vector_store_registry::VectorStoreRegistry>,
-    device_manager: Arc<super::device_manager::DeviceManager>,
-    unified_device_manager: Arc<UnifiedDeviceManager>,
+    device_manager: Option<Arc<super::device_manager::DeviceManager>>,
 }
 
 impl DefaultServiceFactory {
     pub fn new(
         config: Arc<super::config_adapter::ConfigAdapter>,
         vector_store_registry: Arc<super::vector_store_registry::VectorStoreRegistry>,
-        device_manager: Arc<super::device_manager::DeviceManager>,
+        device_manager: Option<Arc<super::device_manager::DeviceManager>>,
     ) -> Self {
-        let registry = device_manager.registry().clone();
-        let unified_device_manager = Arc::new(UnifiedDeviceManager::new(registry));
-
         Self {
             config,
             vector_store_registry,
             device_manager,
-            unified_device_manager,
         }
     }
 }
@@ -93,18 +91,9 @@ impl ServiceFactory for DefaultServiceFactory {
         Ok(provider)
     }
 
-    async fn create_memory_manager(&self) -> Result<Arc<MemoryManager>> {
-        use openclaw_memory::ai_adapter::AIProviderEmbeddingAdapter;
-        use openclaw_memory::hybrid_search::{HybridSearchConfig, HybridSearchManager};
-
+    async fn create_memory_backend(&self) -> Result<Arc<dyn MemoryBackend>> {
         let ai_provider = self.create_ai_provider().await?;
         let memory_config = self.config.memory();
-
-        let embedding_provider = AIProviderEmbeddingAdapter::new(
-            ai_provider.clone(),
-            memory_config.long_term.embedding_model.clone(),
-            memory_config.long_term.embedding_dimensions,
-        );
 
         let vector_store = self
             .vector_store_registry
@@ -115,41 +104,16 @@ impl ServiceFactory for DefaultServiceFactory {
                     as Arc<dyn openclaw_vector::VectorStore>
             });
 
-        let hybrid_config = HybridSearchConfig {
-            vector_weight: 0.5,
-            keyword_weight: 0.3,
-            bm25_weight: 0.2,
-            knowledge_graph_weight: 0.1,
-            min_score: Some(0.0),
-            limit: 10,
-            embedding_dimension: Some(memory_config.long_term.embedding_dimensions),
-            enable_vector: true,
-            enable_bm25: memory_config.long_term.enable_bm25,
-            enable_knowledge_graph: memory_config.long_term.enable_knowledge_graph,
-        };
+        let backend_type = "hybrid";
+        let backend = create_memory_backend(
+            backend_type,
+            &memory_config,
+            ai_provider,
+            vector_store,
+        )
+        .await?;
 
-        let mut hybrid_search =
-            HybridSearchManager::new(vector_store.clone(), hybrid_config.clone());
-
-        if hybrid_config.enable_bm25
-            && let Ok(bm25_index) =
-                openclaw_memory::bm25::Bm25Index::new(std::path::Path::new("data/bm25"))
-        {
-            hybrid_search = hybrid_search.with_bm25(Arc::new(bm25_index));
-        }
-
-        if hybrid_config.enable_knowledge_graph {
-            let kg = openclaw_memory::knowledge_graph::KnowledgeGraph::new();
-            hybrid_search =
-                hybrid_search.with_knowledge_graph(Arc::new(tokio::sync::RwLock::new(kg)));
-        }
-
-        let manager = MemoryManager::new(memory_config)
-            .with_vector_store(vector_store)
-            .with_embedding_provider(embedding_provider)
-            .with_hybrid_search(Arc::new(hybrid_search));
-
-        Ok(Arc::new(manager))
+        Ok(backend)
     }
 
     fn create_security_pipeline(&self) -> Arc<SecurityPipeline> {
@@ -162,26 +126,28 @@ impl ServiceFactory for DefaultServiceFactory {
 
         let mut registry = ToolRegistry::new();
 
-        let capabilities = self.device_manager.get_capabilities();
+        if let Some(ref device_manager) = self.device_manager {
+            let capabilities = device_manager.get_capabilities();
 
-        if capabilities
-            .sensors
-            .contains(&openclaw_device::SensorType::Camera)
-        {
-            let camera_manager = Arc::new(openclaw_device::CameraManager::new());
-            let camera_tool = Arc::new(CameraTool::new(Some(camera_manager), capabilities.clone()));
-            registry.register("hardware_camera".to_string(), camera_tool);
-            tracing::info!("Hardware camera tool registered");
+            if capabilities
+                .sensors
+                .contains(&openclaw_device::SensorType::Camera)
+            {
+                let camera_manager = Arc::new(openclaw_device::CameraManager::new());
+                let camera_tool = Arc::new(CameraTool::new(Some(camera_manager), capabilities.clone()));
+                registry.register("hardware_camera".to_string(), camera_tool);
+                tracing::info!("Hardware camera tool registered");
+            }
+
+            if capabilities
+                .sensors
+                .contains(&openclaw_device::SensorType::Microphone)
+            {
+                tracing::info!("Microphone available - microphone tool can be added");
+            }
+
+            tracing::info!("Tool registry created with hardware tools based on device capabilities");
         }
-
-        if capabilities
-            .sensors
-            .contains(&openclaw_device::SensorType::Microphone)
-        {
-            tracing::info!("Microphone available - microphone tool can be added");
-        }
-
-        tracing::info!("Tool registry created with hardware tools based on device capabilities");
 
         Arc::new(registry)
     }
@@ -229,6 +195,20 @@ impl ServiceFactory for DefaultServiceFactory {
         Ok((stt, tts))
     }
 
+    async fn create_unified_device_manager(&self) -> Result<Arc<UnifiedDeviceManager>> {
+        if let Some(device_manager) = &self.device_manager {
+            let registry = device_manager.registry().clone();
+            let unified = UnifiedDeviceManager::new(registry);
+            Ok(Arc::new(unified))
+        } else {
+            openclaw_device::factory::init_default_factory();
+            let config = self.config.device();
+            let factory = openclaw_device::factory::get_factory("default")
+                .ok_or_else(|| openclaw_core::OpenClawError::Config("Device factory not found".to_string()))?;
+            factory.create(&config).await.map_err(|e| openclaw_core::OpenClawError::Config(e.to_string()))
+        }
+    }
+
     async fn create_app_context(&self, config: Config) -> Result<Arc<AppContext>> {
         let memory_config = self.config.memory();
         let channel_to_agent_map = config.channels.channel_to_agent_map.clone();
@@ -259,20 +239,22 @@ impl ServiceFactory for DefaultServiceFactory {
         ));
 
         let ai_provider = self.create_ai_provider().await?;
-        let memory_manager = Some(self.create_memory_manager().await?);
+        let memory_backend = Some(self.create_memory_backend().await?);
         let security_pipeline = self.create_security_pipeline();
         let tool_registry = self.create_tool_registry();
         let voice_service = Arc::new(VoiceService::new());
 
+        let unified_device_manager = self.create_unified_device_manager().await.ok();
+
         let context = AppContext::new(
             config,
             ai_provider,
-            memory_manager,
+            memory_backend,
             security_pipeline,
             tool_registry,
             orchestrator,
             self.device_manager.clone(),
-            self.unified_device_manager.clone(),
+            unified_device_manager,
             voice_service,
             self.vector_store_registry.clone(),
         );
@@ -283,13 +265,13 @@ impl ServiceFactory for DefaultServiceFactory {
     async fn create_agentic_rag_engine(
         &self,
         ai_provider: Arc<dyn openclaw_ai::AIProvider>,
-        memory_manager: Option<Arc<MemoryManager>>,
+        _memory_backend: Option<Arc<dyn MemoryBackend>>,
     ) -> Result<Arc<crate::agentic_rag::AgenticRAGEngine>> {
         use crate::agentic_rag::{AgenticRAGConfig, AgenticRAGEngine};
 
         let config = AgenticRAGConfig::default();
 
-        let engine = AgenticRAGEngine::new(config, ai_provider, memory_manager, None, None).await?;
+        let engine = AgenticRAGEngine::new(config, ai_provider, None, None, None).await?;
 
         Ok(Arc::new(engine))
     }

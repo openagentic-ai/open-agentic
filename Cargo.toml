@@ -102,6 +102,9 @@ lancedb = "0.20"
 # PostgreSQL with pgvector
 sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono", "json"] }
 
+# Milvus
+milvus = "0.1"
+
 # AI providers
 async-openai = "0.28"
 

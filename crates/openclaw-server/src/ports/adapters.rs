@@ -10,6 +10,7 @@ use openclaw_ai::{
 use openclaw_core::Result as OpenClawResult;
 use openclaw_core::{Content, Message, OpenClawError, Role};
 use openclaw_device::UnifiedDeviceManager;
+use openclaw_memory::factory::MemoryBackend;
 use openclaw_memory::MemoryManager;
 use openclaw_memory::recall::{RecallItem as MemoryRecallItem, RecallResult as MemoryRecallResult};
 use openclaw_memory::types::{MemoryContent, MemoryItem, MemoryRetrieval};
@@ -87,12 +88,12 @@ impl AIPort for AiPortAdapter {
 }
 
 pub struct MemoryPortAdapter {
-    manager: Arc<MemoryManager>,
+    backend: Arc<dyn MemoryBackend>,
 }
 
 impl MemoryPortAdapter {
-    pub fn new(manager: Arc<MemoryManager>) -> Self {
-        Self { manager }
+    pub fn new(backend: Arc<dyn MemoryBackend>) -> Self {
+        Self { backend }
     }
 }
 
@@ -108,11 +109,11 @@ impl MemoryPort for MemoryPortAdapter {
             created_at: chrono::Utc::now(),
             metadata: Default::default(),
         };
-        self.manager.add(message).await
+        self.backend.add(message).await
     }
 
     async fn retrieve(&self, query: &str, limit: usize) -> OpenClawResult<Vec<MemoryEntry>> {
-        let retrieval: MemoryRetrieval = self.manager.retrieve(query, limit).await?;
+        let retrieval: MemoryRetrieval = self.backend.retrieve(query, limit).await?;
         Ok(retrieval
             .items
             .into_iter()
@@ -121,7 +122,7 @@ impl MemoryPort for MemoryPortAdapter {
     }
 
     async fn recall(&self, context: &str, _limit: usize) -> OpenClawResult<Vec<RecallItem>> {
-        let recall_result: MemoryRecallResult = self.manager.recall(context).await?;
+        let recall_result: MemoryRecallResult = self.backend.recall(context).await?;
         Ok(recall_result
             .items
             .into_iter()

@@ -318,6 +318,8 @@ pub struct VectorConfig {
     pub qdrant: Option<QdrantConfig>,
     /// LanceDB 配置
     pub lancedb: Option<LanceDbConfig>,
+    /// Milvus 配置
+    pub milvus: Option<MilvusConfig>,
 }
 
 impl Default for VectorConfig {
@@ -327,6 +329,7 @@ impl Default for VectorConfig {
             backends: Some(vec!["memory".to_string()]),
             qdrant: None,
             lancedb: Some(LanceDbConfig::default()),
+            milvus: None,
         }
     }
 }
@@ -337,6 +340,7 @@ pub enum VectorBackend {
     Qdrant,
     LanceDB,
     PgVector,
+    Milvus,
     SQLite,
 }
 
@@ -366,6 +370,23 @@ impl Default for LanceDbConfig {
     fn default() -> Self {
         Self {
             path: PathBuf::from("data/lancedb"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MilvusConfig {
+    pub url: String,
+    pub collection: String,
+    pub dimension: Option<usize>,
+}
+
+impl Default for MilvusConfig {
+    fn default() -> Self {
+        Self {
+            url: "http://localhost:19530".to_string(),
+            collection: "openclaw_vectors".to_string(),
+            dimension: Some(1536),
         }
     }
 }

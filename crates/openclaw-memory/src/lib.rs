@@ -12,6 +12,7 @@
 //! - memory/YYYY-MM-DD.md: 每日记忆
 //! - MEMORY.md: 长期记忆汇总
 
+pub mod factory;
 pub mod ai_adapter;
 pub mod bm25;
 pub mod checkpoint;
@@ -50,6 +51,7 @@ pub use bm25::*;
 pub use chunk::*;
 pub use compressor::*;
 pub use config::*;
+pub use factory::*;
 pub use conflict_resolver::*;
 pub use embedding::*;
 pub use fact_extractor::*;

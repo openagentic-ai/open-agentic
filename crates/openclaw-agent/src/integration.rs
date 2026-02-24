@@ -119,7 +119,7 @@ pub fn create_provider_by_name(
 
 /// 为 Agent 配置 AI 提供商 - 调用方需要传入包装好的 AIPort
 pub async fn configure_agent_with_ai_port(agent: &BaseAgent, ai_port: Arc<dyn AIPort>) {
-    agent.inject_ports(Some(ai_port), None, None, None).await;
+    agent.inject_ports(Some(ai_port), None, None, None, None).await;
 }
 
 /// 创建配置好 AI 的 Coder Agent - 调用方需要传入包装好的 AIPort

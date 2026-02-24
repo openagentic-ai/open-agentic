@@ -19,12 +19,12 @@ pub mod notification;
 pub mod screen;
 pub mod system;
 
-// 弹性计算和边缘计算设备抽象
 pub mod adapter;
 pub mod capabilities;
 pub mod config;
 pub mod device;
 pub mod device_trait;
+pub mod factory;
 pub mod embedded;
 pub mod platform;
 pub mod registry;

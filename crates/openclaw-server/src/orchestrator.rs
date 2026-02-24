@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
+use async_trait::async_trait;
 
 #[cfg(feature = "per_session_memory")]
 use std::collections::VecDeque;
@@ -15,14 +16,40 @@ use openclaw_ai::AIProvider;
 use openclaw_canvas::CanvasManager;
 use openclaw_channels::{ChannelManager, ChannelMessage, SendMessage, register_default_channels};
 use openclaw_core::{Config, Content, Message, OpenClawError, Result, Role};
-#[cfg(feature = "per_session_memory")]
+
+use openclaw_memory::factory::MemoryBackend;
 use openclaw_memory::MemoryConfig;
 use openclaw_memory::MemoryManager;
 use openclaw_security::SecurityPipeline;
 
+struct MemoryManagerAdapter {
+    manager: Arc<MemoryManager>,
+}
+
+#[async_trait]
+impl MemoryBackend for MemoryManagerAdapter {
+    async fn store(&self, memory: openclaw_memory::types::MemoryItem) -> openclaw_core::Result<()> {
+        let content = memory.content.to_text();
+        let msg = openclaw_core::Message::user(content);
+        self.manager.add(msg).await
+    }
+
+    async fn recall(&self, query: &str) -> openclaw_core::Result<openclaw_memory::recall::RecallResult> {
+        self.manager.recall(query).await
+    }
+
+    async fn add(&self, message: openclaw_core::Message) -> openclaw_core::Result<()> {
+        self.manager.add(message).await
+    }
+
+    async fn retrieve(&self, query: &str, limit: usize) -> openclaw_core::Result<openclaw_memory::types::MemoryRetrieval> {
+        self.manager.retrieve(query, limit).await
+    }
+}
+
 use crate::agentic_rag::AgenticRAGEngine;
 use crate::channel_message_handler::{self, create_channel_handler, OrchestratorMessageProcessor};
-use crate::ports::{AiPortAdapter, MemoryPortAdapter, SecurityPortAdapter, ToolPortAdapter};
+use crate::ports::{AiPortAdapter, DevicePortAdapter, MemoryPortAdapter, SecurityPortAdapter, ToolPortAdapter};
 
 #[cfg(feature = "per_session_memory")]
 const DEFAULT_MAX_SESSION_MEMORIES: usize = 100;
@@ -98,6 +125,7 @@ pub struct ServiceOrchestrator {
     tool_executor: Arc<RwLock<Option<Arc<openclaw_tools::SkillRegistry>>>>,
     channel_factory: Arc<openclaw_channels::ChannelFactoryRegistry>,
     agentic_rag_engine: Arc<RwLock<Option<Arc<AgenticRAGEngine>>>>,
+    device_manager: Arc<RwLock<Option<Arc<openclaw_device::UnifiedDeviceManager>>>>,
     #[cfg(feature = "per_session_memory")]
     session_memory_cache: Arc<tokio::sync::RwLock<SessionMemoryCache>>,
 }
@@ -229,6 +257,7 @@ impl ServiceOrchestrator {
             tool_executor: Arc::new(RwLock::new(None)),
             channel_factory,
             agentic_rag_engine: Arc::new(RwLock::new(None)),
+            device_manager: Arc::new(RwLock::new(None)),
             #[cfg(feature = "per_session_memory")]
             session_memory_cache: Arc::new(tokio::sync::RwLock::new(SessionMemoryCache::new(
                 config.max_session_memories,
@@ -349,7 +378,10 @@ impl ServiceOrchestrator {
                         as Arc<dyn openclaw_agent::ports::AIPort>;
 
                     let memory_port = mem.as_ref().map(|m| {
-                        Arc::new(MemoryPortAdapter::new(Arc::clone(&m)))
+                        let adapter = MemoryManagerAdapter {
+                            manager: m.clone(),
+                        };
+                        Arc::new(MemoryPortAdapter::new(Arc::new(adapter) as Arc<dyn MemoryBackend>))
                             as Arc<dyn openclaw_agent::ports::MemoryPort>
                     });
 
@@ -363,7 +395,7 @@ impl ServiceOrchestrator {
                     });
 
                     agent_to_inject
-                        .inject_ports(Some(ai_port), memory_port, Some(security_port), tool_port)
+                        .inject_ports(Some(ai_port), memory_port, Some(security_port), tool_port, None)
                         .await;
                 }
             });
@@ -376,6 +408,7 @@ impl ServiceOrchestrator {
         memory_manager: Option<Arc<MemoryManager>>,
         security_pipeline: Arc<SecurityPipeline>,
         tool_registry: Option<Arc<openclaw_tools::ToolRegistry>>,
+        device_manager: Option<Arc<openclaw_device::UnifiedDeviceManager>>,
     ) {
         {
             let mut provider = self.ai_provider.write().await;
@@ -389,6 +422,10 @@ impl ServiceOrchestrator {
             let mut pipeline = self.security_pipeline.write().await;
             *pipeline = Some(security_pipeline.clone());
         }
+        {
+            let mut device = self.device_manager.write().await;
+            *device = device_manager.clone();
+        }
 
         let agents: Vec<Arc<dyn Agent>> = {
             let agents = self.agent_service.agents.read().await;
@@ -396,21 +433,31 @@ impl ServiceOrchestrator {
         };
 
         let mem_lock = memory_manager.clone();
+        let device_lock = device_manager.clone();
         for agent in agents {
             let ai_port = Arc::new(AiPortAdapter {
                 provider: ai_provider.clone(),
             }) as Arc<dyn openclaw_agent::ports::AIPort>;
             let memory_port: Option<Arc<dyn openclaw_agent::ports::MemoryPort>> =
                 mem_lock.clone().map(|m| {
-                    Arc::new(MemoryPortAdapter::new(Arc::clone(&m)))
+                    let adapter = MemoryManagerAdapter {
+                        manager: m,
+                    };
+                    Arc::new(MemoryPortAdapter::new(Arc::new(adapter) as Arc<dyn MemoryBackend>))
                         as Arc<dyn openclaw_agent::ports::MemoryPort>
                 });
             let security_port = Arc::new(SecurityPortAdapter {
                 pipeline: security_pipeline.clone(),
             }) as Arc<dyn openclaw_agent::ports::SecurityPort>;
 
+            let device_port: Option<Arc<dyn openclaw_agent::ports::DevicePort>> =
+                device_lock.clone().map(|d| {
+                    Arc::new(DevicePortAdapter::new(d))
+                        as Arc<dyn openclaw_agent::ports::DevicePort>
+                });
+
             agent
-                .inject_ports(Some(ai_port), memory_port, Some(security_port), None)
+                .inject_ports(Some(ai_port), memory_port, Some(security_port), None, device_port)
                 .await;
         }
 
@@ -423,6 +470,7 @@ impl ServiceOrchestrator {
         memory_port: Option<Arc<dyn openclaw_agent::ports::MemoryPort>>,
         security_port: Option<Arc<dyn openclaw_agent::ports::SecurityPort>>,
         tool_port: Option<Arc<dyn openclaw_agent::ports::ToolPort>>,
+        device_port: Option<Arc<dyn openclaw_agent::ports::DevicePort>>,
     ) {
         let agents: Vec<Arc<dyn Agent>> = {
             let agents = self.agent_service.agents.read().await;
@@ -436,6 +484,7 @@ impl ServiceOrchestrator {
                     memory_port.clone(),
                     security_port.clone(),
                     tool_port.clone(),
+                    device_port.clone(),
                 )
                 .await;
         }
@@ -612,6 +661,7 @@ impl ServiceOrchestrator {
                                     Some(ai_port),
                                     Some(memory_port),
                                     Some(security_port),
+                                    None,
                                     None,
                                 )
                                 .await;
@@ -986,7 +1036,7 @@ mod tests {
         }) as Arc<dyn openclaw_agent::ports::SecurityPort>;
 
         orchestrator
-            .inject_ports(Some(ai_port), None, Some(security_port), None)
+            .inject_ports(Some(ai_port), None, Some(security_port), None, None)
             .await;
 
         let provider = orchestrator.get_ai_provider().await;

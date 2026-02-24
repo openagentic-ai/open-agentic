@@ -28,13 +28,16 @@ pub struct DeviceListResponse {
 
 #[derive(Clone)]
 pub struct DeviceApiState {
-    pub device_manager: Arc<UnifiedDeviceManager>,
+    pub device_manager: Option<Arc<UnifiedDeviceManager>>,
 }
 
 async fn list_devices(State(state): State<DeviceApiState>) -> Json<DeviceListResponse> {
     info!("Listing all devices");
 
-    let devices = state.device_manager.list_capabilities().await;
+    let devices = match &state.device_manager {
+        Some(manager) => manager.list_capabilities().await,
+        None => vec![],
+    };
     Json(DeviceListResponse {
         success: true,
         devices,
@@ -48,20 +51,29 @@ async fn capture_camera(
 ) -> Json<CaptureResponse> {
     info!("Capturing camera with id: {}", id);
 
-    match state.device_manager.capture_camera(&id).await {
-        Ok(result) => Json(CaptureResponse {
-            success: result.success,
-            data: result.data,
-            mime_type: result.mime_type,
-            timestamp: result.timestamp,
-            error: result.error,
-        }),
-        Err(e) => Json(CaptureResponse {
+    match &state.device_manager {
+        Some(manager) => match manager.capture_camera(&id).await {
+            Ok(result) => Json(CaptureResponse {
+                success: result.success,
+                data: result.data,
+                mime_type: result.mime_type,
+                timestamp: result.timestamp,
+                error: result.error,
+            }),
+            Err(e) => Json(CaptureResponse {
+                success: false,
+                data: None,
+                mime_type: "".to_string(),
+                timestamp: chrono::Utc::now().timestamp_millis(),
+                error: Some(e.to_string()),
+            }),
+        },
+        None => Json(CaptureResponse {
             success: false,
             data: None,
             mime_type: "".to_string(),
             timestamp: chrono::Utc::now().timestamp_millis(),
-            error: Some(e.to_string()),
+            error: Some("Device manager not initialized".to_string()),
         }),
     }
 }
@@ -72,25 +84,34 @@ async fn capture_screen(
 ) -> Json<CaptureResponse> {
     info!("Capturing screen with id: {}", id);
 
-    match state.device_manager.capture_screen(&id).await {
-        Ok(result) => Json(CaptureResponse {
-            success: result.success,
-            data: result.data,
-            mime_type: result.mime_type,
-            timestamp: result.timestamp,
-            error: result.error,
-        }),
-        Err(e) => Json(CaptureResponse {
+    match &state.device_manager {
+        Some(manager) => match manager.capture_screen(&id).await {
+            Ok(result) => Json(CaptureResponse {
+                success: result.success,
+                data: result.data,
+                mime_type: result.mime_type,
+                timestamp: result.timestamp,
+                error: result.error,
+            }),
+            Err(e) => Json(CaptureResponse {
+                success: false,
+                data: None,
+                mime_type: "".to_string(),
+                timestamp: chrono::Utc::now().timestamp_millis(),
+                error: Some(e.to_string()),
+            }),
+        },
+        None => Json(CaptureResponse {
             success: false,
             data: None,
             mime_type: "".to_string(),
             timestamp: chrono::Utc::now().timestamp_millis(),
-            error: Some(e.to_string()),
+            error: Some("Device manager not initialized".to_string()),
         }),
     }
 }
 
-pub fn create_device_router(device_manager: Arc<UnifiedDeviceManager>) -> Router {
+pub fn create_device_router(device_manager: Option<Arc<UnifiedDeviceManager>>) -> Router {
     let state = DeviceApiState { device_manager };
 
     Router::new()
@@ -115,10 +136,10 @@ mod tests {
         let registry = Arc::new(openclaw_device::DeviceRegistry::new());
         let manager = Arc::new(UnifiedDeviceManager::new(registry));
         let state = DeviceApiState {
-            device_manager: manager,
+            device_manager: Some(manager),
         };
 
-        assert!(state.device_manager.get_camera("test").await.is_none());
+        assert!(state.device_manager.as_ref().unwrap().get_camera("test").await.is_none());
     }
 
     #[tokio::test]
@@ -195,14 +216,14 @@ mod tests {
         let registry = Arc::new(openclaw_device::DeviceRegistry::new());
         let manager = Arc::new(UnifiedDeviceManager::new(registry));
 
-        let _router = create_device_router(manager);
+        let _router = create_device_router(Some(manager));
     }
 
     #[tokio::test]
     async fn test_router_list_devices() {
         let registry = Arc::new(openclaw_device::DeviceRegistry::new());
         let manager = Arc::new(UnifiedDeviceManager::new(registry));
-        let router = create_device_router(manager);
+        let router = create_device_router(Some(manager));
 
         let response = router
             .oneshot(
@@ -221,7 +242,7 @@ mod tests {
     async fn test_router_capture_camera_not_found() {
         let registry = Arc::new(openclaw_device::DeviceRegistry::new());
         let manager = Arc::new(UnifiedDeviceManager::new(registry));
-        let router = create_device_router(manager);
+        let router = create_device_router(Some(manager));
 
         let response = router
             .oneshot(
@@ -241,7 +262,7 @@ mod tests {
     async fn test_router_capture_screen_not_found() {
         let registry = Arc::new(openclaw_device::DeviceRegistry::new());
         let manager = Arc::new(UnifiedDeviceManager::new(registry));
-        let router = create_device_router(manager);
+        let router = create_device_router(Some(manager));
 
         let response = router
             .oneshot(
@@ -261,7 +282,7 @@ mod tests {
     async fn test_router_404_not_found() {
         let registry = Arc::new(openclaw_device::DeviceRegistry::new());
         let manager = Arc::new(UnifiedDeviceManager::new(registry));
-        let router = create_device_router(manager);
+        let router = create_device_router(Some(manager));
 
         let response = router
             .oneshot(

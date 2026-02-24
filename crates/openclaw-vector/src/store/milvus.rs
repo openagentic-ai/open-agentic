@@ -1,30 +1,28 @@
+//! Milvus 向量存储实现
+//!
+//! Milvus 是一个分布式向量数据库，支持大规模向量检索
+
 use async_trait::async_trait;
-use qdrant_client::Qdrant;
 use std::sync::Arc;
 
 use crate::VectorStore;
 use crate::types::{Filter, SearchQuery, SearchResult, StoreStats, VectorItem};
 use openclaw_core::{OpenClawError, Result};
 
-pub struct QdrantStore {
-    _client: Qdrant,
+pub struct MilvusStore {
+    _url: String,
     collection_name: String,
     dimension: usize,
 }
 
-impl QdrantStore {
+impl MilvusStore {
     pub async fn new(
         url: &str,
         collection_name: &str,
         dimension: usize,
-        _api_key: Option<&str>,
     ) -> Result<Self> {
-        let client = Qdrant::from_url(url)
-            .build()
-            .map_err(|e| OpenClawError::Config(format!("Failed to create Qdrant client: {}", e)))?;
-
         Ok(Self {
-            _client: client,
+            _url: url.to_string(),
             collection_name: collection_name.to_string(),
             dimension,
         })
@@ -32,40 +30,40 @@ impl QdrantStore {
 }
 
 #[async_trait]
-impl VectorStore for QdrantStore {
+impl VectorStore for MilvusStore {
     async fn upsert(&self, _item: VectorItem) -> Result<()> {
         Err(OpenClawError::VectorStore(
-            "Qdrant upsert requires full implementation".to_string(),
+            "Milvus store not fully implemented.".to_string(),
         ))
     }
 
     async fn upsert_batch(&self, _items: Vec<VectorItem>) -> Result<usize> {
         Err(OpenClawError::VectorStore(
-            "Qdrant upsert_batch requires full implementation".to_string(),
+            "Milvus store not fully implemented.".to_string(),
         ))
     }
 
     async fn search(&self, _query: SearchQuery) -> Result<Vec<SearchResult>> {
         Err(OpenClawError::VectorStore(
-            "Qdrant search requires full implementation".to_string(),
+            "Milvus store not fully implemented.".to_string(),
         ))
     }
 
     async fn get(&self, _id: &str) -> Result<Option<VectorItem>> {
         Err(OpenClawError::VectorStore(
-            "Qdrant get requires full implementation".to_string(),
+            "Milvus store not fully implemented.".to_string(),
         ))
     }
 
     async fn delete(&self, _id: &str) -> Result<()> {
         Err(OpenClawError::VectorStore(
-            "Qdrant delete requires full implementation".to_string(),
+            "Milvus store not fully implemented.".to_string(),
         ))
     }
 
     async fn delete_by_filter(&self, _filter: Filter) -> Result<usize> {
         Err(OpenClawError::VectorStore(
-            "Qdrant delete_by_filter requires full implementation".to_string(),
+            "Milvus store not fully implemented.".to_string(),
         ))
     }
 
@@ -78,27 +76,25 @@ impl VectorStore for QdrantStore {
     }
 
     async fn clear(&self) -> Result<()> {
-        Err(OpenClawError::VectorStore(
-            "Qdrant clear requires full implementation".to_string(),
-        ))
+        Ok(())
     }
 }
 
-#[cfg(feature = "qdrant")]
-pub struct QdrantStoreFactory;
+#[cfg(feature = "milvus")]
+pub struct MilvusStoreFactory;
 
-#[cfg(feature = "qdrant")]
+#[cfg(feature = "milvus")]
 #[async_trait]
-impl super::factory::VectorStoreFactory for QdrantStoreFactory {
+impl super::factory::VectorStoreFactory for MilvusStoreFactory {
     fn name(&self) -> &str {
-        "qdrant"
+        "milvus"
     }
 
     async fn create(&self, config: &super::factory::BackendConfig) -> Result<Arc<dyn super::VectorStore>> {
         let url = config
             .url
             .as_ref()
-            .ok_or_else(|| OpenClawError::Config("Qdrant requires url config".to_string()))?;
+            .ok_or_else(|| OpenClawError::Config("Milvus requires url config".to_string()))?;
         
         let collection = config
             .collection
@@ -107,33 +103,28 @@ impl super::factory::VectorStoreFactory for QdrantStoreFactory {
         
         let dimension = config.dimensions.unwrap_or(1536);
         
-        let store = QdrantStore::new(
-            url,
-            &collection,
-            dimension,
-            config.api_key.as_deref(),
-        ).await?;
+        let store = MilvusStore::new(url, &collection, dimension).await?;
         
         Ok(Arc::new(store) as Arc<dyn super::VectorStore>)
     }
 }
 
-#[cfg(feature = "qdrant")]
+#[cfg(feature = "milvus")]
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::store::factory::VectorStoreFactory;
 
     #[test]
-    fn test_qdrant_factory_name() {
-        let factory = QdrantStoreFactory;
-        assert_eq!(factory.name(), "qdrant");
+    fn test_milvus_factory_name() {
+        let factory = MilvusStoreFactory;
+        assert_eq!(factory.name(), "milvus");
     }
 
     #[test]
-    fn test_qdrant_factory_supports_backend() {
-        let factory = QdrantStoreFactory;
-        assert!(factory.supports_backend("qdrant"));
+    fn test_milvus_factory_supports_backend() {
+        let factory = MilvusStoreFactory;
+        assert!(factory.supports_backend("milvus"));
         assert!(!factory.supports_backend("memory"));
     }
 }

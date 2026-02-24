@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use sqlx::Row;
 use sqlx::postgres::{PgPool, PgRow};
+use std::sync::Arc;
 
 use crate::VectorStore;
 use crate::types::{Filter, SearchQuery, SearchResult, StoreStats, VectorItem};
@@ -303,5 +304,54 @@ impl VectorStore for PgVectorStore {
             .map_err(|e| OpenClawError::Config(format!("Failed to clear: {}", e)))?;
 
         Ok(())
+    }
+}
+
+#[cfg(feature = "pgvector")]
+pub struct PgVectorStoreFactory;
+
+#[cfg(feature = "pgvector")]
+#[async_trait]
+impl super::factory::VectorStoreFactory for PgVectorStoreFactory {
+    fn name(&self) -> &str {
+        "pgvector"
+    }
+
+    async fn create(&self, config: &super::factory::BackendConfig) -> Result<Arc<dyn super::VectorStore>> {
+        let url = config
+            .url
+            .as_ref()
+            .ok_or_else(|| OpenClawError::Config("PgVector requires url (connection_string) config".to_string()))?;
+        
+        let table_name = config
+            .table
+            .clone()
+            .unwrap_or_else(|| "vectors".to_string());
+        
+        let dimension = config.dimensions.unwrap_or(1536);
+        
+        let store = PgVectorStore::new(url, &table_name, dimension).await?;
+        
+        Ok(Arc::new(store) as Arc<dyn super::VectorStore>)
+    }
+}
+
+#[cfg(feature = "pgvector")]
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::factory::VectorStoreFactory;
+
+    #[test]
+    fn test_pgvector_factory_name() {
+        let factory = PgVectorStoreFactory;
+        assert_eq!(factory.name(), "pgvector");
+    }
+
+    #[test]
+    fn test_pgvector_factory_supports_backend() {
+        let factory = PgVectorStoreFactory;
+        assert!(factory.supports_backend("pgvector"));
+        assert!(!factory.supports_backend("memory"));
     }
 }

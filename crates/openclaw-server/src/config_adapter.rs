@@ -1,8 +1,9 @@
 //! 统一配置适配器
 //!
-//! 将 openclaw_core::Config 转换为各子模块的配置类型
+//! 将 openclaw_core::Config 转换为各模块的配置类型
 
 use openclaw_core::Config as CoreConfig;
+use openclaw_device::config::DevicesConfig;
 use openclaw_memory::types::MemoryConfig;
 use openclaw_security::pipeline::PipelineConfig;
 use std::sync::Arc;
@@ -113,5 +114,10 @@ impl ConfigAdapter {
     /// 获取原始 Core Config
     pub fn core(&self) -> &CoreConfig {
         &self.core
+    }
+
+    /// 获取设备配置
+    pub fn device(&self) -> DevicesConfig {
+        DevicesConfig::default()
     }
 }
