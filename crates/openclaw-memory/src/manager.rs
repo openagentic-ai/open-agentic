@@ -1,6 +1,7 @@
 //! 记忆管理器
 
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use openclaw_core::{Message, OpenClawError, Result};
 use openclaw_vector::VectorStore;
@@ -14,10 +15,9 @@ use crate::types::{MemoryConfig, MemoryContent, MemoryItem, MemoryLevel, MemoryR
 use crate::working::WorkingMemory;
 
 /// 记忆管理器 - 统一管理三层记忆
-#[derive(Clone)]
 pub struct MemoryManager {
     working: WorkingMemory,
-    short_term: Vec<MemoryItem>,
+    short_term: Mutex<Vec<MemoryItem>>,
     long_term: Option<Arc<dyn VectorStore>>,
     hybrid_search: Option<Arc<HybridSearchManager>>,
     config: MemoryConfig,
@@ -30,7 +30,7 @@ impl MemoryManager {
     pub fn new(config: MemoryConfig) -> Self {
         Self {
             working: WorkingMemory::new(config.working.clone()),
-            short_term: Vec::new(),
+            short_term: Mutex::new(Vec::new()),
             long_term: None,
             hybrid_search: None,
             scorer: ImportanceScorer::new(),
@@ -61,8 +61,8 @@ impl MemoryManager {
     /// 自动召回相关记忆
     pub async fn recall(&self, query: &str) -> Result<RecallResult> {
         if let Some(provider) = &self.embedding_provider {
-            if let Some(vector_store) = &self.long_term {
-                let recall_tool = SimpleMemoryRecall::new(provider.clone(), vector_store.clone());
+            if let Some(store) = &self.long_term {
+                let recall_tool = SimpleMemoryRecall::new(provider.clone(), store.clone());
                 let result = recall_tool.recall(query, None).await?;
                 Ok(result)
             } else {
@@ -78,28 +78,25 @@ impl MemoryManager {
     }
 
     /// 添加消息到记忆
-    pub async fn add(&mut self, message: Message) -> Result<()> {
-        // 计算重要性分数
+    pub async fn add(&self, message: Message) -> Result<()> {
         let score = self.scorer.score(&message);
         let item = MemoryItem::from_message(message, score);
 
-        // 添加到工作记忆
         if let Some(overflow) = self.working.add(item) {
-            // 压缩溢出的消息到短期记忆
             let summary = self.compressor.compress(overflow).await?;
-            self.short_term.push(summary);
+            
+            let mut short_term = self.short_term.lock().await;
+            short_term.push(summary);
 
-            // 检查短期记忆是否需要清理
-            if self.short_term.len() > self.config.short_term.max_summaries {
-                // 将最旧的摘要移到长期记忆
-                if let Some(old_summary) = self.short_term.first().cloned() {
+            if short_term.len() > self.config.short_term.max_summaries {
+                if let Some(old_summary) = short_term.first().cloned() {
                     if self.config.long_term.enabled
                         && let Some(store) = &self.long_term
                     {
                         self.archive_to_long_term(store.as_ref(), old_summary)
                             .await?;
                     }
-                    self.short_term.remove(0);
+                    short_term.remove(0);
                 }
             }
         }
@@ -123,12 +120,15 @@ impl MemoryManager {
         }
 
         // 2. 添加短期记忆摘要
-        for item in self.short_term.iter().rev() {
-            if current_tokens + item.token_count > max_tokens {
-                break;
+        {
+            let short_term = self.short_term.lock().await;
+            for item in short_term.iter().rev() {
+                if current_tokens + item.token_count > max_tokens {
+                    break;
+                }
+                retrieval.add(item.clone());
+                current_tokens += item.token_count;
             }
-            retrieval.add(item.clone());
-            current_tokens += item.token_count;
         }
 
         // 3. 从长期记忆检索相关内容
@@ -178,20 +178,21 @@ impl MemoryManager {
     }
 
     /// 获取统计信息
-    pub fn stats(&self) -> MemoryStats {
+    pub async fn stats(&self) -> MemoryStats {
+        let short_term = self.short_term.lock().await;
         MemoryStats {
             working_count: self.working.len(),
             working_tokens: self.working.total_tokens(),
-            short_term_count: self.short_term.len(),
-            short_term_tokens: self.short_term.iter().map(|i| i.token_count).sum(),
+            short_term_count: short_term.len(),
+            short_term_tokens: short_term.iter().map(|i| i.token_count).sum(),
             long_term_enabled: self.long_term.is_some(),
         }
     }
 
     /// 清空所有记忆
-    pub async fn clear(&mut self) -> Result<()> {
+    pub async fn clear(&self) -> Result<()> {
         self.working.clear();
-        self.short_term.clear();
+        self.short_term.lock().await.clear();
 
         if let Some(store) = &self.long_term {
             store.clear().await?;
@@ -264,15 +265,71 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_memory_manager() {
-        let mut manager = MemoryManager::default();
+    async fn test_memory_manager_basic() {
+        let manager = MemoryManager::default();
 
-        // 添加消息
         manager.add(Message::user("你好")).await.unwrap();
         manager.add(Message::assistant("你好！")).await.unwrap();
 
-        let stats = manager.stats();
+        let stats = manager.stats().await;
         assert_eq!(stats.working_count, 2);
+    }
+
+    #[tokio::test]
+    async fn test_memory_manager_concurrent_add() {
+        use std::sync::Arc;
+        use tokio::task;
+
+        let manager = Arc::new(MemoryManager::default());
+        let manager_clone = Arc::clone(&manager);
+
+        let handle = task::spawn(async move {
+            for i in 0..10 {
+                manager_clone.add(Message::user(format!("Message {}", i))).await.unwrap();
+            }
+        });
+
+        for i in 10..20 {
+            manager.add(Message::user(format!("Message {}", i))).await.unwrap();
+        }
+
+        handle.await.unwrap();
+
+        let stats = manager.stats().await;
+        assert_eq!(stats.working_count, 20);
+    }
+
+    #[tokio::test]
+    async fn test_memory_manager_shared_across_tasks() {
+        use std::sync::Arc;
+        use tokio::task;
+
+        let config = MemoryConfig {
+            working: crate::types::WorkingMemoryConfig {
+                max_messages: 1000,
+                max_tokens: 1000000,
+            },
+            ..Default::default()
+        };
+        let manager = Arc::new(MemoryManager::new(config));
+        let mut handles = vec![];
+
+        for task_id in 0..5 {
+            let manager_clone = Arc::clone(&manager);
+            let handle = task::spawn(async move {
+                for i in 0..100 {
+                    manager_clone.add(Message::user(format!("Task{} Message{}", task_id, i))).await.unwrap();
+                }
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.await.unwrap();
+        }
+
+        let stats = manager.stats().await;
+        assert_eq!(stats.working_count, 500);
     }
 
     #[test]

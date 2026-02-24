@@ -600,9 +600,9 @@ impl ServiceOrchestrator {
                             })
                                 as Arc<dyn openclaw_agent::ports::AIPort>;
                             let memory_port =
-                                Arc::new(MemoryPortAdapter::new(session_memory.clone()))
+                                Arc::new(MemoryPortAdapter::new(session_memory))
                                     as Arc<dyn openclaw_agent::ports::MemoryPort>;
-                            let security_port = Arc::new(SecurityPortAdapter {
+                            let security_port = Arc::new(SecurityPipelineAdapter {
                                 pipeline: self.security_pipeline.read().await.clone().unwrap(),
                             })
                                 as Arc<dyn openclaw_agent::ports::SecurityPort>;

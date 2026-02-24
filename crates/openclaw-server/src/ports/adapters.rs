@@ -17,6 +17,7 @@ use openclaw_security::SecurityPipeline;
 use openclaw_tools::SkillRegistry;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::Mutex as TokioMutex;
 use tokio::sync::RwLock;
 
 fn memory_item_to_entry(m: MemoryItem) -> MemoryEntry {
@@ -107,13 +108,11 @@ impl MemoryPort for MemoryPortAdapter {
             created_at: chrono::Utc::now(),
             metadata: Default::default(),
         };
-        let mut manager = (*self.manager).clone();
-        manager.add(message).await
+        self.manager.add(message).await
     }
 
     async fn retrieve(&self, query: &str, limit: usize) -> OpenClawResult<Vec<MemoryEntry>> {
-        let manager = (*self.manager).clone();
-        let retrieval: MemoryRetrieval = manager.retrieve(query, limit).await?;
+        let retrieval: MemoryRetrieval = self.manager.retrieve(query, limit).await?;
         Ok(retrieval
             .items
             .into_iter()
@@ -122,8 +121,7 @@ impl MemoryPort for MemoryPortAdapter {
     }
 
     async fn recall(&self, context: &str, _limit: usize) -> OpenClawResult<Vec<RecallItem>> {
-        let manager = (*self.manager).clone();
-        let recall_result: MemoryRecallResult = manager.recall(context).await?;
+        let recall_result: MemoryRecallResult = self.manager.recall(context).await?;
         Ok(recall_result
             .items
             .into_iter()
