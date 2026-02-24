@@ -200,7 +200,7 @@ impl DeviceManagerInitializer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::DeviceToolRegistry;
+    use crate::device_tool_registry::DeviceToolRegistry;
     use openclaw_device::registry::DeviceRegistry;
     use openclaw_device::unified_manager::UnifiedDeviceManager;
 

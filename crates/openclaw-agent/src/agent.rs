@@ -11,6 +11,7 @@ use openclaw_memory::MemoryManager;
 use openclaw_security::{PipelineResult, SecurityPipeline};
 use openclaw_tools::ToolResult as OpenClawToolResult;
 
+use crate::device_tool_registry::DeviceToolRegistry;
 use crate::ports::{AIPort, DevicePort, MemoryPort, SecurityPort, ToolPort};
 use crate::task::{TaskInput, TaskOutput, TaskRequest, TaskResult, TaskStatus};
 use crate::types::{AgentConfig, AgentInfo, AgentStatus, AgentType, Capability};
@@ -107,7 +108,7 @@ pub struct BaseAgent {
     security_pipeline: Arc<tokio::sync::RwLock<Option<Arc<SecurityPipeline>>>>,
     tool_executor: Arc<tokio::sync::RwLock<Option<Arc<openclaw_tools::SkillRegistry>>>>,
     tool_registry: Arc<tokio::sync::RwLock<Option<Arc<openclaw_tools::ToolRegistry>>>>,
-    device_tool_registry: Arc<tokio::sync::RwLock<Option<Arc<crate::DeviceToolRegistry>>>>,
+    device_tool_registry: Arc<tokio::sync::RwLock<Option<Arc<DeviceToolRegistry>>>>,
     ai_port: Arc<tokio::sync::RwLock<Option<Arc<dyn AIPort>>>>,
     memory_port: Arc<tokio::sync::RwLock<Option<Arc<dyn MemoryPort>>>>,
     security_port: Arc<tokio::sync::RwLock<Option<Arc<dyn SecurityPort>>>>,

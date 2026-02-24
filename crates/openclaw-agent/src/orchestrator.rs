@@ -11,6 +11,7 @@ use openclaw_core::{Message, OpenClawError, Result};
 use openclaw_memory::MemoryManager;
 
 use crate::agent::Agent;
+use crate::device_tool_registry::DeviceToolRegistry;
 use crate::task::{TaskOutput, TaskRequest, TaskResult, TaskStatus, TaskType};
 use crate::team::{AgentTeam, TeamConfig};
 use crate::types::Capability;
@@ -50,7 +51,7 @@ pub struct Orchestrator {
     /// 设备管理器
     device_manager: Option<Arc<openclaw_device::UnifiedDeviceManager>>,
     /// 设备工具注册中心
-    device_tool_registry: Option<Arc<crate::DeviceToolRegistry>>,
+    device_tool_registry: Option<Arc<DeviceToolRegistry>>,
     /// 配置
     config: OrchestratorConfig,
     /// 活跃任务
@@ -97,7 +98,7 @@ impl Orchestrator {
     }
 
     /// 设置设备工具注册中心
-    pub fn with_device_tool_registry(mut self, registry: Arc<crate::DeviceToolRegistry>) -> Self {
+    pub fn with_device_tool_registry(mut self, registry: Arc<DeviceToolRegistry>) -> Self {
         self.device_tool_registry = Some(registry);
         self
     }
@@ -114,7 +115,7 @@ impl Orchestrator {
     }
 
     /// 获取设备工具注册中心
-    pub fn get_device_tool_registry(&self) -> Option<Arc<crate::DeviceToolRegistry>> {
+    pub fn get_device_tool_registry(&self) -> Option<Arc<DeviceToolRegistry>> {
         self.device_tool_registry.clone()
     }
 
