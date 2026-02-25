@@ -6,8 +6,8 @@ use openclaw_server::gateway_service::Gateway;
 use openclaw_server::server_config::ServerConfig;
 use std::path::PathBuf;
 
-fn get_config_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|p| p.join(".openclaw-rust").join("openclaw.json"))
+fn get_config_dir() -> Option<PathBuf> {
+    dirs::home_dir().map(|p| p.join(".openclaw-rust"))
 }
 
 pub async fn run(
@@ -23,50 +23,47 @@ pub async fn run(
         tracing::info!("Verbose mode enabled");
     }
 
-    // 尝试从配置文件加载
-    let core_config = if let Some(config_path) = get_config_path() {
-        if config_path.exists() {
-            tracing::info!("Loading configuration from: {:?}", config_path);
-            match Config::from_file(&config_path) {
-                Ok(cfg) => cfg,
-                Err(e) => {
-                    tracing::warn!(
-                        "Failed to load config from {:?}: {}, using defaults",
-                        config_path,
-                        e
-                    );
-                    Config::default()
-                }
-            }
-        } else {
-            tracing::info!("Config file not found at {:?}, using defaults", config_path);
-            Config::default()
-        }
+    let config = if let Some(config_dir) = get_config_dir() {
+        tracing::info!("Loading configuration from: {:?}", config_dir);
+        let mut config = ServerConfig::load_or_default(&config_dir);
+        config.core.server.port = port;
+        config.core.server.host = host;
+        config.core.server.enable_agents = agents;
+        config.core.server.enable_channels = channels;
+        config.core.server.enable_voice = voice;
+        config.core.server.enable_canvas = canvas;
+        config
     } else {
-        tracing::info!("Could not determine config directory, using defaults");
-        Config::default()
+        tracing::info!("Could not determine config directory, using CLI args only");
+        let core = Config::default();
+        let mut config = ServerConfig::from_core(core);
+        config.core.server.port = port;
+        config.core.server.host = host;
+        config.core.server.enable_agents = agents;
+        config.core.server.enable_channels = channels;
+        config.core.server.enable_voice = voice;
+        config.core.server.enable_canvas = canvas;
+        config
     };
-
-    // CLI 参数覆盖配置
-    let mut core = core_config;
-    core.server.port = port;
-    core.server.host = host;
-    core.server.enable_agents = agents;
-    core.server.enable_channels = channels;
-    core.server.enable_voice = voice;
-    core.server.enable_canvas = canvas;
-
-    let config = ServerConfig::from_core(core);
 
     tracing::info!("Starting OpenClaw Gateway...");
     tracing::info!("Configuration: {:?}", config.core.server);
     tracing::info!(
         "Services: agents={}, channels={}, voice={}, canvas={}",
-        agents,
-        channels,
-        voice,
-        canvas
+        config.core.server.enable_agents,
+        config.core.server.enable_channels,
+        config.core.server.enable_voice,
+        config.core.server.enable_canvas
     );
+    if !config.agents.list.is_empty() {
+        tracing::info!("Loaded {} agents from agents.yaml", config.agents.list.len());
+    }
+    if config.devices.enabled {
+        tracing::info!("Devices enabled, loaded {} devices from devices.yaml", config.devices.nodes.len());
+    }
+    if !config.workspaces.workspaces.is_empty() {
+        tracing::info!("Loaded {} workspaces from workspaces.yaml", config.workspaces.workspaces.len());
+    }
 
     let gateway: openclaw_server::gateway_service::Gateway = Gateway::new(config).await?;
     gateway.start().await?;

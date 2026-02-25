@@ -101,11 +101,10 @@ impl TwoPhaseManager {
                 });
             }
             // 检查正在执行的任务
-            if self.executing.read().await.values().any(|j| j.request.idempotency_key.as_ref() == Some(key)) {
-                let run_id = RunId::new();
+            if let Some(executing) = self.executing.read().await.values().find(|j| j.request.idempotency_key.as_ref() == Some(key)) {
                 return Ok(AcceptedResult {
-                    run_id: run_id.clone(),
-                    duplicate_of: Some(run_id),
+                    run_id: executing.run_id.clone(),
+                    duplicate_of: Some(executing.run_id.clone()),
                     cached_summary: None,
                 });
             }

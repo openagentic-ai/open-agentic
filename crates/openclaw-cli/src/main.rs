@@ -180,7 +180,7 @@ async fn main() -> Result<()> {
             voice,
             canvas,
         } => {
-            openclaw_device::init_device().await?;
+            openclaw_device::init_device(true).await?;
             commands::gateway::run(port, host, verbose, agents, channels, voice, canvas).await?;
         }
         Commands::Agents { command } => {

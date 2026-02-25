@@ -38,6 +38,8 @@ pub struct SensitivePattern {
     pub pattern: String,
     pub severity: Severity,
     pub enabled: bool,
+    #[serde(skip)]
+    compiled_regex: Option<regex::Regex>,
 }
 
 impl PartialEq for SensitivePattern {
@@ -56,20 +58,22 @@ impl Hash for SensitivePattern {
 
 impl SensitivePattern {
     pub fn new(name: &str, pattern: &str, severity: Severity) -> Result<Self, LeakError> {
-        match Regex::new(pattern) {
-            Ok(_) => Ok(Self {
-                name: name.to_string(),
-                pattern: pattern.to_string(),
-                severity,
-                enabled: true,
-            }),
-            Err(e) => Err(LeakError::InvalidPattern(e.to_string())),
-        }
+        let compiled = Regex::new(pattern).ok();
+        Ok(Self {
+            name: name.to_string(),
+            pattern: pattern.to_string(),
+            severity,
+            enabled: true,
+            compiled_regex: compiled,
+        })
     }
     
     pub fn matches(&self, text: &str) -> bool {
         if !self.enabled {
             return false;
+        }
+        if let Some(ref re) = self.compiled_regex {
+            return re.is_match(text);
         }
         Regex::new(&self.pattern)
             .map(|re| re.is_match(text))
@@ -155,7 +159,17 @@ impl RegexLeakDetector {
             if !pattern.enabled {
                 continue;
             }
-            if let Ok(re) = Regex::new(&pattern.pattern) {
+            if let Some(ref re) = pattern.compiled_regex {
+                for mat in re.find_iter(text) {
+                    result = result.with_detection(LeakDetection {
+                        pattern_name: pattern.name.clone(),
+                        severity: pattern.severity,
+                        matched_text: mat.as_str().to_string(),
+                        start: mat.start(),
+                        end: mat.end(),
+                    });
+                }
+            } else if let Ok(re) = Regex::new(&pattern.pattern) {
                 for mat in re.find_iter(text) {
                     result = result.with_detection(LeakDetection {
                         pattern_name: pattern.name.clone(),
@@ -172,10 +186,6 @@ impl RegexLeakDetector {
     }
     
     fn get_patterns_sync(&self) -> HashMap<String, SensitivePattern> {
-        if let Ok(guard) = self.patterns.try_read() {
-            return guard.clone();
-        }
-        
         if let Ok(guard) = self.patterns.try_read() {
             return guard.clone();
         }

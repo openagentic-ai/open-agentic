@@ -57,132 +57,133 @@ pub use unified_manager::DeviceType;
 static DEVICE_REGISTRY: std::sync::OnceLock<Arc<registry::DeviceRegistry>> =
     std::sync::OnceLock::new();
 
-pub async fn init_device() -> anyhow::Result<()> {
+pub async fn init_device(print_info: bool) -> anyhow::Result<()> {
     let registry = Arc::new(registry::DeviceRegistry::new());
     registry.init().await?;
 
     DEVICE_REGISTRY
-        .set(registry)
+        .set(registry.clone())
         .map_err(|_| anyhow::anyhow!("Device already initialized"))?;
 
-    let reg = DEVICE_REGISTRY.get().unwrap();
-    let info = reg.platform_info();
-    let caps = reg.capabilities();
+    let info = registry.platform_info();
+    let caps = registry.capabilities();
 
-    println!();
-    println!("╔══════════════════════════════════════════════════════════════════╗");
-    println!("║                     OpenClaw Device Info                      ║");
-    println!("╠══════════════════════════════════════════════════════════════════╣");
-    println!("║  Platform:   {:-56} ║", format!("{:?}", info.platform));
-    println!("║  Category:   {:-56} ║", format!("{:?}", info.category));
-    println!("║  OS:        {:-56} ║", info.os);
-    println!("║  Arch:      {:-56} ║", info.arch);
-    println!("╠══════════════════════════════════════════════════════════════════╣");
-    println!("║  CPU Cores: {:-56} ║", caps.cpu.cores);
-    println!("║  CPU Arch:  {:-56} ║", caps.cpu.architecture);
-    println!(
-        "║  CPU Freq:  {:-56} ║",
-        format!("{} MHz", caps.cpu.frequency_mhz)
-    );
-    println!(
-        "║  Memory:    {:-56} ║",
-        format!("{:.1} GB", caps.memory.total_bytes as f64 / 1e9)
-    );
-    println!(
-        "║  Available: {:-56} ║",
-        format!("{:.1} GB", caps.memory.available_bytes as f64 / 1e9)
-    );
-    println!("╠══════════════════════════════════════════════════════════════════╣");
+    if print_info {
+        println!();
+        println!("╔══════════════════════════════════════════════════════════════════╗");
+        println!("║                     OpenClaw Device Info                      ║");
+        println!("╠══════════════════════════════════════════════════════════════════╣");
+        println!("║  Platform:   {:-56} ║", format!("{:?}", info.platform));
+        println!("║  Category:   {:-56} ║", format!("{:?}", info.category));
+        println!("║  OS:        {:-56} ║", info.os);
+        println!("║  Arch:      {:-56} ║", info.arch);
+        println!("╠══════════════════════════════════════════════════════════════════╣");
+        println!("║  CPU Cores: {:-56} ║", caps.cpu.cores);
+        println!("║  CPU Arch:  {:-56} ║", caps.cpu.architecture);
+        println!(
+            "║  CPU Freq:  {:-56} ║",
+            format!("{} MHz", caps.cpu.frequency_mhz)
+        );
+        println!(
+            "║  Memory:    {:-56} ║",
+            format!("{:.1} GB", caps.memory.total_bytes as f64 / 1e9)
+        );
+        println!(
+            "║  Available: {:-56} ║",
+            format!("{:.1} GB", caps.memory.available_bytes as f64 / 1e9)
+        );
+        println!("╠══════════════════════════════════════════════════════════════════╣");
 
-    let mut net_str = String::new();
-    let mut net_first = true;
-    if caps.network.has_ethernet {
-        net_str.push_str("Ethernet");
-        net_first = false;
-    }
-    if caps.network.has_wifi {
-        if !net_first {
-            net_str.push_str(", ");
+        let mut net_str = String::new();
+        let mut net_first = true;
+        if caps.network.has_ethernet {
+            net_str.push_str("Ethernet");
+            net_first = false;
         }
-        net_str.push_str("WiFi");
-        net_first = false;
-    }
-    if caps.network.has_ble {
-        if !net_first {
-            net_str.push_str(", ");
+        if caps.network.has_wifi {
+            if !net_first {
+                net_str.push_str(", ");
+            }
+            net_str.push_str("WiFi");
+            net_first = false;
         }
-        net_str.push_str("BLE");
-        net_first = false;
-    }
-    if caps.network.has_cellular {
-        if !net_first {
-            net_str.push_str(", ");
+        if caps.network.has_ble {
+            if !net_first {
+                net_str.push_str(", ");
+            }
+            net_str.push_str("BLE");
+            net_first = false;
         }
-        net_str.push_str("Cellular");
-    }
-    if net_str.is_empty() {
-        net_str.push_str("None");
-    }
-    println!("║  Network:   {:-56} ║", &net_str);
+        if caps.network.has_cellular {
+            if !net_first {
+                net_str.push_str(", ");
+            }
+            net_str.push_str("Cellular");
+        }
+        if net_str.is_empty() {
+            net_str.push_str("None");
+        }
+        println!("║  Network:   {:-56} ║", &net_str);
 
-    println!("╠══════════════════════════════════════════════════════════════════╣");
-    let mut gpu_str = String::new();
-    if caps.gpu.has_gpu {
-        gpu_str.push_str(caps.gpu.gpu_name.as_deref().unwrap_or("Available"));
-    } else if caps.gpu.has_npu {
-        gpu_str.push_str("NPU Available");
-    } else {
-        gpu_str.push_str("None");
-    }
-    println!("║  GPU:       {:-56} ║", &gpu_str);
+        println!("╠══════════════════════════════════════════════════════════════════╣");
+        let mut gpu_str = String::new();
+        if caps.gpu.has_gpu {
+            gpu_str.push_str(caps.gpu.gpu_name.as_deref().unwrap_or("Available"));
+        } else if caps.gpu.has_npu {
+            gpu_str.push_str("NPU Available");
+        } else {
+            gpu_str.push_str("None");
+        }
+        println!("║  GPU:       {:-56} ║", &gpu_str);
 
-    println!("╠══════════════════════════════════════════════════════════════════╣");
-    let mut feat_str = String::new();
-    let mut feat_first = true;
-    if caps.features.is_container {
-        feat_str.push_str("Container");
-        feat_first = false;
-    }
-    if caps.features.is_wasm {
-        if !feat_first {
-            feat_str.push_str(", ");
+        println!("╠══════════════════════════════════════════════════════════════════╣");
+        let mut feat_str = String::new();
+        let mut feat_first = true;
+        if caps.features.is_container {
+            feat_str.push_str("Container");
+            feat_first = false;
         }
-        feat_str.push_str("WASM");
-        feat_first = false;
-    }
-    if caps.features.is_virtualized {
-        if !feat_first {
-            feat_str.push_str(", ");
+        if caps.features.is_wasm {
+            if !feat_first {
+                feat_str.push_str(", ");
+            }
+            feat_str.push_str("WASM");
+            feat_first = false;
         }
-        feat_str.push_str("Virtualized");
-        feat_first = false;
-    }
-    if caps.features.has_sgx {
-        if !feat_first {
-            feat_str.push_str(", ");
+        if caps.features.is_virtualized {
+            if !feat_first {
+                feat_str.push_str(", ");
+            }
+            feat_str.push_str("Virtualized");
+            feat_first = false;
         }
-        feat_str.push_str("SGX");
-        feat_first = false;
-    }
-    if caps.features.has_tpm {
-        if !feat_first {
-            feat_str.push_str(", ");
+        if caps.features.has_sgx {
+            if !feat_first {
+                feat_str.push_str(", ");
+            }
+            feat_str.push_str("SGX");
+            feat_first = false;
         }
-        feat_str.push_str("TPM");
-        feat_first = false;
-    }
-    if caps.features.has_npu {
-        if !feat_first {
-            feat_str.push_str(", ");
+        if caps.features.has_tpm {
+            if !feat_first {
+                feat_str.push_str(", ");
+            }
+            feat_str.push_str("TPM");
+            feat_first = false;
         }
-        feat_str.push_str("NPU");
+        if caps.features.has_npu {
+            if !feat_first {
+                feat_str.push_str(", ");
+            }
+            feat_str.push_str("NPU");
+        }
+        if feat_str.is_empty() {
+            feat_str.push_str("None");
+        }
+        println!("║  Features:  {:-56} ║", &feat_str);
+        println!("╚══════════════════════════════════════════════════════════════════╝");
+        println!();
     }
-    if feat_str.is_empty() {
-        feat_str.push_str("None");
-    }
-    println!("║  Features:  {:-56} ║", &feat_str);
-    println!("╚══════════════════════════════════════════════════════════════════╝");
-    println!();
 
     tracing::info!(
         "Device initialized: platform={:?}, category={:?}",
@@ -199,6 +200,11 @@ pub fn get_device_registry() -> Option<Arc<registry::DeviceRegistry>> {
 
 pub fn get_or_init_global_registry() -> &'static Arc<registry::DeviceRegistry> {
     DEVICE_REGISTRY.get_or_init(|| Arc::new(registry::DeviceRegistry::new()))
+}
+
+#[deprecated(since = "0.1.0", note = "Use get_or_init_global_registry() and call init() manually, or use init_device() for full initialization")]
+pub fn get_uninitialized_global_registry() -> &'static Arc<registry::DeviceRegistry> {
+    get_or_init_global_registry()
 }
 
 pub fn create_device_registry() -> Arc<registry::DeviceRegistry> {
