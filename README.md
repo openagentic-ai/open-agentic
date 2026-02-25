@@ -169,17 +169,17 @@ cargo run -- doctor
 
 ### 配置文件
 
+配置文件位于 `~/.openclaw-rust/openclaw.json`：
+
 ```json
 {
   "user_name": "User",
   "default_provider": "openai",
   "default_model": "gpt-4o",
-  "api_keys": {
-    "OPENAI_API_KEY": "sk-..."
-  },
-  "server": {
-    "host": "0.0.0.0",
-    "port": 18789
+  "providers": {
+    "openai": {
+      "api_key": "sk-..."
+    }
   },
   "sandbox": {
     "enabled": false,
