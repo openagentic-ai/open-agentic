@@ -1,6 +1,6 @@
 //! 记忆管理器
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use openclaw_core::{Message, OpenClawError, Result};
@@ -13,6 +13,7 @@ use crate::recall::{MemoryRecall, RecallResult, SimpleMemoryRecall};
 use crate::scorer::ImportanceScorer;
 use crate::types::{MemoryConfig, MemoryContent, MemoryItem, MemoryLevel, MemoryRetrieval};
 use crate::working::WorkingMemory;
+use crate::workspace::AgentWorkspace;
 
 /// 记忆管理器 - 统一管理三层记忆
 #[derive(Clone)]
@@ -26,6 +27,7 @@ pub struct MemoryManager {
     compressor: MemoryCompressor,
     embedding_provider: Option<Arc<dyn EmbeddingProvider>>,
     recall_strategy: Option<Arc<dyn MemoryRecall>>,
+    workspace: Option<Arc<AgentWorkspace>>,
 }
 
 impl MemoryManager {
@@ -40,7 +42,14 @@ impl MemoryManager {
             config,
             embedding_provider: None,
             recall_strategy: None,
+            workspace: None,
         }
+    }
+
+    /// 设置 workspace，用于 Markdown 文件的默认存储路径
+    pub fn with_workspace(mut self, workspace: Arc<AgentWorkspace>) -> Self {
+        self.workspace = Some(workspace);
+        self
     }
 
     /// 设置自定义召回策略
@@ -316,6 +325,23 @@ impl MemoryManager {
         Ok(count)
     }
 
+    /// 导出到默认路径 (需要先设置 workspace)
+    pub async fn export_to_markdown_default(&self) -> Result<usize> {
+        let path = self.get_default_markdown_path()?;
+        self.export_to_markdown(&path).await
+    }
+
+    /// 获取默认 Markdown 文件路径
+    fn get_default_markdown_path(&self) -> Result<PathBuf> {
+        if let Some(ws) = &self.workspace {
+            Ok(ws.memory_path())
+        } else {
+            Err(OpenClawError::Config(
+                "未设置 workspace，请使用 export_to_markdown(path) 指定路径".to_string(),
+            ))
+        }
+    }
+
     pub async fn export_related_to_markdown(&self, query: &str, path: &Path) -> Result<usize> {
         let result = self.recall(query).await?;
         let mut md = String::from("# AI 记忆 - 相关记忆\n\n");
@@ -352,6 +378,12 @@ impl MemoryManager {
         }
 
         Ok(count)
+    }
+
+    /// 从默认路径导入 (需要先设置 workspace)
+    pub async fn import_from_markdown_default(&self) -> Result<usize> {
+        let path = self.get_default_markdown_path()?;
+        self.import_from_markdown(&path).await
     }
 
     fn parse_markdown_entries(&self, content: &str) -> Result<Vec<openclaw_vector::VectorItem>> {
