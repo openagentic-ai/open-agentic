@@ -43,7 +43,7 @@ pub use sessions::*;
 pub use memory::{CompressionConfig, ContextCompactor, ContextMessage, CleanupPolicy, MemoryCleanupPolicy};
 pub use extension::{Extension, ExtensionError, ExtensionMeta, ExtensionRegistry, ExtensionResult, ExtensionSource, Priority};
 pub use evo::{CompiledSkill, DynamicCompiler, EvolutionEngine, EvolutionResult, EvolutionStatus, ProgrammingLanguage, SkillGenerator, SkillSandbox, ToolNeed, Sandbox};
-pub use evo::registry::{SharedSkillRegistry, DynamicSkill, SkillSource, SkillType, SkillGating};
+pub use evo::registry::{SharedSkillRegistry, DynamicSkill, SkillSource, SkillType, SkillGating, SkillFormat};
 pub use evo::adapter::EvoToAcpAdapter;
 pub use evo::unified_skill_service::UnifiedSkillService;
 pub use evo::skill_loader::SkillLoader;

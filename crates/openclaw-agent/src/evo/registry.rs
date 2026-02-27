@@ -20,6 +20,19 @@ impl Default for SkillSource {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum SkillFormat {
+    GoClaw,
+    OpenClaw,
+    AgentSkills,
+}
+
+impl Default for SkillFormat {
+    fn default() -> Self {
+        SkillFormat::GoClaw
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum SkillType {
     Code,
     Prompt,
@@ -58,12 +71,17 @@ impl SkillGating {
 pub struct DynamicSkill {
     pub id: String,
     pub name: String,
+    pub description: String,
+    pub format: SkillFormat,
     pub skill_type: SkillType,
     pub code: Option<String>,
     pub instructions: Option<String>,
     pub language: String,
     pub source: SkillSource,
     pub gating: Option<SkillGating>,
+    pub compatibility: Option<String>,
+    pub metadata: HashMap<String, String>,
+    pub allowed_tools: Vec<String>,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub version: String,
@@ -80,12 +98,17 @@ impl DynamicSkill {
         Self {
             id,
             name,
+            description: String::new(),
+            format: SkillFormat::default(),
             skill_type: SkillType::Code,
             code: Some(code),
             instructions: None,
             language,
             source: SkillSource::default(),
             gating: None,
+            compatibility: None,
+            metadata: HashMap::new(),
+            allowed_tools: Vec::new(),
             created_by,
             created_at: Utc::now(),
             version: "1.0.0".to_string(),
@@ -111,12 +134,17 @@ impl DynamicSkill {
         Self {
             id,
             name,
+            description: String::new(),
+            format: SkillFormat::default(),
             skill_type: SkillType::Prompt,
             code: None,
             instructions: Some(instructions),
             language: "prompt".to_string(),
             source: SkillSource::default(),
             gating: None,
+            compatibility: None,
+            metadata: HashMap::new(),
+            allowed_tools: Vec::new(),
             created_by,
             created_at: Utc::now(),
             version: "1.0.0".to_string(),
