@@ -8,7 +8,7 @@ impl EvoToAcpAdapter {
         Gene {
             gene_id: skill.id.clone(),
             gene_type: GeneType::Control,
-            expression: skill.code.clone(),
+            expression: skill.code.clone().unwrap_or_default(),
             weight: 1.0,
         }
     }
