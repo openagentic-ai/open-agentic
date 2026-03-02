@@ -141,41 +141,38 @@ impl HandExecutor {
             return ExecutionResult::failure(
                 hand_id.to_string(),
                 ctx.task_id,
-                format!("Hand '{}' is not enabled", hand_id),
+                format!("Hand '{}' is disabled", hand_id),
                 0,
             );
         }
 
-        let start = Instant::now();
-
-        if let Some(approval_result) = self.check_guardrails(&hand, &ctx).await {
-            return approval_result;
-        }
-
-        let output = self.execute_hand_logic(&hand, &ctx).await;
-        let duration_ms = start.elapsed().as_millis() as u64;
-
-        let result = if output.success {
-            ExecutionResult::success(
-                hand_id.to_string(),
-                ctx.task_id,
-                output.data,
-                duration_ms,
-            )
-        } else {
-            ExecutionResult::failure(
-                hand_id.to_string(),
-                ctx.task_id,
-                output.error.unwrap_or_else(|| "Unknown error".to_string()),
-                duration_ms,
-            )
-        };
-
-        self.record_execution(hand_id, result.clone()).await;
-        self.metrics_collector.record(&result).await;
-
-        result
-    }
+        tracing::info!("Executing Hand: {} with task_id: {}", hand_id, ctx.task_id);
+ 
+         let start_time = Instant::now();
+ 
+         let execution_result = self.execute_hand_logic(&hand, &ctx).await;
+         
+         let execution_result = ExecutionResult {
+             hand_id: hand_id.to_string(),
+             task_id: ctx.task_id.clone(),
+             success: execution_result.success,
+             output: execution_result.data,
+             error: execution_result.error,
+             metrics: HashMap::new(),
+             duration_ms: 0,
+             timestamp: Utc::now(),
+         };
+         
+         let duration_ms = start_time.elapsed().as_millis() as u64;
+ 
+         self.metrics_collector.record(&execution_result).await;
+ 
+         execution_result
+     }
+ 
+     pub async fn get_hand(&self, hand_id: &str) -> Option<Hand> {
+         self.registry.get(hand_id).await
+     }
 
     async fn check_guardrails(&self, hand: &Hand, ctx: &ExecutionContext) -> Option<ExecutionResult> {
         if hand.guardrails.is_empty() {

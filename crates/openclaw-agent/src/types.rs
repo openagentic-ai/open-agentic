@@ -116,6 +116,9 @@ pub enum Capability {
     ToolExecution,
     FileOperations,
     SystemCommands,
+
+    // 自主能力
+    Autonomous,
 }
 
 /// Agent 状态

@@ -35,6 +35,11 @@ pub enum TaskType {
     Summarization,
     /// 工具调用
     ToolExecution,
+    /// Hand 自主任务
+    Hand {
+        hand_id: String,
+        input: Option<String>,
+    },
     /// 自定义
     Custom(String),
 }
@@ -53,6 +58,7 @@ impl TaskType {
             TaskType::Translation => vec![Capability::Translation],
             TaskType::Summarization => vec![Capability::Summarization],
             TaskType::ToolExecution => vec![Capability::ToolExecution],
+            TaskType::Hand { .. } => vec![Capability::General, Capability::Autonomous],
             TaskType::Custom(_) => vec![Capability::General],
         }
     }

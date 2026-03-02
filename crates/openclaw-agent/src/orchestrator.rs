@@ -14,6 +14,9 @@ use crate::agent::Agent;
 use crate::device_tool_registry::DeviceToolRegistry;
 use crate::evo::registry::{SharedSkillRegistry, DynamicSkill};
 use crate::evo::EvolutionEngine;
+use crate::evo::autonomous::{self, HandExecutor, HandOutputManager};
+use crate::evo::autonomous::executor::ExecutionContext;
+use crate::evo::autonomous::output::ExecutionResult as HandOutputResult;
 use crate::task::{TaskClassification, TaskClassifier, TaskOutput, TaskRequest, TaskResult, TaskStatus, TaskType};
 use crate::team::{AgentTeam, TeamConfig};
 use crate::types::Capability;
@@ -64,6 +67,10 @@ pub struct Orchestrator {
     evolution_engine: Option<Arc<EvolutionEngine>>,
     /// 任务分类器
     task_classifier: TaskClassifier,
+    /// Hand 执行器
+    hand_executor: Option<Arc<HandExecutor>>,
+    /// Hand 输出管理器
+    hand_output_manager: Option<Arc<HandOutputManager>>,
 }
 
 impl Orchestrator {
@@ -79,6 +86,8 @@ impl Orchestrator {
             shared_skill_registry: None,
             evolution_engine: None,
             task_classifier: TaskClassifier::new(),
+            hand_executor: None,
+            hand_output_manager: None,
         }
     }
 
@@ -388,12 +397,60 @@ impl Orchestrator {
         request: TaskRequest,
     ) -> Result<TaskResult> {
         info!("Executing Hand: {} with input: {:?}", hand_id, input);
-        
-        Ok(TaskResult::failure(
-            request.id,
-            hand_id,
-            "Hand execution not implemented yet".to_string(),
-        ))
+
+        let executor = match &self.hand_executor {
+            Some(e) => e,
+            None => {
+                return Ok(TaskResult::failure(
+                    request.id,
+                    hand_id.clone(),
+                    "Hand executor not configured".to_string(),
+                ));
+            }
+        };
+
+        let mut ctx = ExecutionContext::new(hand_id.clone());
+        if let Some(input_str) = input {
+            ctx = ctx.with_input(serde_json::json!({ "input": input_str }));
+        }
+
+        let exec_result = executor.execute(&hand_id, ctx).await;
+
+        if let Some(output_manager) = &self.hand_output_manager {
+            if let Some(hand) = executor.get_hand(&hand_id).await {
+                let output_result = HandOutputResult {
+                    execution_id: exec_result.task_id.clone(),
+                    hand_id: hand_id.clone(),
+                    success: exec_result.success,
+                    output: serde_json::from_value(serde_json::json!({
+                        "result": exec_result.output
+                    })).unwrap_or_default(),
+                    tool_calls: None,
+                    duration_ms: exec_result.duration_ms,
+                    timestamp: exec_result.timestamp,
+                };
+                let messages = output_manager.format_result(&hand, &output_result).await;
+                for (channel_type, message) in messages {
+                    info!("Sending Hand result to channel: {} - {}", channel_type, message.len());
+                }
+            }
+        }
+
+        if exec_result.success {
+            Ok(TaskResult::success(
+                request.id,
+                hand_id.clone(),
+                TaskOutput::Text {
+                    content: serde_json::to_string(&exec_result.output).unwrap_or_default(),
+                },
+            ))
+        } else {
+            Ok(TaskResult::failure(
+                request.id,
+                hand_id,
+                exec_result.error.unwrap_or_else(|| "Unknown error".to_string()),
+            ))
+        }
     }
 
     /// 使用 Skill 执行任务
@@ -690,5 +747,117 @@ mod tests {
         assert!(result.is_ok());
         let response = result.unwrap();
         assert!(!response.events.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_orchestrator_execute_hand_not_configured() {
+        let orchestrator = Orchestrator::with_default_team();
+
+        let task = TaskRequest::new(
+            TaskType::Conversation,
+            TaskInput::Text {
+                content: "test hand execution".to_string(),
+            },
+        );
+
+        let result = orchestrator.execute_hand("test_hand".to_string(), None, task).await.unwrap();
+        assert_eq!(result.status, TaskStatus::Failed);
+        assert!(result.error.unwrap().contains("not configured"));
+    }
+
+    #[tokio::test]
+    async fn test_orchestrator_execute_hand_with_executor() {
+        use crate::evo::autonomous::presets::researcher_hand;
+        use crate::evo::autonomous::schedule::ScheduleManager;
+        use crate::evo::autonomous::metrics::MetricsCollector;
+
+        let registry = Arc::new(autonomous::HandRegistry::new());
+        let hand = researcher_hand();
+        registry.register(hand).await;
+
+        let schedule_manager = Arc::new(ScheduleManager::new());
+        let metrics = Arc::new(MetricsCollector::new());
+        let executor = Arc::new(autonomous::HandExecutor::new(
+            registry,
+            schedule_manager,
+            metrics,
+        ));
+
+        let mut orchestrator = Orchestrator::with_default_team();
+        orchestrator.hand_executor = Some(executor);
+
+        let task = TaskRequest::new(
+            TaskType::Conversation,
+            TaskInput::Text {
+                content: "test hand execution".to_string(),
+            },
+        );
+
+        let result = orchestrator.execute_hand("researcher".to_string(), None, task).await.unwrap();
+        assert_eq!(result.status, TaskStatus::Completed);
+    }
+
+    #[tokio::test]
+    async fn test_orchestrator_execute_hand_not_found() {
+        use crate::evo::autonomous::schedule::ScheduleManager;
+        use crate::evo::autonomous::metrics::MetricsCollector;
+
+        let registry = Arc::new(autonomous::HandRegistry::new());
+        let schedule_manager = Arc::new(ScheduleManager::new());
+        let metrics = Arc::new(MetricsCollector::new());
+        let executor = Arc::new(autonomous::HandExecutor::new(
+            registry,
+            schedule_manager,
+            metrics,
+        ));
+
+        let mut orchestrator = Orchestrator::with_default_team();
+        orchestrator.hand_executor = Some(executor);
+
+        let task = TaskRequest::new(
+            TaskType::Conversation,
+            TaskInput::Text {
+                content: "test".to_string(),
+            },
+        );
+
+        let result = orchestrator.execute_hand("nonexistent".to_string(), None, task).await.unwrap();
+        assert_eq!(result.status, TaskStatus::Failed);
+        assert!(result.error.unwrap().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_orchestrator_execute_hand_with_input() {
+        use crate::evo::autonomous::presets::collector_hand;
+        use crate::evo::autonomous::schedule::ScheduleManager;
+        use crate::evo::autonomous::metrics::MetricsCollector;
+
+        let registry = Arc::new(autonomous::HandRegistry::new());
+        let hand = collector_hand();
+        registry.register(hand).await;
+
+        let schedule_manager = Arc::new(ScheduleManager::new());
+        let metrics = Arc::new(MetricsCollector::new());
+        let executor = Arc::new(autonomous::HandExecutor::new(
+            registry,
+            schedule_manager,
+            metrics,
+        ));
+
+        let mut orchestrator = Orchestrator::with_default_team();
+        orchestrator.hand_executor = Some(executor);
+
+        let task = TaskRequest::new(
+            TaskType::Conversation,
+            TaskInput::Text {
+                content: "test".to_string(),
+            },
+        );
+
+        let result = orchestrator
+            .execute_hand("collector".to_string(), Some("test input".to_string()), task)
+            .await
+            .unwrap();
+        assert_eq!(result.status, TaskStatus::Completed);
     }
 }
