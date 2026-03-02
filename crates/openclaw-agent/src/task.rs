@@ -1,5 +1,9 @@
 //! 任务定义
 
+pub mod classifier;
+
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -172,6 +176,20 @@ pub enum TaskInput {
     },
 }
 
+impl TaskInput {
+    pub fn content(&self) -> &str {
+        match self {
+            TaskInput::Message { message } => message.text_content().unwrap_or(""),
+            TaskInput::Text { content } => content,
+            TaskInput::Code { code, .. } => code,
+            TaskInput::Data { data } => data.as_str().unwrap_or(""),
+            TaskInput::File { content, .. } => content,
+            TaskInput::SearchQuery { query } => query,
+            TaskInput::ToolCall { name, .. } => name,
+        }
+    }
+}
+
 /// 任务结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskResult {
@@ -252,3 +270,71 @@ pub struct TokenUsage {
     pub completion_tokens: usize,
     pub total_tokens: usize,
 }
+
+/// 任务分类结果
+#[derive(Debug, Clone)]
+pub enum TaskClassification {
+    /// Hand 任务 - 触发自主执行
+    Hand {
+        hand_id: String,
+        input: Option<String>,
+    },
+    /// 需要 Skill 的任务
+    WithSkill {
+        task_type: TaskType,
+        skill_id: String,
+    },
+    /// 直接对话
+    Direct {
+        task_type: TaskType,
+    },
+}
+
+/// Hand 匹配结果
+#[derive(Debug, Clone)]
+pub struct HandMatch {
+    pub hand_id: String,
+    pub match_type: HandMatchType,
+    pub confidence: f64,
+}
+
+/// Hand 匹配类型
+#[derive(Debug, Clone, PartialEq)]
+pub enum HandMatchType {
+    /// 显式指定
+    Explicit,
+    /// 定时关键字匹配
+    ScheduleKeyword,
+    /// 事件关键字匹配
+    EventKeyword,
+    /// 模糊匹配
+    Fuzzy,
+}
+
+/// Skill 匹配结果
+#[derive(Debug, Clone)]
+pub struct SkillMatch {
+    pub task_type: TaskType,
+    pub skill_id: String,
+    pub confidence: f64,
+}
+
+/// 意图识别结果
+#[derive(Debug, Clone)]
+pub struct Intent {
+    pub task_type: TaskType,
+    pub confidence: f64,
+    pub entities: HashMap<String, String>,
+}
+
+impl Default for Intent {
+    fn default() -> Self {
+        Self {
+            task_type: TaskType::Conversation,
+            confidence: 0.5,
+            entities: HashMap::new(),
+        }
+    }
+}
+
+pub use classifier::TaskClassifier;

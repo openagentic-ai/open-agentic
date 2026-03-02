@@ -14,7 +14,7 @@ use crate::agent::Agent;
 use crate::device_tool_registry::DeviceToolRegistry;
 use crate::evo::registry::{SharedSkillRegistry, DynamicSkill};
 use crate::evo::EvolutionEngine;
-use crate::task::{TaskOutput, TaskRequest, TaskResult, TaskStatus, TaskType};
+use crate::task::{TaskClassification, TaskClassifier, TaskOutput, TaskRequest, TaskResult, TaskStatus, TaskType};
 use crate::team::{AgentTeam, TeamConfig};
 use crate::types::Capability;
 
@@ -62,6 +62,8 @@ pub struct Orchestrator {
     shared_skill_registry: Option<Arc<SharedSkillRegistry>>,
     /// 进化引擎 (Evo)
     evolution_engine: Option<Arc<EvolutionEngine>>,
+    /// 任务分类器
+    task_classifier: TaskClassifier,
 }
 
 impl Orchestrator {
@@ -76,6 +78,7 @@ impl Orchestrator {
             active_tasks: RwLock::new(HashMap::new()),
             shared_skill_registry: None,
             evolution_engine: None,
+            task_classifier: TaskClassifier::new(),
         }
     }
 
@@ -142,6 +145,25 @@ impl Orchestrator {
             "Processing task {} of type {:?}",
             request.id, request.task_type
         );
+
+        // 任务分类决策
+        let classification = self.task_classifier.classify(&request).await;
+        debug!("Task classification: {:?}", classification);
+
+        // 根据分类结果路由任务
+        match classification {
+            TaskClassification::Hand { hand_id, input } => {
+                info!("Routing task to Hand: {}", hand_id);
+                return self.execute_hand(hand_id, input, request).await;
+            }
+            TaskClassification::WithSkill { task_type, skill_id } => {
+                info!("Routing task with Skill: {} for type {:?}", skill_id, task_type);
+                return self.execute_with_skill(skill_id, request).await;
+            }
+            TaskClassification::Direct { task_type: _ } => {
+                debug!("Routing task for direct execution");
+            }
+        }
 
         // 添加到活跃任务
         {
@@ -356,6 +378,37 @@ impl Orchestrator {
         }
 
         result
+    }
+
+    /// 使用 Hand 执行自主任务
+    async fn execute_hand(
+        &self,
+        hand_id: String,
+        input: Option<String>,
+        request: TaskRequest,
+    ) -> Result<TaskResult> {
+        info!("Executing Hand: {} with input: {:?}", hand_id, input);
+        
+        Ok(TaskResult::failure(
+            request.id,
+            hand_id,
+            "Hand execution not implemented yet".to_string(),
+        ))
+    }
+
+    /// 使用 Skill 执行任务
+    async fn execute_with_skill(
+        &self,
+        skill_id: String,
+        request: TaskRequest,
+    ) -> Result<TaskResult> {
+        info!("Executing with Skill: {}", skill_id);
+        
+        Ok(TaskResult::failure(
+            request.id,
+            skill_id,
+            "Skill execution not implemented yet".to_string(),
+        ))
     }
 
     /// 检查是否应该触发进化
