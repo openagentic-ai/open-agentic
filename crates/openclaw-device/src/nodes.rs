@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use thiserror::Error;
 
+#[cfg(test)]
+use chrono;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum DeviceNode {
@@ -64,7 +67,7 @@ pub struct DeviceCapability {
     pub available: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum DeviceCategory {
     Camera,
     Screen,
@@ -322,5 +325,187 @@ impl NodeManager {
 impl Default for NodeManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct NodeGroup {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub node_ids: Vec<String>,
+}
+
+impl NodeManager {
+    pub fn get_enabled_nodes(&self) -> Vec<(&String, &DeviceNode)> {
+        self.nodes
+            .iter()
+            .filter(|(_, node)| Self::is_node_enabled(node))
+            .collect()
+    }
+
+    pub fn get_available_nodes(&self) -> Vec<(&String, &DeviceNode)> {
+        self.nodes
+            .iter()
+            .filter(|(_, node)| Self::is_node_available(node))
+            .collect()
+    }
+
+    pub fn get_nodes_by_category(&self, category: &DeviceCategory) -> Vec<(&String, &DeviceNode)> {
+        self.nodes
+            .iter()
+            .filter(|(_, node)| Self::node_category(node) == *category)
+            .collect()
+    }
+
+    pub fn is_node_enabled(node: &DeviceNode) -> bool {
+        match node {
+            DeviceNode::Camera(n) => n.enabled,
+            DeviceNode::Screen(n) => n.enabled,
+            DeviceNode::Location(n) => n.enabled,
+            DeviceNode::Notification(n) => n.enabled,
+            DeviceNode::System(n) => n.enabled,
+        }
+    }
+
+    pub fn is_node_available(node: &DeviceNode) -> bool {
+        match node {
+            DeviceNode::Camera(n) => n.available,
+            DeviceNode::Screen(n) => n.available,
+            DeviceNode::Location(n) => n.available,
+            DeviceNode::Notification(n) => n.available,
+            DeviceNode::System(n) => n.available,
+        }
+    }
+
+    pub fn node_category(node: &DeviceNode) -> DeviceCategory {
+        match node {
+            DeviceNode::Camera(_) => DeviceCategory::Camera,
+            DeviceNode::Screen(_) => DeviceCategory::Screen,
+            DeviceNode::Location(_) => DeviceCategory::Location,
+            DeviceNode::Notification(_) => DeviceCategory::Notification,
+            DeviceNode::System(_) => DeviceCategory::System,
+        }
+    }
+
+    pub fn node_id(node: &DeviceNode) -> String {
+        match node {
+            DeviceNode::Camera(n) => n.id.clone(),
+            DeviceNode::Screen(n) => n.id.clone(),
+            DeviceNode::Location(n) => n.id.clone(),
+            DeviceNode::Notification(n) => n.id.clone(),
+            DeviceNode::System(n) => n.id.clone(),
+        }
+    }
+
+    pub fn get_node_status(&self, id: &str) -> Option<NodeStatus> {
+        self.nodes.get(id).map(|node| NodeStatus {
+            node_id: id.to_string(),
+            online: Self::is_node_available(node),
+            last_update: chrono::Utc::now().timestamp(),
+            capabilities: self.get_capabilities_for_node(node),
+        })
+    }
+
+    fn get_capabilities_for_node(&self, node: &DeviceNode) -> Vec<DeviceCapability> {
+        let category = Self::node_category(node);
+        let enabled = Self::is_node_enabled(node);
+        let available = Self::is_node_available(node);
+        let node_id = Self::node_id(node);
+
+        vec![DeviceCapability {
+            id: format!("{}.access", node_id),
+            name: format!("{:?} 访问", category),
+            description: format!("访问 {:?} 设备节点", category),
+            category: category.clone(),
+            enabled,
+            available,
+        }]
+    }
+
+    pub fn get_capabilities_by_category(&self, category: &DeviceCategory) -> Vec<DeviceCapability> {
+        self.get_nodes_by_category(category)
+            .into_iter()
+            .flat_map(|(_, node)| self.get_capabilities_for_node(node))
+            .collect()
+    }
+
+    pub fn get_enabled_capabilities(&self) -> Vec<DeviceCapability> {
+        self.get_capabilities()
+            .into_iter()
+            .filter(|c| c.enabled)
+            .collect()
+    }
+
+    pub fn get_available_capabilities(&self) -> Vec<DeviceCapability> {
+        self.get_capabilities()
+            .into_iter()
+            .filter(|c| c.available)
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_node_manager_creation() {
+        let manager = NodeManager::new();
+        assert_eq!(manager.get_nodes().len(), 5);
+    }
+
+    #[test]
+    fn test_get_node() {
+        let manager = NodeManager::new();
+        assert!(manager.get_node("camera").is_some());
+        assert!(manager.get_node("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_enable_disable_node() {
+        let mut manager = NodeManager::new();
+        
+        manager.disable_node("camera").unwrap();
+        assert!(matches!(
+            manager.get_node("camera"),
+            Some(DeviceNode::Camera(n)) if !n.enabled
+        ));
+        
+        manager.enable_node("camera").unwrap();
+        assert!(matches!(
+            manager.get_node("camera"),
+            Some(DeviceNode::Camera(n)) if n.enabled
+        ));
+    }
+
+    #[test]
+    fn test_get_capabilities() {
+        let manager = NodeManager::new();
+        let capabilities = manager.get_capabilities();
+        assert!(!capabilities.is_empty());
+    }
+
+    #[test]
+    fn test_get_nodes_by_category() {
+        let manager = NodeManager::new();
+        let camera_nodes = manager.get_nodes_by_category(&DeviceCategory::Camera);
+        assert_eq!(camera_nodes.len(), 1);
+    }
+
+    #[test]
+    fn test_get_enabled_nodes() {
+        let manager = NodeManager::new();
+        let enabled = manager.get_enabled_nodes();
+        assert!(!enabled.is_empty());
+    }
+
+    #[test]
+    fn test_get_node_status() {
+        let manager = NodeManager::new();
+        let status = manager.get_node_status("camera");
+        assert!(status.is_some());
+        let s = status.unwrap();
+        assert_eq!(s.node_id, "camera");
     }
 }

@@ -269,7 +269,7 @@ where
                 }
             };
 
-            mqtt_publisher(topic.clone(), payload.into_bytes(), config.qos, config.retain).await;
+            let _ = mqtt_publisher(topic.clone(), payload.into_bytes(), config.qos, config.retain).await;
         }
     });
 

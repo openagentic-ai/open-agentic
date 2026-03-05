@@ -61,6 +61,9 @@ pub use device_trait::DeviceBuilder;
 pub use unified_manager::DeviceInfo;
 pub use camera::CameraManager;
 pub use screen::ScreenManager;
+pub use nodes::{NodeManager, DeviceNode, NodeStatus, DeviceCapability, DeviceCategory};
+pub use notification::{NotificationManager, RichNotification, NotificationCategory, NotificationUrgency};
+pub use system::{SystemManager, SystemInfo, CpuInfo, MemoryInfo, DiskInfo};
 pub use capabilities::SensorType;
 pub use unified_manager::DeviceType;
 
