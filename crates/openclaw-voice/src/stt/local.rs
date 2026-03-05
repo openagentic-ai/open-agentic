@@ -5,6 +5,9 @@
 use async_trait::async_trait;
 use openclaw_core::{OpenClawError, Result};
 
+#[cfg(feature = "local-whisper")]
+use whisper_rs::{FullParams, WhisperContext};
+
 use crate::types::{SttProvider, TranscriptionResult};
 
 /// 本地 Whisper 配置
@@ -34,11 +37,34 @@ impl Default for LocalWhisperConfig {
 /// 本地 Whisper STT
 pub struct LocalWhisperStt {
     config: LocalWhisperConfig,
+    #[cfg(feature = "local-whisper")]
+    context: Option<WhisperContext>,
 }
 
 impl LocalWhisperStt {
     pub fn new(config: LocalWhisperConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            #[cfg(feature = "local-whisper")]
+            context: None,
+        }
+    }
+
+    /// 从模型路径加载模型
+    #[cfg(feature = "local-whisper")]
+    pub fn load_model(&mut self) -> Result<()> {
+        self.check_model()?;
+        
+        let context = WhisperContext::new(&self.config.model_path)
+            .map_err(|e| OpenClawError::Config(format!("加载 Whisper 模型失败: {}", e)))?;
+        
+        self.context = Some(context);
+        Ok(())
+    }
+
+    #[cfg(not(feature = "local-whisper"))]
+    pub fn load_model(&self) -> Result<()> {
+        self.check_model()
     }
 
     /// 检查模型文件是否存在
@@ -201,19 +227,86 @@ impl super::SpeechToText for LocalWhisperStt {
 
     async fn transcribe(
         &self,
-        _audio_data: &[u8],
-        _language: Option<&str>,
+        audio_data: &[u8],
+        language: Option<&str>,
     ) -> Result<TranscriptionResult> {
-        // 检查模型
-        self.check_model()?;
-
-        // 注意: 实际的 whisper.cpp 调用需要 whisper-rs crate
-        // 这里提供框架实现，实际使用时需要添加依赖
-
-        Err(OpenClawError::Config(
-            "本地 Whisper 需要安装 whisper-rs 依赖。请使用 OpenAI Whisper API 或安装本地依赖"
-                .to_string(),
-        ))
+        #[cfg(feature = "local-whisper")]
+        {
+            use std::sync::Mutex;
+            
+            // 需要 Mutex 来获取 context 的可变引用
+            // 由于 async_trait，不能直接用 RefCell，所以用全局锁
+            static CONTEXT_MUTEX: std::sync::Mutex<Option<WhisperContext>> = std::sync::Mutex::new(None);
+            
+            // 先检查模型
+            self.check_model()?;
+            
+            // 懒加载模型
+            let mut ctx_guard = CONTEXT_MUTEX.lock().unwrap();
+            if ctx_guard.is_none() {
+                let ctx = WhisperContext::new(&self.config.model_path)
+                    .map_err(|e| OpenClawError::Config(format!("加载模型失败: {}", e)))?;
+                *ctx_guard = Some(ctx);
+            }
+            
+            let context = ctx_guard.as_ref().unwrap();
+            
+            // 设置语言参数
+            let mut params = FullParams::new();
+            params.set_language(language);
+            params.set_translate(self.config.translate);
+            params.set_n_threads(self.config.n_threads);
+            
+            // 准备音频数据 (假设是 16kHz 16bit mono)
+            let sample_rate = 16000u32;
+            let samples: Vec<f32> = audio_data
+                .chunks_exact(2)
+                .map(|chunk| {
+                    let sample = i16::from_le_bytes([chunk[0], chunk[1]]);
+                    sample as f32 / 32768.0
+                })
+                .collect();
+            
+            // 执行转写
+            let mut state = context
+                .create_state()
+                .map_err(|e| OpenClawError::Config(format!("创建状态失败: {}", e)))?;
+            
+            state
+                .full(params, &samples)
+                .map_err(|e| OpenClawError::Config(format!("转写失败: {}", e)))?;
+            
+            let num_segments = state
+                .full_n_segments()
+                .map_err(|e| OpenClawError::Config(format!("获取段落数失败: {}", e)))?;
+            
+            let mut full_text = String::new();
+            for i in 0..num_segments {
+                if let Ok(text) = state.full_get_segment_text(i) {
+                    if !full_text.is_empty() {
+                        full_text.push(' ');
+                    }
+                    full_text.push_str(&text);
+                }
+            }
+            
+            Ok(TranscriptionResult {
+                text: full_text,
+                language: language.map(String::from),
+                duration: Some((samples.len() as f64) / (sample_rate as f64)),
+                confidence: None,
+            })
+        }
+        
+        #[cfg(not(feature = "local-whisper"))]
+        {
+            let _ = (audio_data, language);
+            self.check_model()?;
+            Err(OpenClawError::Config(
+                "本地 Whisper 需要启用 local-whisper feature。请使用 cargo build --features local-whisper 或安装 whisper-rs 依赖"
+                    .to_string(),
+            ))
+        }
     }
 
     async fn is_available(&self) -> bool {

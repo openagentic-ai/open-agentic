@@ -26,10 +26,17 @@ cpal = "0.15"           # 音频 I/O
 hound = "3.5"           # WAV 文件处理
 rubato = "0.15"         # 音频重采样
 
+# 本地 Whisper (需要 C++ 运行时)
+[dependencies.whisper-rs]
+version = "0.15"
+optional = true
+default-features = false
+features = ["cuda", "metal"]
+
 [features]
 default = ["openai"]
 openai = []
-local-whisper = []
+local-whisper = ["dep:whisper-rs"]
 edge-tts = []
 
 # System TTS (platform-specific)

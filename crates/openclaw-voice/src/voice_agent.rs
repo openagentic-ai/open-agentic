@@ -5,7 +5,7 @@ use crate::stt::SpeechToText;
 use crate::talk_mode::{TalkMode, TalkModeConfig};
 use crate::tts::TextToSpeech;
 use crate::dialogue::{DialogueContext, DialogueContextManager, IntentRecognizer, KeywordIntentRecognizer};
-use crate::{EnergyVad, SimpleAgc, VoiceActivityDetector, AgcProcessor, NoiseSuppressor, SpectralSubtraction, VadConfig};
+use crate::{EnergyVad, SimpleAgc, VoiceActivityDetector, AgcProcessor, NoiseSuppressor, SpectralSubtraction};
 use openclaw_core::Result;
 
 pub struct VoiceAgent {

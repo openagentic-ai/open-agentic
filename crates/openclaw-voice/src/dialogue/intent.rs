@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use openclaw_core::Result;
 
-use crate::dialogue::{DialogueContext, Intent, SlotValue, Entity};
+use crate::dialogue::{DialogueContext, Intent, Entity};
 
 #[derive(Debug, Clone)]
 pub struct IntentRecognitionResult {

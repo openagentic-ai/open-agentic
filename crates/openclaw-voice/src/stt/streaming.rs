@@ -1,12 +1,7 @@
 //! 流式语音识别模块
 
 use std::sync::Arc;
-use async_trait::async_trait;
 use tokio::sync::mpsc;
-use openclaw_core::{OpenClawError, Result};
-use crate::types::{SttProvider, TranscriptionResult};
-
-use super::SpeechToText;
 
 #[derive(Debug, Clone)]
 pub struct StreamingTranscriptionConfig {
@@ -70,7 +65,7 @@ impl WhisperStreamingStt {
 impl StreamingSpeechToText for WhisperStreamingStt {
     fn start_streaming(&self) -> StreamingHandle {
         let (audio_tx, _audio_rx) = mpsc::channel(100);
-        let (result_tx, result_rx) = mpsc::channel(100);
+        let (_result_tx, result_rx) = mpsc::channel(100);
         
         StreamingHandle {
             audio_tx,
@@ -140,7 +135,7 @@ impl AzureStreamingStt {
 impl StreamingSpeechToText for AzureStreamingStt {
     fn start_streaming(&self) -> StreamingHandle {
         let (audio_tx, _audio_rx) = mpsc::channel(100);
-        let (result_tx, result_rx) = mpsc::channel(100);
+        let (_result_tx, result_rx) = mpsc::channel(100);
         
         StreamingHandle {
             audio_tx,
@@ -172,7 +167,7 @@ impl StreamingSttBackend {
             Self::Whisper(stt) => stt.start_streaming(),
             Self::Azure(_, _) => {
                 let (audio_tx, _) = mpsc::channel(100);
-                let (result_tx, result_rx) = mpsc::channel(100);
+                let (_result_tx, result_rx) = mpsc::channel(100);
                 StreamingHandle { audio_tx, result_rx }
             }
         }
