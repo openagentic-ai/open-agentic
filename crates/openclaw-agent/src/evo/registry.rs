@@ -36,6 +36,8 @@ impl Default for SkillFormat {
 pub enum SkillType {
     Code,
     Prompt,
+    Channel,
+    Account,
 }
 
 impl Default for SkillType {
@@ -159,6 +161,56 @@ impl DynamicSkill {
     pub fn with_gating(mut self, gating: SkillGating) -> Self {
         self.gating = Some(gating);
         self
+    }
+
+    pub fn new_channel(
+        id: String,
+        name: String,
+        metadata: HashMap<String, String>,
+    ) -> Self {
+        Self {
+            id,
+            name,
+            description: String::new(),
+            format: SkillFormat::default(),
+            skill_type: SkillType::Channel,
+            code: None,
+            instructions: None,
+            language: "channel".to_string(),
+            source: SkillSource::default(),
+            gating: None,
+            compatibility: None,
+            metadata,
+            allowed_tools: Vec::new(),
+            created_by: "user".to_string(),
+            created_at: Utc::now(),
+            version: "1.0.0".to_string(),
+        }
+    }
+
+    pub fn new_account(
+        id: String,
+        name: String,
+        metadata: HashMap<String, String>,
+    ) -> Self {
+        Self {
+            id,
+            name,
+            description: String::new(),
+            format: SkillFormat::default(),
+            skill_type: SkillType::Account,
+            code: None,
+            instructions: None,
+            language: "account".to_string(),
+            source: SkillSource::default(),
+            gating: None,
+            compatibility: None,
+            metadata,
+            allowed_tools: Vec::new(),
+            created_by: "user".to_string(),
+            created_at: Utc::now(),
+            version: "1.0.0".to_string(),
+        }
     }
 
     pub fn is_prompt(&self) -> bool {

@@ -26,6 +26,7 @@
 //! - Email - 邮件发送
 //! - SMS - 短信发送
 
+pub mod account;
 pub mod base;
 pub mod bluebubbles;
 pub mod config;
@@ -54,6 +55,7 @@ pub mod whatsapp;
 pub mod zalo;
 pub mod zalo_personal;
 
+pub use account::{AccountConfig, AccountId, AccountManager, Platform};
 pub use base::{Channel, ChannelEvent, ChannelHandler};
 pub use config::ChannelConfigs;
 pub use factory::ChannelFactoryRegistry;
