@@ -131,17 +131,22 @@ impl EvoV2Engine {
         }
     }
 
-    pub async fn process_task(&self, context: EvoContext) -> EvoEvolutionResult {
+    pub async fn process_task(&self, context: EvoContext) -> Result<EvoEvolutionResult, String> {
+        let result = self.analyze_and_evolve(context).await?;
+        Ok(result)
+    }
+
+    pub async fn analyze_and_evolve(&self, context: EvoContext) -> Result<EvoEvolutionResult, String> {
         let tool_validation = self.skill_validator.validate_tool_sequence(&context.tool_calls);
         
         if tool_validation.status == ValidationStatus::Rejected {
-            return EvoEvolutionResult {
+            return Ok(EvoEvolutionResult {
                 evolved: false,
                 skill_id: String::new(),
                 changes: vec![format!("Tool sequence rejected: {}", tool_validation.message)],
                 new_reliability: 0.0,
                 message: "Task rejected due to invalid tool sequence".to_string(),
-            };
+            });
         }
 
         let pattern = self.pattern_analyzer.extract(
@@ -153,13 +158,13 @@ impl EvoV2Engine {
         let pattern_validation = self.skill_validator.validate_pattern_reusability(&pattern);
         
         if pattern_validation.status == ValidationStatus::Rejected {
-            return EvoEvolutionResult {
+            return Ok(EvoEvolutionResult {
                 evolved: false,
                 skill_id: String::new(),
                 changes: vec![format!("Pattern rejected: {}", pattern_validation.message)],
                 new_reliability: 0.0,
                 message: "Pattern rejected due to low reusability".to_string(),
-            };
+            });
         }
 
         let time_validation = self.skill_validator.validate_execution_time(
@@ -168,13 +173,13 @@ impl EvoV2Engine {
         );
 
         if time_validation.status == ValidationStatus::Rejected {
-            return EvoEvolutionResult {
+            return Ok(EvoEvolutionResult {
                 evolved: false,
                 skill_id: String::new(),
                 changes: vec![format!("Execution time rejected: {}", time_validation.message)],
                 new_reliability: 0.0,
                 message: "Task rejected due to timeout".to_string(),
-            };
+            });
         }
 
         let learning_type = if context.success {
@@ -206,22 +211,22 @@ impl EvoV2Engine {
 
         if context.success && pattern.reusability_score > self.config.evolution_threshold {
             let skill = self.create_skill_from_pattern(&pattern).await;
-            return EvoEvolutionResult {
+            return Ok(EvoEvolutionResult {
                 evolved: true,
                 skill_id: skill.id.clone(),
                 changes: vec!["New skill created from pattern".to_string()],
                 new_reliability: skill.reliability,
                 message: "New skill learned and stored".to_string(),
-            };
+            });
         }
 
-        EvoEvolutionResult {
+        Ok(EvoEvolutionResult {
             evolved: false,
             skill_id: String::new(),
             changes: vec![],
             new_reliability: 0.0,
             message: "No evolution needed".to_string(),
-        }
+        })
     }
 
     async fn find_similar_skill(&self, _pattern: &TaskPattern) -> Option<String> {
@@ -242,7 +247,7 @@ impl EvoV2Engine {
         skill_id: &str,
         pattern: &TaskPattern,
         success: bool,
-    ) -> EvoEvolutionResult {
+    ) -> Result<EvoEvolutionResult, String> {
         let mut skills = self.learned_skills.write().await;
 
         if let Some(skill) = skills.get_mut(skill_id) {
@@ -288,7 +293,7 @@ impl EvoV2Engine {
                 format!("Version: {}", skill.version),
             ];
 
-            return EvoEvolutionResult {
+            return Ok(EvoEvolutionResult {
                 evolved: true,
                 skill_id: skill_id.to_string(),
                 changes,
@@ -298,16 +303,16 @@ impl EvoV2Engine {
                 } else {
                     "Skill marked as less reliable".to_string()
                 },
-            };
+            });
         }
 
-        EvoEvolutionResult {
+        Ok(EvoEvolutionResult {
             evolved: false,
             skill_id: String::new(),
             changes: vec![],
             new_reliability: 0.0,
             message: "Skill not found".to_string(),
-        }
+        })
     }
 
     async fn create_skill_from_pattern(&self, pattern: &TaskPattern) -> EvoSkill {
@@ -608,7 +613,7 @@ mod tests {
             metadata: serde_json::json!({}),
         };
 
-        let result = engine.process_task(context).await;
+        let result = engine.process_task(context).await.unwrap();
 
         assert!(result.evolved || !result.evolved);
     }
@@ -666,7 +671,7 @@ async fn fetch_data(url: String) -> Result<String, String> {
             metadata: serde_json::json!({}),
         };
 
-        let result = engine.process_task(context).await;
+        let result = engine.process_task(context).await.unwrap();
 
         assert!(!result.evolved || result.evolved);
     }

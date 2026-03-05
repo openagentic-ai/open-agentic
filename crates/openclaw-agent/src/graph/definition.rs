@@ -49,6 +49,9 @@ pub enum NodeType {
     Executor,
     Aggregator,
     Terminal,
+    Conditional,
+    Loop,
+    Branch,
 }
 
 impl Default for NodeType {
@@ -63,6 +66,48 @@ pub struct NodeConfig {
     pub retry_on_failure: Option<bool>,
     pub max_retries: Option<usize>,
     pub aggregation: Option<String>,
+    pub condition: Option<ConditionConfig>,
+    pub loop_config: Option<LoopConfig>,
+    pub branch_config: Option<BranchConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConditionConfig {
+    pub expression: String,
+    pub true_target: Option<String>,
+    pub false_target: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoopConfig {
+    pub max_iterations: usize,
+    pub continue_condition: Option<String>,
+    pub break_condition: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BranchConfig {
+    pub branches: Vec<Branch>,
+    pub default_target: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Branch {
+    pub condition: String,
+    pub target: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoopResult {
+    pub iterations: usize,
+    pub completed: bool,
+    pub max_iterations: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BranchResult {
+    pub selected_branch: String,
+    pub executed: bool,
 }
 
 impl Default for NodeConfig {
@@ -72,6 +117,9 @@ impl Default for NodeConfig {
             retry_on_failure: Some(true),
             max_retries: Some(3),
             aggregation: None,
+            condition: None,
+            loop_config: None,
+            branch_config: None,
         }
     }
 }
@@ -260,6 +308,9 @@ mod tests {
             retry_on_failure: Some(false),
             max_retries: Some(5),
             aggregation: Some("sum".to_string()),
+            condition: None,
+            loop_config: None,
+            branch_config: None,
         };
 
         assert_eq!(config.timeout_ms, Some(60000));

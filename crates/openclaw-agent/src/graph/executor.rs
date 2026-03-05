@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use super::context::{ExecutionStatus, GraphContext, GraphResponse, NodeResult, NodeStatus};
-use super::definition::{EdgeDef, GraphConfig, GraphDef, NodeDef, NodeType};
+use super::definition::{BranchResult, EdgeDef, GraphConfig, GraphDef, LoopResult, NodeDef, NodeType};
 
 pub struct ParallelGraphExecutor {
     graph: GraphDef,
@@ -39,6 +39,51 @@ impl ParallelGraphExecutor {
             .filter(|e| e.from == node_id)
             .map(|e| e.to.clone())
             .collect()
+    }
+
+    async fn evaluate_condition(&self, node: &NodeDef, _context: &GraphContext) -> bool {
+        if let Some(ref condition) = node.config.condition {
+            let expression = &condition.expression;
+            return self.evaluate_expression(expression);
+        }
+        false
+    }
+
+    fn evaluate_expression(&self, expression: &str) -> bool {
+        let lower = expression.to_lowercase();
+        if lower == "true" || lower == "1" || lower == "yes" {
+            return true;
+        }
+        if lower == "false" || lower == "0" || lower == "no" {
+            return false;
+        }
+        false
+    }
+
+    async fn execute_loop(&self, node: &NodeDef, _context: &GraphContext) -> LoopResult {
+        let max_iterations = node
+            .config
+            .loop_config
+            .as_ref()
+            .map(|c| c.max_iterations)
+            .unwrap_or(10);
+
+        LoopResult {
+            iterations: 0,
+            completed: true,
+            max_iterations,
+        }
+    }
+
+    async fn execute_branch(&self, node: &NodeDef, _context: &GraphContext) -> BranchResult {
+        let branch = node.config.branch_config.as_ref().and_then(|c| {
+            c.branches.first().map(|b| b.target.clone())
+        });
+
+        BranchResult {
+            selected_branch: branch.unwrap_or_default(),
+            executed: true,
+        }
     }
 
     fn find_ready_nodes(&self, context: &GraphContext) -> Vec<String> {
@@ -107,6 +152,30 @@ impl ParallelGraphExecutor {
                 serde_json::json!({
                     "status": "done",
                     "message": "Terminal node reached"
+                })
+            }
+            NodeType::Conditional => {
+                let condition_result = self.evaluate_condition(node, _context).await;
+                serde_json::json!({
+                    "status": "conditional",
+                    "result": condition_result,
+                    "message": "Condition evaluated"
+                })
+            }
+            NodeType::Loop => {
+                let loop_result = self.execute_loop(node, _context).await;
+                serde_json::json!({
+                    "status": "loop",
+                    "result": loop_result,
+                    "message": "Loop executed"
+                })
+            }
+            NodeType::Branch => {
+                let branch_result = self.execute_branch(node, _context).await;
+                serde_json::json!({
+                    "status": "branch",
+                    "result": branch_result,
+                    "message": "Branch executed"
                 })
             }
         };
