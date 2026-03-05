@@ -1,6 +1,7 @@
 //! 语音识别 (STT) 模块
 
-mod local;
+pub mod local;
+pub mod streaming;
 
 use async_trait::async_trait;
 use base64::Engine;
@@ -11,6 +12,12 @@ use serde::Deserialize;
 use crate::types::{SttConfig, SttProvider, TranscriptionResult};
 
 pub use local::{LocalWhisperConfig, LocalWhisperStt, WhisperModelInfo, WhisperModelType};
+pub use streaming::{
+    StreamingTranscriptionConfig, StreamingSpeechToText, StreamingHandle,
+    StreamingAudioChunk, StreamingTranscriptionResult,
+    WhisperStreamingStt, WhisperStreamingBuilder,
+    AzureStreamingStt, StreamingSttBackend, StreamingSttProcessor,
+};
 
 /// 语音识别 Trait
 #[async_trait]

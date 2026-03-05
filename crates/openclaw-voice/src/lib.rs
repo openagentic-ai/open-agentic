@@ -32,9 +32,15 @@ pub use dialogue::{DialogueContext, DialogueContextManager, ConversationTurn, Sp
 pub use dialogue::intent::{IntentRecognizer, KeywordIntentRecognizer};
 pub use dialogue::slots::{Slot, SlotManager};
 pub use provider::ProviderRegistry;
-pub use stt::{SpeechToText, create_stt};
+pub use stt::{SpeechToText, create_stt, streaming::{
+    StreamingTranscriptionConfig, StreamingSpeechToText, StreamingHandle,
+    StreamingAudioChunk, StreamingTranscriptionResult,
+    WhisperStreamingStt, WhisperStreamingBuilder,
+    AzureStreamingStt, StreamingSttBackend, StreamingSttProcessor,
+}};
 pub use talk_mode::{TalkMode, TalkModeBuilder, TalkModeConfig, TalkModeEvent};
 pub use tts::{TextToSpeech, create_tts};
 pub use voice_agent::VoiceAgent;
+pub use wake::{WakeWordConfig, WakeEvent, VoiceWake, KeywordWakeDetector, SttWakeDetector, PorcupineWakeDetector, VoskWakeDetector, VoskModelType, WakeDetectorType, create_wake_detector};
 
 pub use types::{SttConfig, SttProvider, TtsConfig, TtsProvider, VoiceConfig, TranscriptionResult, SynthesisOptions};
