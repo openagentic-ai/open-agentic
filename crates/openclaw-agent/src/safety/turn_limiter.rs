@@ -10,34 +10,64 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TurnLimitConfig {
+    #[serde(default = "default_max_turns")]
     pub max_turns: u64,
+    #[serde(default = "default_max_tokens_per_turn")]
     pub max_tokens_per_turn: u64,
+    #[serde(default = "default_max_total_tokens")]
     pub max_total_tokens: u64,
+    #[serde(default)]
     pub window_size: usize,
+    #[serde(default)]
+    pub complexity_budget: HashMap<String, ComplexityBudget>,
+}
+
+fn default_max_turns() -> u64 { 100 }
+fn default_max_tokens_per_turn() -> u64 { 100000 }
+fn default_max_total_tokens() -> u64 { 1000000 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComplexityBudget {
+    pub max_turns: u64,
+    pub max_tokens: u64,
 }
 
 impl Default for TurnLimitConfig {
     fn default() -> Self {
+        let mut complexity_budget = HashMap::new();
+        complexity_budget.insert("simple".to_string(), ComplexityBudget { max_turns: 3, max_tokens: 300000 });
+        complexity_budget.insert("medium".to_string(), ComplexityBudget { max_turns: 10, max_tokens: 1000000 });
+        complexity_budget.insert("complex".to_string(), ComplexityBudget { max_turns: 20, max_tokens: 2000000 });
+        
         Self {
             max_turns: 100,
             max_tokens_per_turn: 100000,
             max_total_tokens: 1000000,
             window_size: 10,
+            complexity_budget,
         }
     }
 }
 
 impl TurnLimitConfig {
     pub fn from_complexity(complexity: &crate::decision::TaskComplexity) -> Self {
-        Self {
-            max_turns: complexity.recommended_max_turns() as u64,
-            max_tokens_per_turn: 100000,
-            max_total_tokens: complexity.recommended_max_turns() as u64 * 100000,
-            window_size: 10,
+        let mut config = Self::default();
+        let key = match complexity {
+            crate::decision::TaskComplexity::Simple => "simple",
+            crate::decision::TaskComplexity::Medium => "medium",
+            crate::decision::TaskComplexity::Complex => "complex",
+        };
+        
+        if let Some(budget) = config.complexity_budget.get(key) {
+            config.max_turns = budget.max_turns;
+            config.max_total_tokens = budget.max_tokens;
         }
+        
+        config
     }
 }
 
@@ -255,6 +285,7 @@ mod tests {
             max_tokens_per_turn: 100,
             max_total_tokens: 500,
             window_size: 3,
+            ..Default::default()
         })
     }
 
@@ -274,6 +305,7 @@ mod tests {
             max_tokens_per_turn: 1000,
             max_total_tokens: 10000,
             window_size: 3,
+            ..Default::default()
         });
         
         for _ in 0..4 {
@@ -301,6 +333,7 @@ mod tests {
             max_tokens_per_turn: 1000,
             max_total_tokens: 500,
             window_size: 3,
+            ..Default::default()
         });
         
         for _ in 0..4 {
@@ -319,6 +352,7 @@ mod tests {
             max_tokens_per_turn: 1000,
             max_total_tokens: 10000,
             window_size: 3,
+            ..Default::default()
         });
         
         limiter.increment_turn(10).unwrap();
@@ -362,6 +396,7 @@ mod tests {
             max_tokens_per_turn: 1000,
             max_total_tokens: 10000,
             window_size: 3,
+            ..Default::default()
         });
         
         assert!(limiter.check().is_ok());
@@ -380,6 +415,7 @@ mod tests {
             max_tokens_per_turn: 1000,
             max_total_tokens: 10000,
             window_size: 3,
+            ..Default::default()
         });
         
         assert!(!limiter.is_limited());

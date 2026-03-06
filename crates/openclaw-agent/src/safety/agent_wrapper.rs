@@ -263,6 +263,7 @@ mod tests {
                 max_tokens_per_turn: 1000,
                 max_total_tokens: 10000,
                 window_size: 3,
+                ..Default::default()
             },
             timeout_config: TimeoutConfig {
                 operation_timeout_ms: 60000,

@@ -6005,6 +6005,7 @@ dependencies = [
  "futures",
  "futures-util",
  "openclaw-core",
+ "openclaw-ws",
  "regex",
  "reqwest",
  "serde",
@@ -6040,6 +6041,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "serde_yaml",
  "thiserror 2.0.18",
  "tokio",
  "tokio-test",
@@ -6099,11 +6101,14 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
+ "futures-util",
  "openclaw-core",
+ "openclaw-ws",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-tungstenite 0.26.2",
  "tracing",
  "uuid",
 ]
@@ -6221,13 +6226,16 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "lancedb",
  "openclaw-ai",
  "openclaw-core",
  "openclaw-vector",
+ "qdrant-client",
  "regex",
  "reqwest",
  "serde",
  "serde_json",
+ "sqlx",
  "tantivy",
  "tempfile",
  "thiserror 2.0.18",
@@ -6293,6 +6301,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "config",
+ "dirs 6.0.0",
  "futures",
  "lru",
  "once_cell",
@@ -6310,6 +6319,7 @@ dependencies = [
  "openclaw-tools",
  "openclaw-vector",
  "openclaw-voice",
+ "openclaw-ws",
  "rand 0.8.5",
  "regex",
  "reqwest",
@@ -6394,6 +6404,24 @@ dependencies = [
  "uuid",
  "whisper-rs",
  "zip 2.4.2",
+]
+
+[[package]]
+name = "openclaw-ws"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum 0.8.8",
+ "futures",
+ "futures-util",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-tungstenite 0.26.2",
+ "tower 0.5.3",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
