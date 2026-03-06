@@ -40,6 +40,7 @@ pub enum SkillType {
     Account,
     Config,
     Workflow,
+    Squad,
 }
 
 impl Default for SkillType {
@@ -215,6 +216,31 @@ impl DynamicSkill {
         }
     }
 
+    pub fn new_squad(
+        id: String,
+        name: String,
+        metadata: HashMap<String, String>,
+    ) -> Self {
+        Self {
+            id,
+            name,
+            description: String::new(),
+            format: SkillFormat::default(),
+            skill_type: SkillType::Squad,
+            code: None,
+            instructions: None,
+            language: "squad".to_string(),
+            source: SkillSource::default(),
+            gating: None,
+            compatibility: None,
+            metadata,
+            allowed_tools: Vec::new(),
+            created_by: "user".to_string(),
+            created_at: Utc::now(),
+            version: "1.0.0".to_string(),
+        }
+    }
+
     pub fn new_config(
         id: String,
         name: String,
@@ -287,6 +313,10 @@ impl DynamicSkill {
 
     pub fn is_workflow(&self) -> bool {
         self.skill_type == SkillType::Workflow
+    }
+
+    pub fn is_squad(&self) -> bool {
+        self.skill_type == SkillType::Squad
     }
 }
 
