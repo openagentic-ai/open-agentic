@@ -34,14 +34,15 @@ fn default_max_total_tokens() -> u64 { 1000000 }
 pub struct ComplexityBudget {
     pub max_turns: u64,
     pub max_tokens: u64,
+    pub timeout_ms: u64,
 }
 
 impl Default for TurnLimitConfig {
     fn default() -> Self {
         let mut complexity_budget = HashMap::new();
-        complexity_budget.insert("simple".to_string(), ComplexityBudget { max_turns: 3, max_tokens: 300000 });
-        complexity_budget.insert("medium".to_string(), ComplexityBudget { max_turns: 10, max_tokens: 1000000 });
-        complexity_budget.insert("complex".to_string(), ComplexityBudget { max_turns: 20, max_tokens: 2000000 });
+        complexity_budget.insert("simple".to_string(), ComplexityBudget { max_turns: 3, max_tokens: 300000, timeout_ms: 30000 });
+        complexity_budget.insert("medium".to_string(), ComplexityBudget { max_turns: 10, max_tokens: 1000000, timeout_ms: 120000 });
+        complexity_budget.insert("complex".to_string(), ComplexityBudget { max_turns: 20, max_tokens: 2000000, timeout_ms: 300000 });
         
         Self {
             max_turns: 100,
@@ -68,6 +69,17 @@ impl TurnLimitConfig {
         }
         
         config
+    }
+    
+    pub fn timeout_from_complexity(complexity: &crate::decision::TaskComplexity) -> u64 {
+        let config = Self::default();
+        let key = match complexity {
+            crate::decision::TaskComplexity::Simple => "simple",
+            crate::decision::TaskComplexity::Medium => "medium",
+            crate::decision::TaskComplexity::Complex => "complex",
+        };
+        
+        config.complexity_budget.get(key).map(|b| b.timeout_ms).unwrap_or(60000)
     }
 }
 

@@ -62,22 +62,6 @@ impl TaskComplexity {
             }
         }
     }
-
-    pub fn recommended_max_turns(&self) -> u32 {
-        match self {
-            TaskComplexity::Simple => 3,
-            TaskComplexity::Medium => 10,
-            TaskComplexity::Complex => 20,
-        }
-    }
-
-    pub fn recommended_timeout_ms(&self) -> u64 {
-        match self {
-            TaskComplexity::Simple => 30_000,
-            TaskComplexity::Medium => 120_000,
-            TaskComplexity::Complex => 300_000,
-        }
-    }
 }
 
 pub struct TaskAnalyzer;
