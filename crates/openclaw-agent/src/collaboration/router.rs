@@ -1,16 +1,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
 
 use super::message_bus::AgentMessage;
 use super::metrics::CollaborationMetrics;
-use crate::squad::SquadRegistry;
 
 pub struct MessageRouter {
-    squad_registry: Arc<SquadRegistry>,
     metrics: Arc<CollaborationMetrics>,
     routing_rules: Arc<RwLock<HashMap<String, Vec<RouteRule>>>>,
     fallback_agents: Arc<RwLock<HashMap<String, String>>>,
@@ -59,9 +56,8 @@ impl Default for RouteOperator {
 }
 
 impl MessageRouter {
-    pub fn new(squad_registry: Arc<SquadRegistry>, metrics: Arc<CollaborationMetrics>) -> Self {
+    pub fn new(metrics: Arc<CollaborationMetrics>) -> Self {
         Self {
-            squad_registry,
             metrics,
             routing_rules: Arc::new(RwLock::new(HashMap::new())),
             fallback_agents: Arc::new(RwLock::new(HashMap::new())),
@@ -210,7 +206,6 @@ impl MessageRouter {
 impl Default for MessageRouter {
     fn default() -> Self {
         Self::new(
-            Arc::new(SquadRegistry::new()),
             Arc::new(CollaborationMetrics::new()),
         )
     }
@@ -239,7 +234,6 @@ mod tests {
     #[tokio::test]
     async fn test_router_creation() {
         let router = MessageRouter::new(
-            Arc::new(SquadRegistry::new()),
             Arc::new(CollaborationMetrics::new()),
         );
         
