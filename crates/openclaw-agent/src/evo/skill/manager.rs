@@ -1,8 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use tokio::sync::RwLock;
-
 use super::local::LocalSkillManager;
 use super::source::{Skill, SkillOrigin, InstalledSkill, SearchResult};
 use crate::evo::registry::SharedSkillRegistry;

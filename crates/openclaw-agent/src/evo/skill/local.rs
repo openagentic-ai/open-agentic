@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use chrono::Utc;
-use tokio::sync::RwLock;
 
 use super::source::{InstalledSkill, SkillOrigin};
 use crate::evo::registry::{DynamicSkill, SharedSkillRegistry, SkillSource};
