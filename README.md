@@ -223,3 +223,7 @@ cargo clippy
 ## 许可证
 
 MIT License — 详见 [LICENSE](LICENSE)。
+
+---
+
+**OpenAgentic** — 让 AI 助手更简单、更强大
