@@ -183,3 +183,7 @@ open-agentic/
 ## License
 
 MIT License — See [LICENSE](LICENSE).
+
+---
+
+**OpenAgentic** — 让 AI 助手更简单、更强大
