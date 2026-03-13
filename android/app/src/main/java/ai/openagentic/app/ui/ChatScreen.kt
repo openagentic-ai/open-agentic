@@ -17,6 +17,11 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Mic
@@ -259,9 +264,8 @@ fun ChatScreen(
 @Composable
 fun MessageBubble(message: ChatMessage) {
     val isUser = message.isUser
-    val clipboardManager = LocalClipboardManager.current
     val haptic = LocalHapticFeedback.current
-    var showCopied by remember { mutableStateOf(false) }
+    var showTextDialog by remember { mutableStateOf(false) }
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -273,9 +277,8 @@ fun MessageBubble(message: ChatMessage) {
                 .combinedClickable(
                     onClick = {},
                     onLongClick = {
-                        clipboardManager.setText(AnnotatedString(message.content))
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        showCopied = true
+                        showTextDialog = true
                     },
                 ),
             shape = RoundedCornerShape(
@@ -301,22 +304,73 @@ fun MessageBubble(message: ChatMessage) {
         }
     }
 
-    // "Copied" toast
-    if (showCopied) {
-        LaunchedEffect(Unit) {
-            kotlinx.coroutines.delay(1500)
-            showCopied = false
-        }
-        Box(
-            modifier = Modifier.fillMaxWidth(),
-            contentAlignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart,
+    if (showTextDialog) {
+        MessageTextDialog(
+            text = message.content,
+            onDismiss = { showTextDialog = false },
+        )
+    }
+}
+
+@Composable
+fun MessageTextDialog(
+    text: String,
+    onDismiss: () -> Unit,
+) {
+    val clipboardManager = LocalClipboardManager.current
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 8.dp,
         ) {
-            Text(
-                text = "Copied",
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp),
-            )
+            Column(modifier = Modifier.padding(20.dp)) {
+                Text(
+                    text = "Select text to copy",
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
+
+                SelectionContainer(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 400.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    Text(
+                        text = text,
+                        fontSize = 15.sp,
+                        lineHeight = 22.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = {
+                        clipboardManager.setText(AnnotatedString(text))
+                    }) {
+                        Text("Copy All")
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    TextButton(onClick = onDismiss) {
+                        Text("Close")
+                    }
+                }
+            }
         }
     }
 }
