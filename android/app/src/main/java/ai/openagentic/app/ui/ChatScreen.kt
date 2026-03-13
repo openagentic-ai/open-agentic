@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Mic
@@ -270,15 +271,17 @@ fun MessageBubble(message: ChatMessage) {
             else
                 MaterialTheme.colorScheme.surfaceVariant,
         ) {
-            Text(
-                text = message.content + if (message.isStreaming) "\u258C" else "",
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                color = if (isUser)
-                    MaterialTheme.colorScheme.onPrimary
-                else
-                    MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 15.sp,
-            )
+            SelectionContainer {
+                Text(
+                    text = message.content + if (message.isStreaming) "\u258C" else "",
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    color = if (isUser)
+                        MaterialTheme.colorScheme.onPrimary
+                    else
+                        MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 15.sp,
+                )
+            }
         }
     }
 }
