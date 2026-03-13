@@ -29,6 +29,13 @@
     <string name="error_prefix">Error: %s</string>
     <string name="error_sse_failed">Streaming failed</string>
 
+    <!-- Language -->
+    <string name="language">Language</string>
+    <string name="language_system">System</string>
+    <string name="language_english">English</string>
+    <string name="language_chinese">中文</string>
+    <string name="language_restart_hint">Language will change after restart</string>
+
     <!-- Voice -->
     <string name="voice_coming_soon">Voice input coming soon</string>
 </resources>

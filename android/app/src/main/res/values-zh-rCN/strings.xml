@@ -29,6 +29,13 @@
     <string name="error_prefix">错误：%s</string>
     <string name="error_sse_failed">流式连接失败</string>
 
+    <!-- Language -->
+    <string name="language">语言</string>
+    <string name="language_system">跟随系统</string>
+    <string name="language_english">English</string>
+    <string name="language_chinese">中文</string>
+    <string name="language_restart_hint">切换语言后将自动重启</string>
+
     <!-- Voice -->
     <string name="voice_coming_soon">语音输入即将上线</string>
 </resources>

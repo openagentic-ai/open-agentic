@@ -38,8 +38,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs: SharedPreferences =
         application.getSharedPreferences("openagentic", Application.MODE_PRIVATE)
 
+    val currentLanguage: String
+        get() = LocaleHelper.getSavedLanguage(getApplication())
+
     private fun str(resId: Int): String = getApplication<Application>().getString(resId)
     private fun str(resId: Int, vararg args: Any): String = getApplication<Application>().getString(resId, *args)
+
+    fun setLanguage(language: String) {
+        LocaleHelper.saveLanguage(getApplication(), language)
+    }
 
     init {
         _uiState.value = _uiState.value.copy(

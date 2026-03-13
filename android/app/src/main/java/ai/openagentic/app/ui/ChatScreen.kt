@@ -37,6 +37,8 @@ fun ChatScreen(
     onUpdateSettings: (String, String, String) -> Unit,
     onConnect: () -> Unit,
     onDismissError: () -> Unit,
+    onLanguageChange: (String) -> Unit = {},
+    currentLanguage: String = "system",
 ) {
     var inputText by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
@@ -233,12 +235,14 @@ fun ChatScreen(
             username = uiState.username,
             password = uiState.password,
             isConnected = uiState.isConnected,
+            currentLanguage = currentLanguage,
             onDismiss = { showSettings = false },
             onSave = { url, user, pass ->
                 onUpdateSettings(url, user, pass)
                 onConnect()
                 showSettings = false
             },
+            onLanguageChange = onLanguageChange,
         )
     }
 }
@@ -283,8 +287,10 @@ fun SettingsDialog(
     username: String,
     password: String,
     isConnected: Boolean,
+    currentLanguage: String,
     onDismiss: () -> Unit,
     onSave: (String, String, String) -> Unit,
+    onLanguageChange: (String) -> Unit,
 ) {
     var url by remember { mutableStateOf(gatewayUrl) }
     var user by remember { mutableStateOf(username) }
@@ -318,6 +324,39 @@ fun SettingsDialog(
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
                 )
+
+                // Language selector
+                Text(
+                    text = stringResource(R.string.language),
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    LanguageChip(
+                        label = stringResource(R.string.language_system),
+                        selected = currentLanguage == "system",
+                        onClick = { onLanguageChange("system") },
+                        modifier = Modifier.weight(1f),
+                    )
+                    LanguageChip(
+                        label = stringResource(R.string.language_chinese),
+                        selected = currentLanguage == "zh",
+                        onClick = { onLanguageChange("zh") },
+                        modifier = Modifier.weight(1f),
+                    )
+                    LanguageChip(
+                        label = stringResource(R.string.language_english),
+                        selected = currentLanguage == "en",
+                        onClick = { onLanguageChange("en") },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+
+                // Connection status
                 Text(
                     text = if (isConnected) stringResource(R.string.connected)
                     else stringResource(R.string.not_connected),
@@ -336,5 +375,22 @@ fun SettingsDialog(
                 Text(stringResource(R.string.cancel))
             }
         },
+    )
+}
+
+@Composable
+fun LanguageChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = {
+            Text(label, fontSize = 13.sp, maxLines = 1)
+        },
+        modifier = modifier,
     )
 }
