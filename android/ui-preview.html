@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>OpenAgentic - UI Preview</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --primary: #6750A4;
+    --primary-light: #E8DEF8;
+    --surface: #FFFBFE;
+    --surface-variant: #E7E0EC;
+    --on-primary: #FFFFFF;
+    --on-surface: #1C1B1F;
+    --on-surface-variant: #49454F;
+    --error-container: #F9DEDC;
+    --outline: #79747E;
+  }
+
+  body {
+    font-family: -apple-system, 'Roboto', 'Noto Sans SC', sans-serif;
+    background: var(--surface);
+    color: var(--on-surface);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* Top bar */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--surface-variant);
+    background: var(--surface);
+    min-height: 56px;
+  }
+
+  .topbar-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .topbar h1 {
+    font-size: 20px;
+    font-weight: 500;
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #E0E0E0;
+  }
+
+  .status-dot.connected {
+    background: #4CAF50;
+  }
+
+  .settings-btn {
+    background: none;
+    border: none;
+    font-size: 22px;
+    color: var(--on-surface-variant);
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 50%;
+  }
+
+  .settings-btn:hover { background: var(--surface-variant); }
+
+  /* Chat area */
+  .chat-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .empty-state h2 {
+    font-size: 24px;
+    color: var(--primary);
+    font-weight: 500;
+  }
+
+  .empty-state p {
+    font-size: 14px;
+    color: var(--on-surface-variant);
+  }
+
+  /* Message bubbles */
+  .message {
+    display: flex;
+    max-width: 80%;
+  }
+
+  .message.user {
+    align-self: flex-end;
+  }
+
+  .message.ai {
+    align-self: flex-start;
+  }
+
+  .bubble {
+    padding: 10px 14px;
+    font-size: 15px;
+    line-height: 1.5;
+    word-break: break-word;
+  }
+
+  .message.user .bubble {
+    background: var(--primary);
+    color: var(--on-primary);
+    border-radius: 16px 16px 4px 16px;
+  }
+
+  .message.ai .bubble {
+    background: var(--surface-variant);
+    color: var(--on-surface-variant);
+    border-radius: 16px 16px 16px 4px;
+  }
+
+  .typing {
+    font-size: 13px;
+    color: var(--on-surface-variant);
+    padding: 4px 0;
+  }
+
+  /* Input bar */
+  .input-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-top: 1px solid var(--surface-variant);
+    background: var(--surface);
+  }
+
+  .input-bar input {
+    flex: 1;
+    border: 1px solid var(--outline);
+    border-radius: 24px;
+    padding: 10px 16px;
+    font-size: 15px;
+    outline: none;
+    background: var(--surface);
+    color: var(--on-surface);
+  }
+
+  .input-bar input:focus {
+    border-color: var(--primary);
+    border-width: 2px;
+  }
+
+  .input-bar input::placeholder {
+    color: var(--on-surface-variant);
+  }
+
+  .icon-btn {
+    width: 44px;
+    height: 44px;
+    border: none;
+    background: none;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    color: var(--primary);
+    flex-shrink: 0;
+  }
+
+  .icon-btn:hover { background: var(--surface-variant); }
+  .icon-btn:disabled { color: var(--on-surface-variant); opacity: 0.5; }
+
+  /* Settings dialog */
+  .dialog-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .dialog-overlay.show { display: flex; }
+
+  .dialog {
+    background: var(--surface);
+    border-radius: 24px;
+    padding: 24px;
+    width: 90%;
+    max-width: 360px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+  }
+
+  .dialog h3 {
+    font-size: 18px;
+    margin-bottom: 16px;
+  }
+
+  .section-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--primary);
+    margin-top: 16px;
+    margin-bottom: 4px;
+  }
+
+  .section-title:first-of-type {
+    margin-top: 0;
+  }
+
+  .section-divider {
+    border: none;
+    border-top: 1px solid var(--surface-variant);
+    margin: 4px 0 8px 0;
+  }
+
+  .lang-chips {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .lang-chip {
+    flex: 1;
+    padding: 6px 0;
+    border: 1px solid var(--outline);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--on-surface);
+    font-size: 13px;
+    cursor: pointer;
+    text-align: center;
+  }
+
+  .lang-chip:hover { background: var(--surface-variant); }
+
+  .lang-chip.selected {
+    background: var(--primary-light);
+    border-color: var(--primary);
+    color: var(--primary);
+    font-weight: 500;
+  }
+
+  .dialog label {
+    display: block;
+    font-size: 12px;
+    color: var(--on-surface-variant);
+    margin-bottom: 4px;
+    margin-top: 12px;
+  }
+
+  .dialog input {
+    width: 100%;
+    border: 1px solid var(--outline);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 14px;
+    outline: none;
+    background: var(--surface);
+  }
+
+  .dialog input:focus { border-color: var(--primary); }
+
+  .dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 20px;
+  }
+
+  .dialog-actions button {
+    border: none;
+    background: none;
+    padding: 8px 16px;
+    font-size: 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    color: var(--primary);
+    font-weight: 500;
+  }
+
+  .dialog-actions button:hover {
+    background: var(--primary-light);
+  }
+
+  /* Error banner */
+  .error-banner {
+    display: none;
+    background: var(--error-container);
+    padding: 8px 16px;
+    font-size: 13px;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .error-banner.show { display: flex; }
+</style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div class="topbar">
+  <div class="topbar-left">
+    <h1>OpenAgentic</h1>
+    <div class="status-dot connected" id="statusDot"></div>
+  </div>
+  <button class="settings-btn" onclick="toggleSettings()">&#9881;</button>
+</div>
+
+<!-- Error banner -->
+<div class="error-banner" id="errorBanner">
+  <span id="errorText"></span>
+  <button style="background:none;border:none;color:var(--primary);cursor:pointer" onclick="hideError()">Dismiss</button>
+</div>
+
+<!-- Chat area -->
+<div class="chat-area" id="chatArea">
+  <div class="empty-state" id="emptyState">
+    <h2>OpenAgentic</h2>
+    <p>Ask me anything</p>
+  </div>
+</div>
+
+<!-- Input bar -->
+<div class="input-bar">
+  <input type="text" id="messageInput" placeholder="Type a message..."
+    onkeydown="if(event.key==='Enter')sendMessage()">
+  <button class="icon-btn" onclick="alert('Voice input - coming soon')" title="Voice input">&#127908;</button>
+  <button class="icon-btn" id="sendBtn" onclick="sendMessage()" title="Send">&#10148;</button>
+</div>
+
+<!-- Settings dialog -->
+<div class="dialog-overlay" id="settingsDialog">
+  <div class="dialog">
+    <h3>Settings</h3>
+
+    <!-- Gateway Settings -->
+    <div class="section-title">Gateway Settings</div>
+    <hr class="section-divider">
+    <label>Gateway URL</label>
+    <input type="text" id="gatewayUrl" placeholder="http://192.168.0.15:18789" value="http://192.168.0.15:18789">
+    <label>Username</label>
+    <input type="text" id="username" placeholder="admin" value="admin">
+    <label>Password</label>
+    <input type="password" id="password" placeholder="Password">
+    <div style="margin-top:8px;font-size:13px;color:#4CAF50" id="connStatus">Connected</div>
+
+    <!-- Language Settings -->
+    <div class="section-title">Language Settings</div>
+    <hr class="section-divider">
+    <div class="lang-chips">
+      <button class="lang-chip" onclick="setLang(this,'system')">System</button>
+      <button class="lang-chip selected" onclick="setLang(this,'zh')">简体中文</button>
+      <button class="lang-chip" onclick="setLang(this,'en')">English</button>
+    </div>
+
+    <div class="dialog-actions">
+      <button onclick="toggleSettings()">Cancel</button>
+      <button onclick="saveSettings()">Connect</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Demo messages for preview
+  const demoMessages = [
+    { text: 'Hello! How can I help you?', isUser: false },
+    { text: 'What is the weather in Fuzhou today?', isUser: true },
+    { text: 'The weather in Fuzhou today is partly cloudy, with temperatures around 22°C. Moderate humidity at 65%. A light breeze from the southeast.\n\nPerfect day to go outside!', isUser: false },
+    { text: 'Thanks! Can you help me send a message to Zhang San on WeChat?', isUser: true },
+    { text: 'I can help with that! Here\'s what I\'ll do:\n\n1. Open WeChat\n2. Search for "Zhang San"\n3. Open the chat\n4. Type your message\n\nWhat would you like to say to Zhang San?', isUser: false },
+  ];
+
+  const chatArea = document.getElementById('chatArea');
+  const emptyState = document.getElementById('emptyState');
+
+  // Load demo messages
+  function loadDemo() {
+    emptyState.style.display = 'none';
+    demoMessages.forEach(msg => addMessage(msg.text, msg.isUser));
+    chatArea.scrollTop = chatArea.scrollHeight;
+  }
+
+  function addMessage(text, isUser) {
+    const div = document.createElement('div');
+    div.className = `message ${isUser ? 'user' : 'ai'}`;
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.textContent = text;
+    div.appendChild(bubble);
+    chatArea.appendChild(div);
+    chatArea.scrollTop = chatArea.scrollHeight;
+  }
+
+  function sendMessage() {
+    const input = document.getElementById('messageInput');
+    const text = input.value.trim();
+    if (!text) return;
+
+    if (emptyState.style.display !== 'none') {
+      emptyState.style.display = 'none';
+    }
+
+    addMessage(text, true);
+    input.value = '';
+
+    // Simulate AI response
+    const typing = document.createElement('div');
+    typing.className = 'typing';
+    typing.textContent = 'Thinking...';
+    chatArea.appendChild(typing);
+    chatArea.scrollTop = chatArea.scrollHeight;
+
+    setTimeout(() => {
+      chatArea.removeChild(typing);
+      addMessage('This is a UI preview. In the real app, this response would come from your Gateway + LLM.', false);
+    }, 1500);
+  }
+
+  function toggleSettings() {
+    const d = document.getElementById('settingsDialog');
+    d.classList.toggle('show');
+  }
+
+  function saveSettings() {
+    toggleSettings();
+  }
+
+  function showError(msg) {
+    document.getElementById('errorText').textContent = msg;
+    document.getElementById('errorBanner').classList.add('show');
+  }
+
+  function hideError() {
+    document.getElementById('errorBanner').classList.remove('show');
+  }
+
+  function setLang(el, lang) {
+    document.querySelectorAll('.lang-chip').forEach(c => c.classList.remove('selected'));
+    el.classList.add('selected');
+  }
+
+  // Load demo on start
+  loadDemo();
+</script>
+</body>
+</html>
