@@ -17,6 +17,26 @@ data class LoginResponse(
     @SerializedName("token_type") val tokenType: String,
 )
 
+// Ollama native API format
+data class OllamaChatRequest(
+    val model: String,
+    val messages: List<OllamaChatMessage>,
+    val stream: Boolean = false,
+)
+
+data class OllamaChatMessage(
+    val role: String,
+    val content: String,
+)
+
+data class OllamaChatResponse(
+    val model: String? = null,
+    val message: OllamaChatMessage? = null,
+    @SerializedName("done") val done: Boolean = true,
+    val error: String? = null,
+)
+
+// Legacy types kept for compatibility
 data class ChatRequest(
     val message: String,
     val model: String? = null,
@@ -28,7 +48,7 @@ data class ChatResponse(
 )
 
 data class HealthResponse(
-    val status: String,
+    val status: String? = null,
     val version: String? = null,
 )
 
@@ -37,12 +57,9 @@ interface GatewayApi {
     @POST("api/auth/login")
     suspend fun login(@Body request: LoginRequest): LoginResponse
 
-    @GET("health")
-    suspend fun health(): HealthResponse
+    @GET("api/tags")
+    suspend fun ollamaHealth(): Any
 
-    @POST("chat")
-    suspend fun chat(
-        @Header("Authorization") auth: String,
-        @Body request: ChatRequest,
-    ): ChatResponse
+    @POST("api/chat")
+    suspend fun ollamaChat(@Body request: OllamaChatRequest): OllamaChatResponse
 }

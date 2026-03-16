@@ -68,10 +68,4 @@ class ApiClient(baseUrl: String) {
         }
     }
 
-    /**
-     * Send chat request (non-streaming)
-     */
-    suspend fun chat(token: String, message: String): ChatResponse {
-        return api.chat("Bearer $token", ChatRequest(message = message))
-    }
 }

@@ -5,11 +5,11 @@ import android.content.SharedPreferences
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import ai.openagentic.app.api.ApiClient
-import ai.openagentic.app.api.LoginRequest
+import ai.openagentic.app.api.OllamaChatRequest
+import ai.openagentic.app.api.OllamaChatMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 
 data class ChatMessage(
@@ -38,6 +38,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs: SharedPreferences =
         application.getSharedPreferences("openagentic", Application.MODE_PRIVATE)
 
+    private val model: String
+        get() = prefs.getString("model", "qwen3:14b") ?: "qwen3:14b"
+
+    // Keep conversation history for context
+    private val conversationHistory = mutableListOf<OllamaChatMessage>()
+
     val currentLanguage: String
         get() = LocaleHelper.getSavedLanguage(getApplication())
 
@@ -50,8 +56,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         _uiState.value = _uiState.value.copy(
-            gatewayUrl = prefs.getString("gateway_url", "http://192.168.0.15:18789") ?: "",
-            username = prefs.getString("username", "admin") ?: "",
+            gatewayUrl = prefs.getString("gateway_url", "http://192.168.0.15:11434") ?: "",
+            username = prefs.getString("username", "") ?: "",
             password = prefs.getString("password", "") ?: "",
         )
         if (_uiState.value.gatewayUrl.isNotEmpty()) {
@@ -84,25 +90,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             try {
-                apiClient!!.api.health()
-
-                val user = _uiState.value.username
-                val pass = _uiState.value.password
-                if (user.isNotBlank() && pass.isNotBlank()) {
-                    val loginResp = apiClient!!.api.login(LoginRequest(user, pass))
-                    _uiState.value = _uiState.value.copy(
-                        isConnected = true,
-                        isLoading = false,
-                        token = loginResp.token,
-                        errorMessage = null,
-                    )
-                } else {
-                    _uiState.value = _uiState.value.copy(
-                        isConnected = true,
-                        isLoading = false,
-                        errorMessage = null,
-                    )
-                }
+                // Check Ollama is reachable by listing models
+                apiClient!!.api.ollamaHealth()
+                _uiState.value = _uiState.value.copy(
+                    isConnected = true,
+                    isLoading = false,
+                    token = "ollama", // placeholder, Ollama doesn't need auth
+                    errorMessage = null,
+                )
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isConnected = false,
@@ -117,7 +112,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (text.isBlank()) return
 
         val client = apiClient ?: return
-        val token = _uiState.value.token
+
+        // Add user message to history
+        conversationHistory.add(OllamaChatMessage(role = "user", content = text))
 
         val userMsg = ChatMessage(content = text, isUser = true)
         _uiState.value = _uiState.value.copy(
@@ -127,32 +124,24 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             try {
-                if (token != null) {
-                    val aiMsg = ChatMessage(content = "", isUser = false, isStreaming = true)
-                    _uiState.value = _uiState.value.copy(
-                        messages = _uiState.value.messages + aiMsg,
-                    )
+                val request = OllamaChatRequest(
+                    model = model,
+                    messages = conversationHistory.toList(),
+                    stream = false,
+                )
+                val response = client.api.ollamaChat(request)
 
-                    val sb = StringBuilder()
-                    client.chatStream(_uiState.value.gatewayUrl, token, text)
-                        .catch {
-                            val resp = client.chat(token, text)
-                            val content = resp.response ?: resp.error ?: str(R.string.error_no_response)
-                            updateLastAiMessage(content, streaming = false)
-                        }
-                        .collect { chunk ->
-                            sb.append(chunk)
-                            updateLastAiMessage(sb.toString(), streaming = true)
-                        }
-                    updateLastAiMessage(sb.toString(), streaming = false)
-                } else {
-                    val resp = client.chat("", text)
-                    val content = resp.response ?: resp.error ?: str(R.string.error_no_response)
-                    val aiMsg = ChatMessage(content = content, isUser = false)
-                    _uiState.value = _uiState.value.copy(
-                        messages = _uiState.value.messages + aiMsg,
-                    )
-                }
+                val content = response.message?.content
+                    ?: response.error
+                    ?: str(R.string.error_no_response)
+
+                // Add assistant reply to history
+                conversationHistory.add(OllamaChatMessage(role = "assistant", content = content))
+
+                val aiMsg = ChatMessage(content = content, isUser = false)
+                _uiState.value = _uiState.value.copy(
+                    messages = _uiState.value.messages + aiMsg,
+                )
             } catch (e: Exception) {
                 val errMsg = ChatMessage(
                     content = str(R.string.error_prefix, e.message ?: ""),
@@ -167,16 +156,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun updateLastAiMessage(content: String, streaming: Boolean) {
-        val msgs = _uiState.value.messages.toMutableList()
-        if (msgs.isNotEmpty() && !msgs.last().isUser) {
-            msgs[msgs.lastIndex] = msgs.last().copy(content = content, isStreaming = streaming)
-            _uiState.value = _uiState.value.copy(messages = msgs)
-        }
-    }
-
     fun clearMessages() {
         _uiState.value = _uiState.value.copy(messages = emptyList())
+        conversationHistory.clear()
     }
 
     fun dismissError() {
