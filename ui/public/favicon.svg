@@ -1,11 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
   <defs>
-    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#0ea5e9;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#0284c7;stop-opacity:1" />
+    <linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0284c7"/>
     </linearGradient>
   </defs>
-  <circle cx="50" cy="50" r="45" fill="url(#grad)"/>
-  <path d="M30 40 L50 30 L70 40 L70 60 L50 70 L30 60 Z" fill="white" opacity="0.9"/>
-  <circle cx="50" cy="50" r="10" fill="url(#grad)"/>
+  <!-- Orbital 1 -->
+  <ellipse cx="50" cy="50" rx="38" ry="16" fill="none" stroke="url(#g1)" stroke-width="5.5" transform="rotate(-45 50 50)" stroke-linecap="round"/>
+  <!-- Orbital 2 -->
+  <ellipse cx="50" cy="50" rx="38" ry="16" fill="none" stroke="url(#g1)" stroke-width="5.5" transform="rotate(45 50 50)" stroke-linecap="round"/>
+  <!-- Nucleus -->
+  <circle cx="50" cy="50" r="8" fill="url(#g1)"/>
 </svg>
