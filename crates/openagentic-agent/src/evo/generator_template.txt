@@ -1,4 +1,0 @@
-pub async fn {{name}}({{params}}) -> Result<{{return_type}}, String> {
-    // Auto-generated skill
-    Ok({{return_type}}::default())
-}
