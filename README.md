@@ -19,7 +19,7 @@
 - [技术模块详解（十小节）](#技术模块详解是什么--为何选型--解决什么问题)
 - [规划能力总览（Phase 2–6）](#规划能力总览phase-26)
 - [技术栈总览](#技术栈总览)
-- [架构设计](#架构设计)
+- [架构设计](#架构设计)（含逻辑简图、分层详解、仓库目录）
 - [核心模块与 API 边界](#核心模块与-api-边界)
 - [工程化与非功能需求](#工程化与非功能需求)
 - [难点与取舍](#难点与取舍)
@@ -28,8 +28,6 @@
 - [快速启动](#快速启动)
 - [API 端点](#api-端点)
 - [前端 `ui/`](#前端-ui)
-- [项目结构](#项目结构)
-- [逻辑架构简图](#逻辑架构简图)
 - [常见问题与排错](#常见问题与排错)
 - [仓库与贡献](#仓库与贡献)
 - [许可证](#许可证)
@@ -415,7 +413,21 @@
 
 ## 架构设计
 
-**逻辑分层（与仓库 `src/openagentic/` 目录规划一致）**
+本节把 **请求路径总览**、**分层与组件**、**仓库目录** 合并在一处：先看数据怎么流，再对照代码落在哪个包。
+
+### 逻辑架构简图
+
+```
+  ui/ — REST + SSE
+         │
+         ▼
+  FastAPI — core/auth · core/chat · core/llm → LiteLLM
+         │
+         ▼
+  PostgreSQL（pgvector 镜像已就绪；业务 RAG 见 Phase 4）
+```
+
+### 逻辑分层详解（与仓库 `src/openagentic/` 目录规划一致）
 
 ```
                     ┌─────────────────────────────────┐
@@ -439,6 +451,28 @@
 │  ├── 业务表：用户、会话、消息等                                    │
 │  └── pgvector：为后续 RAG / 记忆检索预留（路线图中 Phase 4）       │
 └───────────────────────────────────────────────────────────────────┘
+```
+
+### 项目结构（代码布局）
+
+```
+src/openagentic/
+├── main.py              # 应用工厂、lifespan、structlog
+├── config.py / deps.py
+├── core/
+│   ├── auth/            # Phase 1：注册登录 JWT
+│   ├── chat/            # Phase 1：会话消息 + SSE
+│   └── llm/             # Phase 1：LiteLLM
+├── agent/               # Phase 2 占位
+├── mcp/                 # Phase 2 占位
+├── workflow/            # Phase 3 占位
+├── knowledge/           # Phase 4 占位
+├── tenant/              # Phase 5 占位
+├── observability/       # Phase 5 占位
+└── db/                  # session、Base
+ui/                      # Phase 1 前端；Phase 6 部分能力持续迭代
+extensions/android/      # 可选扩展（若有）
+alembic/                 # 迁移脚本目录（revision 需维护）
 ```
 
 **设计要点**
@@ -632,44 +666,6 @@ PYTHONPATH=src uvicorn openagentic.main:app --host 0.0.0.0 --port 8000
 - 技术栈：**React + Vite + TailwindCSS + Zustand**（版本以仓库为准）。
 - **与后端协作**：REST 完成认证与会话 CRUD；发送消息通过 **SSE** 消费流式增量。
 - **当前页面能力（示例）**：Sessions、Settings、Skills、Channels、Devices 等 —— 以 `ui/src` 路由与页面为准；**工作流可视化、知识库运营后台** 等属于路线图 Phase 6 / Phase 4 联动能力，**未承诺已全部可用**。
-
----
-
-## 项目结构
-
-```
-src/openagentic/
-├── main.py              # 应用工厂、lifespan、structlog
-├── config.py / deps.py
-├── core/
-│   ├── auth/            # Phase 1：注册登录 JWT
-│   ├── chat/            # Phase 1：会话消息 + SSE
-│   └── llm/             # Phase 1：LiteLLM
-├── agent/               # Phase 2 占位
-├── mcp/                 # Phase 2 占位
-├── workflow/            # Phase 3 占位
-├── knowledge/           # Phase 4 占位
-├── tenant/              # Phase 5 占位
-├── observability/       # Phase 5 占位
-└── db/                  # session、Base
-ui/                      # Phase 1 前端；Phase 6 部分能力持续迭代
-extensions/android/      # 可选扩展（若有）
-alembic/                 # 迁移脚本目录（revision 需维护）
-```
-
----
-
-## 逻辑架构简图
-
-```
-  ui/ — REST + SSE
-         │
-         ▼
-  FastAPI — core/auth · core/chat · core/llm → LiteLLM
-         │
-         ▼
-  PostgreSQL（pgvector 镜像已就绪；业务 RAG 见 Phase 4）
-```
 
 ---
 
