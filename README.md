@@ -26,6 +26,7 @@
 - [一次流式对话请求的完整生命周期](#一次流式对话请求的完整生命周期)
 - [开发路线 Phase 0–6（详表 + 代码状态）](#开发路线-phase-06详表--代码状态)
 - [快速启动](#快速启动)
+- [CLI 模式（直接对话）](#cli-模式直接对话)
 - [API 端点](#api-端点)
 - [前端 `ui/`](#前端-ui)
 - [常见问题与排错](#常见问题与排错)
@@ -41,7 +42,7 @@
 | Phase | 状态 | 说明 |
 |-------|------|------|
 | **Phase 0** | **基本完成** | FastAPI 工厂、`lifespan`、Docker Compose（**`pgvector/pgvector:pg16`**）、健康检查、`core` 目录与依赖链、**`structlog` 已接入启动日志**（见 `main.py`）。 |
-| **Phase 0 注意项** | **待补强** | 若 **`alembic/versions/` 为空或尚无 revision**：开发环境可在 **`app_env=development`** 下由 **`Base.metadata.create_all`** 建表以便联调；**生产环境务必补齐 Alembic 迁移**（`upgrade head`），避免仅靠 `create_all` 漂移与不可审计变更。 |
+| **Phase 0 注意项** | **已完成** | Alembic initial migration 已生成并执行（`62da57f49c3e_initial_tables`）；开发环境仍保留 `create_all` 兜底；生产环境走 `alembic upgrade head`。 |
 | **Phase 1** | **已完成** | 注册 / 登录 / **JWT**、会话与消息 **CRUD**、**LiteLLM** 调用、**SSE**（`StreamingResponse` + `text/event-stream`，见 `core/chat`）、**`ui/`** 前端与 Phase 1 API 协同。 |
 | **Phase 2～4** | **未实现（多为占位）** | `agent/`、`mcp/`、`workflow/`、`knowledge/` 目前多为 **包占位**（常见为仅 `__init__.py`），无完整 ReAct、无 MCP Client、无 DAG 引擎、无 RAG API。**Compose 已选用带 pgvector 的 PG 镜像**，减少 Phase 4 落地时再迁库的成本。 |
 | **Phase 5** | **未实现（仅部分基建）** | 无完整多租户计费闭环、无 Prometheus **`/metrics`** 等；**`structlog` 已接入** 不等于「可观测性全套」。`tenant/`、`observability/` 多为占位。 |
@@ -459,6 +460,7 @@
 src/openagentic/
 ├── main.py              # 应用工厂、lifespan、structlog
 ├── config.py / deps.py
+├── cli.py               # CLI 聊天入口（直连 Ollama，无需 DB）
 ├── core/
 │   ├── auth/            # Phase 1：注册登录 JWT
 │   ├── chat/            # Phase 1：会话消息 + SSE
@@ -635,6 +637,48 @@ PYTHONPATH=src uvicorn openagentic.main:app --host 0.0.0.0 --port 8000
 - **Swagger / OpenAPI**：`http://<host>:8000/docs`
 - **健康检查**：`http://<host>:8000/health`
 - **前端**：进入 `ui/` 按 `package.json` 脚本启动（如 `npm install && npm run dev`），API 基地址指向后端。
+
+
+---
+
+## CLI 模式（直接对话）
+
+无需启动 Web 服务，直接在终端与本地 Ollama 模型流式对话：
+
+```bash
+cd /opt/open-agentic && source .venv/bin/activate
+
+# 默认使用 qwen3:14b
+python -m openagentic.cli
+
+# 指定模型
+python -m openagentic.cli -m ollama/deepseek-r1:32b
+
+# 带系统提示
+python -m openagentic.cli -s "你是一个Python专家，用中文回答"
+
+# 也可以用注册的命令
+openagentic
+```
+
+CLI 内置命令：
+
+| 命令 | 说明 |
+|------|------|
+| `/clear` | 清除对话历史 |
+| `/model ollama/qwen3:4b` | 切换模型 |
+| `/system <prompt>` | 设置系统提示 |
+| `/quit` | 退出 |
+
+可用模型（Ollama 本地）：
+
+| 模型 | 说明 |
+|------|------|
+| `ollama/qwen3:14b` | Qwen3 14B（默认，带思考） |
+| `ollama/qwen3:14b-nothink` | Qwen3 14B（无思考，更快） |
+| `ollama/qwen3:4b` | Qwen3 4B（轻量，带思考） |
+| `ollama/qwen3:4b-nothink` | Qwen3 4B（轻量，无思考） |
+| `ollama/deepseek-r1:32b` | DeepSeek R1 32B |
 
 ---
 
