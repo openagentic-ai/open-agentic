@@ -1,6 +1,7 @@
 """OpenAgentic CLI — ReAct Agent with tool calling via Ollama."""
 
 import argparse
+import readline  # noqa: F401 — enables arrow keys + history in input()
 import asyncio
 import json
 import os
