@@ -1,89 +1,313 @@
-"""OpenAgentic CLI — lightweight chat REPL via Ollama."""
+"""OpenAgentic CLI — ReAct Agent with tool calling via Ollama."""
 
+import argparse
 import asyncio
+import json
+import os
+import subprocess
 import sys
 
-import litellm
+import httpx
 
-litellm.drop_params = True
+DEFAULT_MODEL = "qwen3:14b"
+OLLAMA_BASE = os.getenv("OLLAMA_API_BASE", "http://localhost:11434")
 
-DEFAULT_MODEL = "ollama/qwen3:14b"
-OLLAMA_BASE = "http://localhost:11434"
+# ── Tool definitions (sent to LLM) ──────────────────────────────────
+
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "run_command",
+            "description": "Run a shell command on the server and return stdout/stderr. Use for: listing files, checking system status, running scripts, git operations, etc.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "The shell command to execute (e.g. 'ls -la /opt', 'df -h', 'cat file.txt')",
+                    }
+                },
+                "required": ["command"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read the full content of a file. Use when you need to inspect a file's content.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Absolute path to the file",
+                    }
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Write content to a file (creates or overwrites). Use when you need to create or modify files.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Absolute path to the file",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Content to write",
+                    },
+                },
+                "required": ["path", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "done",
+            "description": "Call this when the task is fully completed and you want to present the final answer to the user.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "summary": {
+                        "type": "string",
+                        "description": "Final answer / summary for the user",
+                    }
+                },
+                "required": ["summary"],
+            },
+        },
+    },
+]
+
+# ── Tool execution ──────────────────────────────────────────────────
+
+MAX_OUTPUT = 4000  # truncate long outputs
 
 
-async def chat_loop(model: str, system_prompt: str | None = None):
+def execute_tool(name: str, args: dict) -> str:
+    """Execute a tool and return result string."""
+    try:
+        if name == "run_command":
+            cmd = args.get("command", "")
+            print(f"  \033[33m$ {cmd}\033[0m")
+            result = subprocess.run(
+                cmd, shell=True, capture_output=True, text=True, timeout=60
+            )
+            output = result.stdout
+            if result.stderr:
+                output += ("\n" if output else "") + result.stderr
+            output = output.strip()
+            if not output:
+                output = "(no output)"
+            if len(output) > MAX_OUTPUT:
+                output = output[:MAX_OUTPUT] + f"\n... (truncated, {len(output)} chars total)"
+            if result.returncode != 0:
+                output = f"[exit code {result.returncode}]\n{output}"
+            return output
+
+        elif name == "read_file":
+            path = args.get("path", "")
+            print(f"  \033[33m[read] {path}\033[0m")
+            with open(path, "r") as f:
+                content = f.read()
+            if len(content) > MAX_OUTPUT:
+                content = content[:MAX_OUTPUT] + f"\n... (truncated, {len(content)} chars total)"
+            return content or "(empty file)"
+
+        elif name == "write_file":
+            path = args.get("path", "")
+            content = args.get("content", "")
+            print(f"  \033[33m[write] {path} ({len(content)} chars)\033[0m")
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+            with open(path, "w") as f:
+                f.write(content)
+            return f"OK: wrote {len(content)} chars to {path}"
+
+        elif name == "done":
+            return args.get("summary", "")
+
+        else:
+            return f"Unknown tool: {name}"
+
+    except Exception as e:
+        return f"[ERROR] {type(e).__name__}: {e}"
+
+
+# ── Ollama API client ───────────────────────────────────────────────
+
+async def ollama_chat(
+    messages: list[dict],
+    model: str,
+    tools: list[dict] | None = None,
+    stream: bool = False,
+) -> dict:
+    """Call Ollama /api/chat."""
+    payload = {"model": model, "messages": messages, "stream": stream}
+    if tools:
+        payload["tools"] = tools
+
+    async with httpx.AsyncClient(timeout=300, proxy=None) as client:
+        if not stream:
+            resp = await client.post(f"{OLLAMA_BASE}/api/chat", json=payload)
+            resp.raise_for_status()
+            return resp.json()
+        else:
+            # streaming — yield chunks, return final assembled
+            full_content = ""
+            async with client.stream("POST", f"{OLLAMA_BASE}/api/chat", json=payload) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line:
+                        continue
+                    chunk = json.loads(line)
+                    msg = chunk.get("message", {})
+                    delta = msg.get("content", "")
+                    if delta:
+                        print(delta, end="", flush=True)
+                        full_content += delta
+                    if chunk.get("done"):
+                        print()
+                        # Return the final message structure
+                        if not msg.get("content"):
+                            msg["content"] = full_content
+                        return chunk
+            return {"message": {"role": "assistant", "content": full_content}}
+
+
+# ── ReAct loop ──────────────────────────────────────────────────────
+
+MAX_ITERATIONS = 15
+
+
+async def react_loop(user_input: str, messages: list[dict], model: str) -> str:
+    """Run the ReAct loop: Thought → Action → Observation → ... → done."""
+    messages.append({"role": "user", "content": user_input})
+
+    for i in range(MAX_ITERATIONS):
+        # Call LLM with tools
+        resp = await ollama_chat(messages, model, tools=TOOLS, stream=False)
+        msg = resp.get("message", {})
+        content = msg.get("content", "")
+        tool_calls = msg.get("tool_calls", [])
+        thinking = msg.get("thinking", "")
+
+        # Show thinking if present
+        if thinking:
+            # Show abbreviated thinking
+            lines = thinking.strip().split("\n")
+            if len(lines) > 3:
+                print(f"  \033[2m[thinking] {lines[0]}... ({len(lines)} lines)\033[0m")
+            else:
+                for line in lines:
+                    print(f"  \033[2m[thinking] {line}\033[0m")
+
+        # No tool calls — LLM is giving a direct answer
+        if not tool_calls:
+            if content:
+                print(f"\n\033[32m{content}\033[0m")
+            messages.append({"role": "assistant", "content": content})
+            return content
+
+        # Execute each tool call
+        messages.append(msg)  # assistant message with tool_calls
+
+        for tc in tool_calls:
+            func = tc.get("function", {})
+            name = func.get("name", "")
+            args = func.get("arguments", {})
+            if isinstance(args, str):
+                args = json.loads(args)
+
+            print(f"\n  \033[36m[tool: {name}]\033[0m")
+
+            # done tool — final answer
+            if name == "done":
+                summary = args.get("summary", content or "Done.")
+                print(f"\n\033[32m{summary}\033[0m")
+                messages.append({"role": "tool", "content": summary})
+                return summary
+
+            # Execute and feed back
+            result = execute_tool(name, args)
+            print(f"  \033[2m{result[:500]}\033[0m")
+
+            messages.append({"role": "tool", "content": result})
+
+    print("\n\033[31m[max iterations reached]\033[0m")
+    return "(max iterations)"
+
+
+# ── Main REPL ───────────────────────────────────────────────────────
+
+SYSTEM_PROMPT = """You are OpenAgentic, an AI agent running on a Linux server. You can execute shell commands, read/write files to accomplish tasks.
+
+Rules:
+1. Think step by step about what needs to be done.
+2. Use tools to gather information and take actions.
+3. After completing the task, call the `done` tool with a summary.
+4. If the user asks a simple question that doesn't need tools, answer directly without calling any tool.
+5. Be careful with destructive operations (rm -rf, etc.) — confirm intent first.
+6. Keep command outputs concise; use head/tail/grep when appropriate."""
+
+
+async def main_loop(model: str, system_prompt: str | None = None):
     messages: list[dict] = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
+    sp = system_prompt or SYSTEM_PROMPT
+    messages.append({"role": "system", "content": sp})
 
-    print(f"OpenAgentic CLI  |  model: {model}")
-    print("Type your message. Commands: /clear /model <name> /system <prompt> /quit")
+    print(f"\033[1mOpenAgentic Agent\033[0m  |  model: {model}")
+    print(f"Tools: run_command, read_file, write_file")
+    print("Commands: /clear /model <name> /quit")
     print("-" * 60)
 
     while True:
         try:
-            user_input = input("\n> ").strip()
+            user_input = input("\n\033[1m> \033[0m").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nBye!")
             break
 
         if not user_input:
             continue
-
-        # Slash commands
         if user_input == "/quit":
             print("Bye!")
             break
         if user_input == "/clear":
-            messages = [m for m in messages if m["role"] == "system"]
+            messages = [messages[0]]  # keep system prompt
             print("[history cleared]")
             continue
         if user_input.startswith("/model "):
             model = user_input[7:].strip()
             print(f"[model → {model}]")
             continue
-        if user_input.startswith("/system "):
-            sp = user_input[8:].strip()
-            messages = [m for m in messages if m["role"] != "system"]
-            if sp:
-                messages.insert(0, {"role": "system", "content": sp})
-            print(f"[system prompt set]")
-            continue
-
-        messages.append({"role": "user", "content": user_input})
-
-        # Determine api_base
-        api_base = OLLAMA_BASE if model.startswith("ollama/") else None
 
         try:
-            response = await litellm.acompletion(
-                model=model,
-                messages=messages,
-                stream=True,
-                api_base=api_base,
-            )
-            full = ""
-            async for chunk in response:
-                delta = chunk.choices[0].delta
-                if delta and delta.content:
-                    print(delta.content, end="", flush=True)
-                    full += delta.content
-            print()  # newline after stream
-            messages.append({"role": "assistant", "content": full})
+            await react_loop(user_input, messages, model)
+        except httpx.ConnectError:
+            print(f"\033[31m[ERROR] Cannot connect to Ollama at {OLLAMA_BASE}\033[0m")
         except Exception as e:
-            print(f"\n[ERROR] {e}")
-            messages.pop()  # remove failed user message
+            print(f"\033[31m[ERROR] {type(e).__name__}: {e}\033[0m")
 
 
 def main():
-    import argparse
-
-    parser = argparse.ArgumentParser(description="OpenAgentic CLI Chat")
-    parser.add_argument("-m", "--model", default=DEFAULT_MODEL, help="LLM model (default: ollama/qwen3:14b)")
-    parser.add_argument("-s", "--system", default=None, help="System prompt")
+    parser = argparse.ArgumentParser(description="OpenAgentic Agent CLI (ReAct)")
+    parser.add_argument(
+        "-m", "--model", default=DEFAULT_MODEL,
+        help=f"Ollama model (default: {DEFAULT_MODEL})",
+    )
+    parser.add_argument("-s", "--system", default=None, help="Custom system prompt")
     args = parser.parse_args()
-
-    asyncio.run(chat_loop(args.model, args.system))
+    asyncio.run(main_loop(args.model, args.system))
 
 
 if __name__ == "__main__":
