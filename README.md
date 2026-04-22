@@ -24,7 +24,7 @@
 - [工程化与非功能需求](#工程化与非功能需求)
 - [难点与取舍](#难点与取舍)
 - [一次流式对话请求的完整生命周期](#一次流式对话请求的完整生命周期)
-- [开发路线 Phase 0–6（详表 + 代码状态）](#开发路线-phase-06详表--代码状态)
+- [开发路线 Phase 0–6（Todo）](#开发路线-phase-06todo)
 - [快速启动](#快速启动)
 - [CLI 模式（直接对话）](#cli-模式直接对话)
 - [API 端点](#api-端点)
@@ -44,8 +44,9 @@
 | **Phase 0** | **基本完成** | FastAPI 工厂、`lifespan`、Docker Compose（**`pgvector/pgvector:pg16`**）、健康检查、`core` 目录与依赖链、**`structlog` 已接入启动日志**（见 `main.py`）。 |
 | **Phase 0 注意项** | **已完成** | Alembic revision `62da57f49c3e_initial_tables` 已补齐用户、会话、消息、Agent 与执行历史等建表逻辑；开发环境仍由 `create_all` 兜底，生产环境走 `alembic upgrade head`。 |
 | **Phase 1** | **已完成** | 注册 / 登录 / **JWT**、会话与消息 **CRUD**、**LiteLLM** 调用、**SSE**（`StreamingResponse` + `text/event-stream`，见 `core/chat`）、**`ui/`** 前端与 Phase 1 API 协同。 |
-| **Phase 2** | **基础版已完成** | 新增 `agent/` 与 `mcp/` 实现：Agent CRUD、最小 ReAct 执行器、内置工具注册表、MCP HTTP JSON-RPC 客户端、执行历史落库与 API；`knowledge/` 为后续 Phase 4。 |
-| **Phase 3** | **已完成** | `workflow/` 已实现：Workflow CRUD、Run 执行与取消、DAG 校验与拓扑执行、节点重试/超时、变量模板渲染、运行轨迹与状态查询等核心能力。 |
+| **Phase 2** | **基础版已完成** | 新增 `agent/` 与 `mcp/` 实现：Agent CRUD、最小 ReAct 执行器、工具注册表、MCP HTTP JSON-RPC 客户端、执行历史落库与 API。 |
+| **Phase 3** | **已完成** | `workflow/` 已实现：Workflow CRUD、Run 执行与取消、DAG 校验与拓扑执行、节点重试/超时、变量模板渲染、运行轨迹与状态查询。 |
+| **Phase 4** | **未实现（占位）** | `knowledge/` 目录仍为占位；数据库侧已选 `pgvector` 镜像，为 RAG 落地做准备。 |
 | **Phase 5** | **未实现（仅部分基建）** | 无完整多租户计费闭环、无 Prometheus **`/metrics`** 等；**`structlog` 已接入** 不等于「可观测性全套」。`tenant/`、`observability/` 多为占位。 |
 | **Phase 6** | **部分** | **`ui/`** 已有多页面（如 Sessions、Settings、Skills、Channels、Devices 等）；README 常见列的 **React Flow 工作流编辑器、知识库管理 UI、Agent 模板市场、生产级 Nginx Compose 拓扑** 等 **尚未与 Phase 4/5 后端能力形成闭环**，以代码为准。 |
 
@@ -461,14 +462,14 @@
 src/openagentic/
 ├── main.py              # 应用工厂、lifespan、structlog
 ├── config.py / deps.py
-├── cli.py               # CLI 聊天入口（直连 Ollama，无需 DB）
+├── cli.py               # CLI 聊天入口（多厂商可配置）
 ├── core/
 │   ├── auth/            # Phase 1：注册登录 JWT
 │   ├── chat/            # Phase 1：会话消息 + SSE
 │   └── llm/             # Phase 1：LiteLLM
-├── agent/               # Phase 2 占位
-├── mcp/                 # Phase 2 占位
-├── workflow/            # Phase 3 占位
+├── agent/               # Phase 2 已实现（基础版）
+├── mcp/                 # Phase 2 已实现（基础版）
+├── workflow/            # Phase 3 已实现
 ├── knowledge/           # Phase 4 占位
 ├── tenant/              # Phase 5 占位
 ├── observability/       # Phase 5 占位
@@ -523,7 +524,7 @@ alembic/                 # 迁移脚本目录（revision 需维护）
 
 ## 一次流式对话请求的完整生命周期
 
-> 面试时若被问「从用户点击发送到看到回复，后端发生了什么」，可按以下链路回答。
+> 从用户点击发送到看到回复，后端完整链路如下：
 
 ```
 用户点击「发送」
@@ -564,134 +565,59 @@ alembic/                 # 迁移脚本目录（revision 需维护）
 
 ---
 
-## 开发路线 Phase 0–6（详表 + 代码状态）
+## 开发路线 Phase 0–6（Todo）
 
-### Phase 0：脚手架 + Docker
+### Phase 0：脚手架 + Docker（已完成）
 
-- [x] FastAPI 应用工厂 + 生命周期（含 **structlog** 启动日志）
-- [x] PostgreSQL（**`pgvector/pgvector:pg16`** 镜像）+ Docker Compose + **Postgres healthcheck** + **`depends_on` 条件就绪**
-- [x] SQLAlchemy 2.0 async ORM + **Alembic 工程**（**迁移 revision 需按环境补齐**，见文首「注意项」）
-- [x] Pydantic Settings、健康检查、Compose **app + postgres**（以仓库 `compose` 文件为准）
+- [x] FastAPI 应用工厂 + 生命周期（含 `structlog` 启动日志）
+- [x] PostgreSQL（`pgvector/pgvector:pg16`）+ Docker Compose + healthcheck
+- [x] SQLAlchemy 2.0 async ORM + Alembic 工程
+- [x] Pydantic Settings、健康检查、Compose 基础拓扑
 
-**代码状态**：基础设施与 `core` 主链路已具备；**Alembic 版本目录若为空**，开发可用 `create_all`，生产需补迁移。
+### Phase 1：认证 + 聊天 + LLM 流式（已完成）
 
-### Phase 1：认证 + 聊天 + LLM 流式 — **已完成**
+- [x] 注册 / 登录 / JWT
+- [x] 会话与消息 CRUD
+- [x] LiteLLM 对接 + SSE 流式返回
+- [x] `ui/` 与 Phase 1 API 协同
 
-- [x] 用户注册 / 登录、JWT、对话 CRUD、LiteLLM、SSE、`ui/` 管理端与对话界面
+### Phase 2：Agent 系统 + MCP（基础版已完成）
 
-**代码状态**：`core/auth`、`core/chat`（含 SSE）、`core/llm` 与 `ui/` 为当前交付主路径。
+- [x] Agent CRUD
+- [x] 最小 ReAct 执行器
+- [x] 工具注册表
+- [x] MCP Client（HTTP JSON-RPC）
+- [x] 执行历史落库与查询
 
-### Phase 2：Agent 系统 + MCP — **基础版已完成**
+### Phase 3：工作流引擎（已完成）
 
-- [x] Agent CRUD、ReAct（最小可用执行器）、工具注册表、MCP Client（HTTP JSON-RPC）、执行历史
+- [x] Workflow CRUD、运行触发、运行查询、运行取消
+- [x] JSON DAG 校验 + 拓扑执行
+- [x] 模板变量传参（`{{input.*}}` / `{{nodes.*}}`）
+- [x] 节点级重试 / 超时 + 结构化 trace
+- [x] 对应测试覆盖（API、边界行为、配置持久化）
 
-**代码状态**：`agent/` 已落地模型、服务、路由、执行器与工具；`mcp/` 提供轻量客户端；后续可在此基础上扩展多步规划、工具自动选择策略与外部 MCP 服务治理。
+### Phase 4：知识库 / RAG（未完成）
 
-### Phase 3：工作流引擎 — **已完成**
+- [ ] 文档上传与管理
+- [ ] 分块与嵌入生成
+- [ ] pgvector 检索
+- [ ] 与 Agent / Workflow 集成
 
-- [x] JSON DAG、拓扑执行、节点类型、运行状态追踪与取消控制
+### Phase 5：多租户 + 计费 + 可观测性（未完成）
 
-**代码状态**：`workflow/` 已落地 `models`、`service`、`router`、`runtime` 与 `schemas`，并在主应用完成路由接入。
+- [ ] 多租户与组织隔离
+- [ ] 用量统计 / 计费 / 配额
+- [ ] Prometheus 指标与告警
+- [ ] correlation ID 全链路追踪
 
-**Phase 3 实施计划（已确认）**
+### Phase 6：前端增强（进行中）
 
-- [x] **工具协议化（ToolSpec）**：在当前工具注册表上补齐 `is_read_only`、`is_destructive`、`is_concurrency_safe`、`validate_input`、`check_permissions` 元数据，作为工作流节点统一执行契约。
-- [x] **执行引擎升级（QueryEngine 风格）**：新增多轮执行状态机（`max_turns`、`max_budget_usd`、`retry`、`stop_reason`、中断控制），支撑 DAG 节点稳定编排。
-- [x] **任务系统（Task Runtime）**：引入 `pending/running/completed/failed/killed` 生命周期、任务输出偏移与 kill 能力，为 WebSocket 进度与长任务恢复做基础。
-- [x] **MCP 连接管理层**：从单次 HTTP 调用演进到多服务连接、健康状态、工具动态装载与重连机制，供 Workflow 节点统一复用。
-- [x] **安全基线（Secret 扫描 + 脱敏）**：在工作流输入、工具参数、执行日志链路增加高置信密钥扫描与 redact，避免敏感信息外泄。
-- [x] **可观测性闭环**：补齐 `request_id/correlation_id`、节点耗时、token/cost、失败分类与重试指标，支撑 Phase 5 计费与运维分析。
-
-**落地顺序建议**：先完成「工具协议化 + 执行引擎升级」，再接「任务系统 + MCP 管理」，最后补齐「安全与可观测性」。
-
-**Phase 3 验收标准（DoD）**
-
-- [x] `workflow/` 具备可运行的 JSON DAG 执行能力：支持拓扑排序、并行节点、失败重试、超时终止。
-- [x] 工作流运行时可提供结构化执行记录：节点状态、开始/结束时间、错误原因、重试次数、token/cost（如可得）。
-- [x] 提供可用 API：工作流 CRUD、运行触发、运行列表与详情查询，接口契约在 OpenAPI 可见。
-- [x] 支持实时进度事件：最小可用形态为 WebSocket 或 SSE 的节点状态推送。
-- [x] 具备中断与恢复能力：支持取消运行，异常退出后可定位到最后已完成节点。
-
-**Phase 3 里程碑拆分（建议）**
-
-- **Phase 3.1（执行核心）**：工具协议化（ToolSpec）+ 执行引擎状态机（turn/retry/budget/stop_reason）。
-- **Phase 3.2（调度与进度）**：任务系统（Task Runtime）+ 实时事件流（WebSocket/SSE）+ 运行历史查询。
-- **Phase 3.3（治理强化）**：MCP 连接管理 + Secret 扫描/脱敏 + 指标/日志闭环。
-
-**Phase 3 风险与回滚策略**
-
-- **重试风暴风险**：为节点设置最大重试与指数退避；触发阈值后自动熔断工作流运行。
-- **并发争用风险**：设置全局并发上限和每工作流并发上限，超过阈值排队执行。
-- **外部依赖不稳定（MCP/LLM）**：支持节点级降级策略（跳过 / 备用工具 / 备用模型）。
-- **回滚策略**：核心执行路径通过 feature flag 开关，异常时可快速切回串行/简化执行模式。
-
-**Phase 3 API 草案（占位，后续以 `/docs` 为准）**
-
-- `GET/POST /api/workflows`
-- `GET/PATCH/DELETE /api/workflows/{workflow_id}`
-- `POST /api/workflows/{workflow_id}/runs`
-- `GET /api/workflow-runs`
-- `GET /api/workflow-runs/{run_id}`
-- `POST /api/workflow-runs/{run_id}/cancel`
-- `GET /api/workflow-runs/{run_id}/events`（SSE）或 `WS /ws/workflow-runs/{run_id}`
-
-**Phase 3 测试计划（最小矩阵）**
-
-- **单元测试**：DAG 校验、拓扑排序、变量模板渲染、重试与超时分支。
-- **集成测试**：MCP 工具失败/超时、LLM 调用失败、降级策略生效。
-- **端到端测试**：创建工作流→触发运行→接收进度→查看结果→取消运行。
-- **稳定性测试**：固定并发场景下验证成功率、平均时延、失败分布与恢复时间。
-
-**Phase 3 规划配置项（建议加入 `.env.example`）**
-
-- `WORKFLOW_MAX_PARALLEL=4`
-- `WORKFLOW_MAX_RETRIES=2`
-- `WORKFLOW_RUN_TIMEOUT_SEC=300`
-- `WORKFLOW_NODE_TIMEOUT_SEC=120`
-- `WORKFLOW_EVENTS_TRANSPORT=sse`（可选 `sse`/`websocket`）
-- `SECRET_SCAN_ENABLED=true`
-- `WORKFLOW_FEATURE_FLAG=true`
-
-**Phase 3 执行模型名单（用于你的这套 ReAct/Workflow 方案）**
-
-> 说明：为保证工具调用稳定性，建议按「主执行模型 + 经济模型 + 备用模型」分层配置；不要只依赖单一模型。
-
-- **主执行模型（推荐）**：`claude-sonnet-4`、`gpt-4.1`
-- **强推理备用（复杂链路）**：`o4-mini`、`deepseek-reasoner`
-- **经济档模型（日常低风险任务）**：`deepseek-chat`、`qwen/qwen3-32b`（或同级 Instruct）
-- **本地模型（离线/内网优先）**：`ollama/qwen3:14b`、`ollama/deepseek-r1:32b`
-
-**最低能力要求（达不到不建议接入 Phase 3 执行链）**
-
-- 支持稳定的 **tool calling / function calling**
-- 支持较长上下文并具备多轮一致性
-- 可控的延迟与错误率（支持超时重试场景）
-- 能在系统提示约束下保持身份与输出格式稳定
-
-**默认建议策略**
-
-- `primary_model`：`gpt-4.1` 或 `claude-sonnet-4`
-- `secondary_model`：`deepseek-chat`（成本优化）
-- `fallback_model`：`deepseek-reasoner` 或 `o4-mini`（主模型失败时兜底）
-
-### Phase 4：知识库 / RAG — **未开始（占位）**
-
-- [ ] 上传、分块、嵌入、pgvector 检索、与 Agent / 工作流集成
-
-**代码状态**：`knowledge/` 占位；**DB 镜像已带 pgvector**，降低后续 schema 与运维切换成本。
-
-### Phase 5：多租户 + 计费 + 可观测性 — **未开始（仅部分基建）**
-
-- [ ] 租户、用量计费、配额、Prometheus、**correlation ID 全链** 等
-
-**代码状态**：`tenant/`、`observability/` 占位；**`main.py` 已使用 structlog**，其余按路线图迭代。
-
-### Phase 6：前端增强 — **部分**
-
-- [x] **`ui/`** 多页面（Sessions、Settings、Skills、Channels、Devices 等）与 Phase 1 API 协同
-- [ ] React Flow 工作流编辑器、知识库管理、Agent 模板市场、**生产级 Nginx + Compose** 等 — **未与 Phase 4/5 后端闭环**
-
-**代码状态**：前端页面持续迭代中；与后端高级能力 **对齐后再勾选** 为宜。
+- [x] `ui/` 多页面（Sessions、Settings、Skills、Channels、Devices）
+- [ ] 工作流可视化编辑器（React Flow）
+- [ ] 知识库管理 UI
+- [ ] Agent 模板市场
+- [ ] 生产级 Nginx + Compose 拓扑闭环
 
 ---
 
