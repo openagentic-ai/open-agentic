@@ -33,8 +33,14 @@ jobs:
         run: |
           pytest --cov=src/openagentic --cov-report=xml:coverage.xml --cov-report=term-missing
 
+      - name: Warn if SONAR_TOKEN is missing
+        if: ${{ secrets.SONAR_TOKEN == '' }}
+        run: |
+          echo "::warning::SONAR_TOKEN is not configured. SonarCloud scan is skipped. Add SONAR_TOKEN in GitHub Actions Secrets."
+
       - name: SonarCloud Scan
-        uses: SonarSource/sonarqube-scan-action@v5
+        if: ${{ secrets.SONAR_TOKEN != '' }}
+        uses: SonarSource/sonarqube-scan-action@v6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
