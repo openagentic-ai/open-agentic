@@ -39,6 +39,9 @@ Thumbs.db
 
 # Test coverage
 /coverage/
+.pip-audit-cache/
+openapi.json
+openapi.public.json
 
 # Claude Code
 .claude/

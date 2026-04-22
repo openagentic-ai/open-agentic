@@ -1,0 +1,113 @@
+name: Quality and Security
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  static-analysis:
+    name: Static Analysis (Ruff, mypy, Bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Ruff
+        run: ruff check src tests
+
+      - name: mypy
+        run: mypy
+
+      - name: Bandit
+        run: bandit -r src/openagentic -c pyproject.toml
+
+  dependency-audit:
+    name: Dependency Audit (pip-audit)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run pip-audit
+        run: pip-audit
+
+  api-dynamic-check:
+    name: Dynamic API Check (Schemathesis)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run Schemathesis (public endpoints)
+        env:
+          APP_ENV: production
+          PYTHONPATH: src
+        run: |
+          uvicorn openagentic.main:app --host 127.0.0.1 --port 8000 &
+          SERVER_PID=$!
+          trap "kill $SERVER_PID" EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/health >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8000/openapi.json -o openapi.json
+          python - <<'PY'
+          import json
+
+          keep_paths = {
+              "/health",
+              "/api/models",
+              "/api/sessions",
+              "/api/channels",
+              "/api/presence",
+          }
+
+          with open("openapi.json", "r", encoding="utf-8") as f:
+              schema = json.load(f)
+
+          schema["paths"] = {k: v for k, v in schema.get("paths", {}).items() if k in keep_paths}
+
+          with open("openapi.public.json", "w", encoding="utf-8") as f:
+              json.dump(schema, f, ensure_ascii=False, indent=2)
+          PY
+          schemathesis run \
+            --url http://127.0.0.1:8000 \
+            --include-method GET \
+            --max-examples 20 \
+            ./openapi.public.json

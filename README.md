@@ -512,6 +512,7 @@ alembic/                 # 迁移脚本目录（revision 需维护）
 - **可观测性（路线）**：Phase 5 明确 Prometheus、structlog、correlation ID —— 与 **Agent 可观测性** 学习主题对齐（跨请求 trace）。**当前仓库**：`structlog` 已在启动路径接入；其余按路线图迭代。
 - **安全**：JWT + bcrypt 基线；后续多租户与 **操作审计** 需与会话、模型调用日志关联。
 - **静态代码质量**：已接入 SonarCloud（见 `.github/workflows/sonarcloud.yml` 与 `sonar-project.properties`），PR 会基于测试覆盖率做质量分析。
+- **质量与安全检查流水线**：新增 `.github/workflows/quality-security.yml`，覆盖 `ruff`、`mypy`、`bandit`、`pip-audit` 与 `schemathesis`（动态 API 检查）。
 
 ### SonarCloud 配置说明
 
@@ -520,6 +521,24 @@ alembic/                 # 迁移脚本目录（revision 需维护）
    - `SONAR_TOKEN`（必需）
 3. 首次执行可在 Actions 页手动触发 `SonarCloud` 工作流。
 4. 质量规则、质量门禁（Quality Gate）在 SonarCloud 项目后台配置。
+
+### 本地执行质量检查
+
+```bash
+# 静态质量
+ruff check src tests
+mypy
+bandit -r src/openagentic -c pyproject.toml
+
+# 依赖漏洞
+pip-audit
+
+# 动态 API 检查（公共无鉴权端点）
+APP_ENV=production PYTHONPATH=src uvicorn openagentic.main:app --host 127.0.0.1 --port 8000
+curl -fsS http://127.0.0.1:8000/openapi.json -o openapi.json
+python -c "import json; s=json.load(open('openapi.json')); keep={'/health','/api/models','/api/sessions','/api/channels','/api/presence'}; s['paths']={k:v for k,v in s.get('paths',{}).items() if k in keep}; json.dump(s, open('openapi.public.json','w'), ensure_ascii=False, indent=2)"
+schemathesis run --url http://127.0.0.1:8000 --include-method GET --max-examples 20 ./openapi.public.json
+```
 
 ---
 

@@ -45,7 +45,7 @@ async def get_provider_profiles():
 @router.put("/llm/providers/{provider_id}")
 async def upsert_provider_profile(provider_id: str, body: schemas.ProviderProfileUpdate):
     config = get_provider_store().upsert_profile(
-        provider_id=provider_id,
+        profile_id=provider_id,
         display_name=body.display_name,
         api_base=body.api_base,
         api_key=body.api_key,

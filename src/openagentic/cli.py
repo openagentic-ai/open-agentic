@@ -228,6 +228,8 @@ def require_provider_configured(provider: str) -> tuple[str, str | None]:
     if provider != "ollama" and not profile["api_key"]:
         configure_provider_interactive(provider)
         profile = find_profile(provider)
+        if not profile:
+            raise RuntimeError(f"Unknown provider: {provider}")
     api_base = profile["api_base"] or None
     api_key = profile["api_key"] or None
     if provider != "ollama" and not api_key:
