@@ -14,6 +14,7 @@ from openagentic.db.session import engine
 # Import all models so Alembic can detect them
 from openagentic.core.auth.models import User, ApiKey  # noqa: F401
 from openagentic.core.chat.models import Conversation, Message  # noqa: F401
+from openagentic.agent.models import Agent, AgentExecution  # noqa: F401
 
 logger = structlog.get_logger()
 
@@ -62,17 +63,14 @@ def create_app() -> FastAPI:
     from openagentic.core.auth.router import router as auth_router
     from openagentic.core.chat.router import router as chat_router
     from openagentic.core.llm.router import router as llm_router
+    from openagentic.agent.router import router as agent_router
 
     app.include_router(auth_router)
     app.include_router(chat_router)
     app.include_router(llm_router)
+    app.include_router(agent_router)
 
     # Backward-compatible endpoints matching Rust backend
-    @app.get("/api/agents")
-    async def list_agents_compat():
-        """Stub for frontend compatibility — will be replaced in Phase 2."""
-        return []
-
     @app.get("/api/sessions")
     async def list_sessions_compat():
         """Stub for frontend compatibility — will be replaced in Phase 2."""

@@ -42,9 +42,9 @@
 | Phase | 状态 | 说明 |
 |-------|------|------|
 | **Phase 0** | **基本完成** | FastAPI 工厂、`lifespan`、Docker Compose（**`pgvector/pgvector:pg16`**）、健康检查、`core` 目录与依赖链、**`structlog` 已接入启动日志**（见 `main.py`）。 |
-| **Phase 0 注意项** | **已完成** | Alembic initial migration 已生成并执行（`62da57f49c3e_initial_tables`）；开发环境仍保留 `create_all` 兜底；生产环境走 `alembic upgrade head`。 |
+| **Phase 0 注意项** | **已完成** | Alembic revision `62da57f49c3e_initial_tables` 已补齐用户、会话、消息、Agent 与执行历史等建表逻辑；开发环境仍由 `create_all` 兜底，生产环境走 `alembic upgrade head`。 |
 | **Phase 1** | **已完成** | 注册 / 登录 / **JWT**、会话与消息 **CRUD**、**LiteLLM** 调用、**SSE**（`StreamingResponse` + `text/event-stream`，见 `core/chat`）、**`ui/`** 前端与 Phase 1 API 协同。 |
-| **Phase 2～4** | **未实现（多为占位）** | `agent/`、`mcp/`、`workflow/`、`knowledge/` 目前多为 **包占位**（常见为仅 `__init__.py`），无完整 ReAct、无 MCP Client、无 DAG 引擎、无 RAG API。**Compose 已选用带 pgvector 的 PG 镜像**，减少 Phase 4 落地时再迁库的成本。 |
+| **Phase 2** | **基础版已完成** | 新增 `agent/` 与 `mcp/` 实现：Agent CRUD、最小 ReAct 执行器、内置工具注册表、MCP HTTP JSON-RPC 客户端、执行历史落库与 API；`workflow/`、`knowledge/` 仍为后续 Phase 3/4。 |
 | **Phase 5** | **未实现（仅部分基建）** | 无完整多租户计费闭环、无 Prometheus **`/metrics`** 等；**`structlog` 已接入** 不等于「可观测性全套」。`tenant/`、`observability/` 多为占位。 |
 | **Phase 6** | **部分** | **`ui/`** 已有多页面（如 Sessions、Settings、Skills、Channels、Devices 等）；README 常见列的 **React Flow 工作流编辑器、知识库管理 UI、Agent 模板市场、生产级 Nginx Compose 拓扑** 等 **尚未与 Phase 4/5 后端能力形成闭环**，以代码为准。 |
 
@@ -500,7 +500,7 @@ alembic/                 # 迁移脚本目录（revision 需维护）
 - 认证：`POST /api/auth/register`、`/login`、`/refresh`，`GET /api/auth/me`
 - 对话：`GET/POST /api/conversations`，`GET/POST /api/conversations/{id}/messages`（发送在 **`stream=true`** 时为 **SSE**）
 - 运维：`GET /health`；模型：`GET /api/models`
-- 部分 **`/api/agents`、`/api/sessions`、`/api/channels`**（及简化的 **`/api/presence`**）为 **占位或与旧前端兼容的 stub**，待 Phase 2+ 对齐，以 OpenAPI `/docs` 为准。
+- **`/api/agents`**、`/api/agents/{id}/execute`、`/api/agents/{id}/executions`、`/api/agent/message` 已在 Phase 2 提供最小可用实现；`/api/sessions`、`/api/channels` 与 `/api/presence` 仍保留兼容性 stub。
 
 ---
 
@@ -580,11 +580,11 @@ alembic/                 # 迁移脚本目录（revision 需维护）
 
 **代码状态**：`core/auth`、`core/chat`（含 SSE）、`core/llm` 与 `ui/` 为当前交付主路径。
 
-### Phase 2：Agent 系统 + MCP — **未开始（占位）**
+### Phase 2：Agent 系统 + MCP — **基础版已完成**
 
-- [ ] Agent CRUD、ReAct、工具注册表、MCP Client、执行历史
+- [x] Agent CRUD、ReAct（最小可用执行器）、工具注册表、MCP Client（HTTP JSON-RPC）、执行历史
 
-**代码状态**：`agent/`、`mcp/` 多为占位包，待实现。
+**代码状态**：`agent/` 已落地模型、服务、路由、执行器与工具；`mcp/` 提供轻量客户端；后续可在此基础上扩展多步规划、工具自动选择策略与外部 MCP 服务治理。
 
 ### Phase 3：工作流引擎 — **未开始（占位）**
 
@@ -701,7 +701,9 @@ CLI 内置命令：
 
 - `GET /health`
 - `GET /api/models`
-- **`GET /api/agents`、`GET /api/sessions`、`GET /api/channels`** — **占位 / 待 Phase 2+ 实现**；**`GET /api/presence`** 为简化桩响应。
+- `GET/POST /api/agents`、`GET/PATCH/DELETE /api/agents/{agent_id}`、`POST /api/agents/{agent_id}/execute`
+- `GET /api/agents/{agent_id}/executions`、`POST /api/agent/message`
+- `GET /api/sessions`、`GET /api/channels`、`GET /api/presence` 仍为简化桩响应（兼容旧前端）。
 
 ---
 
