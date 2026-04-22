@@ -748,9 +748,10 @@ openagentic
 
 CLI Provider 说明：
 
-- `--provider auto`（默认）：若检测到 `OPENAI_API_KEY`，优先走 OpenAI 兼容接口；否则走 Ollama。
-- `--provider ollama`：使用 `OLLAMA_API_BASE`（默认 `http://localhost:11434`）。
-- `--provider openai`：使用 `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_CHAT_MODEL`。
+- `--provider auto`（默认）：按模型前缀或默认配置自动选择 provider。
+- `--provider <id>`：可指定 `openai`、`anthropic`、`xai`、`gemini`、`deepseek`、`qwen`、`ollama` 等。
+- CLI 内可用 `/providers` 查看厂商列表，`/provider <id>` 切换并进入该厂商配置向导，`/provider-config [id]` 单独编辑配置。
+- 未配置必需的 API Key 时，CLI 会在进入会话前强制进入配置向导，配置完成后才允许继续使用。
 
 CLI 内置命令：
 
@@ -792,6 +793,7 @@ CLI 内置命令：
 
 - `GET /health`
 - `GET /api/models`
+- `GET /api/llm/providers`、`PUT /api/llm/providers/{provider_id}`、`PUT /api/llm/default-model`
 - `GET/POST /api/agents`、`GET/PATCH/DELETE /api/agents/{agent_id}`、`POST /api/agents/{agent_id}/execute`
 - `GET /api/agents/{agent_id}/executions`、`POST /api/agent/message`
 - `GET /api/sessions`、`GET /api/channels`、`GET /api/presence` 仍为简化桩响应（兼容旧前端）。

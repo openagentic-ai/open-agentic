@@ -29,6 +29,21 @@ export interface SessionInfo {
   messageCount?: number
 }
 
+export interface LlmProviderProfile {
+  id: string
+  display_name: string
+  api_base: string
+  models: string[]
+  enabled: boolean
+  api_key_configured: boolean
+  api_key_masked: string
+}
+
+export interface LlmProviderConfig {
+  default_model: string
+  profiles: LlmProviderProfile[]
+}
+
 class ApiClient {
   private baseUrl: string
   
@@ -149,6 +164,34 @@ class ApiClient {
       body: JSON.stringify({ status }),
     })
   }
+
+  // LLM Provider Profiles
+  async getLlmProviders(): Promise<ApiResponse<LlmProviderConfig>> {
+    return this.request<LlmProviderConfig>('/api/llm/providers')
+  }
+
+  async updateLlmProvider(
+    providerId: string,
+    payload: {
+      display_name?: string
+      api_base?: string
+      api_key?: string
+      models?: string[]
+      enabled?: boolean
+    }
+  ): Promise<ApiResponse<LlmProviderConfig>> {
+    return this.request<LlmProviderConfig>(`/api/llm/providers/${providerId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  async updateDefaultModel(model: string): Promise<ApiResponse<LlmProviderConfig>> {
+    return this.request<LlmProviderConfig>('/api/llm/default-model', {
+      method: 'PUT',
+      body: JSON.stringify({ model }),
+    })
+  }
 }
 
 export const apiClient = new ApiClient()
@@ -178,6 +221,20 @@ export function useApi() {
     presence: {
       get: () => apiClient.getPresence(),
       set: (status: string) => apiClient.setPresence(status),
+    },
+    llm: {
+      getProviders: () => apiClient.getLlmProviders(),
+      updateProvider: (
+        providerId: string,
+        payload: {
+          display_name?: string
+          api_base?: string
+          api_key?: string
+          models?: string[]
+          enabled?: boolean
+        }
+      ) => apiClient.updateLlmProvider(providerId, payload),
+      setDefaultModel: (model: string) => apiClient.updateDefaultModel(model),
     },
   }
 }

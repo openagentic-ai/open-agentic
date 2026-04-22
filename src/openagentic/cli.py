@@ -1,28 +1,35 @@
-"""OpenAgentic CLI — ReAct Agent with tool calling via Ollama/OpenAI-compatible APIs."""
+"""OpenAgentic CLI — ReAct Agent with multi-provider model selection."""
 
 import argparse
 import readline  # noqa: F401 — enables arrow keys + history in input()
 import asyncio
 import json
-import os
 import re
 import subprocess
-import sys
 
-import httpx
+import litellm
 from dotenv import load_dotenv
+
+from openagentic.core.llm.provider_config import get_provider_store
 
 load_dotenv()
 
 DEFAULT_MODEL = "qwen3:14b"
-OLLAMA_BASE = os.getenv("OLLAMA_API_BASE", "http://localhost:11434")
-OPENAI_BASE = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-OPENAI_CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
 IDENTITY_QUESTION_RE = re.compile(
     r"(你背后|你用的|什么模型|哪个模型|provider|底层模型|大模型|what model|which model|model provider)",
     re.IGNORECASE,
 )
+PROVIDER_ALIASES = {
+    "claude": "anthropic",
+    "anthropic": "anthropic",
+    "openai": "openai",
+    "grok": "xai",
+    "xai": "xai",
+    "gemini": "gemini",
+    "deepseek": "deepseek",
+    "qwen": "qwen",
+    "ollama": "ollama",
+}
 
 # ── Tool definitions (sent to LLM) ──────────────────────────────────
 
@@ -157,26 +164,74 @@ def execute_tool(name: str, args: dict) -> str:
 
 # ── Model API clients ───────────────────────────────────────────────
 
-def resolve_provider(provider: str) -> str:
-    """Resolve provider from explicit value or environment."""
-    if provider in {"ollama", "openai"}:
-        return provider
-    if OPENAI_API_KEY:
-        return "openai"
+def normalize_provider(provider: str) -> str:
+    lower = provider.strip().lower()
+    return PROVIDER_ALIASES.get(lower, lower)
+
+
+def list_provider_profiles() -> list[dict]:
+    config = get_provider_store().get()
+    profiles = []
+    for profile in config.profiles:
+        profiles.append(
+            {
+                "id": profile.id,
+                "display_name": profile.display_name,
+                "api_base": profile.api_base,
+                "api_key": profile.api_key,
+                "models": profile.models,
+                "enabled": profile.enabled,
+            }
+        )
+    return profiles
+
+
+def find_profile(provider: str) -> dict | None:
+    provider = normalize_provider(provider)
+    for profile in list_provider_profiles():
+        if profile["id"] == provider:
+            return profile
+    return None
+
+
+def resolve_provider(provider: str, model: str) -> str:
+    if provider and provider != "auto":
+        return normalize_provider(provider)
+    if "/" in model:
+        return normalize_provider(model.split("/", 1)[0])
+    default_model = get_provider_store().get().default_model
+    if "/" in default_model:
+        return normalize_provider(default_model.split("/", 1)[0])
     return "ollama"
 
 
-def normalize_openai_message(message: dict) -> dict:
-    """Normalize OpenAI chat message shape for local loop processing."""
-    role = message.get("role", "assistant")
-    content = message.get("content")
-    if content is None:
-        content = ""
-    return {
-        "role": role,
-        "content": content,
-        "tool_calls": message.get("tool_calls", []),
-    }
+def resolve_model_for_provider(provider: str, model: str) -> str:
+    if model and model != DEFAULT_MODEL:
+        if "/" in model:
+            model_provider = normalize_provider(model.split("/", 1)[0])
+            if model_provider == provider:
+                return model
+        return f"{provider}/{model}"
+    profile = find_profile(provider)
+    if profile and profile["models"]:
+        return profile["models"][0]
+    return get_provider_store().get().default_model
+
+
+def require_provider_configured(provider: str) -> tuple[str, str | None]:
+    profile = find_profile(provider)
+    if not profile:
+        raise RuntimeError(f"Unknown provider: {provider}")
+    if not profile["enabled"]:
+        raise RuntimeError(f"Provider {provider} is disabled. Please enable it in config.")
+    if provider != "ollama" and not profile["api_key"]:
+        configure_provider_interactive(provider)
+        profile = find_profile(provider)
+    api_base = profile["api_base"] or None
+    api_key = profile["api_key"] or None
+    if provider != "ollama" and not api_key:
+        raise RuntimeError(f"Provider {provider} requires API key before use.")
+    return api_base or "", api_key
 
 
 def is_identity_question(text: str) -> bool:
@@ -193,55 +248,84 @@ def build_identity_answer(provider: str, model: str, endpoint: str) -> str:
     )
 
 
-async def ollama_chat(
+async def litellm_chat(
     messages: list[dict],
     model: str,
+    api_base: str | None,
+    api_key: str | None,
     tools: list[dict] | None = None,
 ) -> dict:
-    """Call Ollama /api/chat (non-streaming for tool loop)."""
-    payload = {"model": model, "messages": messages, "stream": False}
-    if tools:
-        payload["tools"] = tools
-
-    async with httpx.AsyncClient(timeout=300, proxy=None) as client:
-        resp = await client.post(f"{OLLAMA_BASE}/api/chat", json=payload)
-        resp.raise_for_status()
-        return resp.json()
-
-
-async def openai_chat(
-    messages: list[dict],
-    model: str,
-    tools: list[dict] | None = None,
-) -> dict:
-    """Call OpenAI-compatible /chat/completions endpoint."""
-    if not OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY is not set")
-
-    payload = {
+    """Call model via LiteLLM with optional tool calling."""
+    kwargs = {
         "model": model,
         "messages": messages,
         "temperature": 0.3,
+        "api_base": api_base or None,
+        "api_key": api_key or None,
     }
     if tools:
-        payload["tools"] = tools
-        payload["tool_choice"] = "auto"
-
-    headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "Content-Type": "application/json",
+        kwargs["tools"] = tools
+        kwargs["tool_choice"] = "auto"
+    response = await litellm.acompletion(**kwargs)
+    choice = response.choices[0]
+    msg = choice.message
+    tool_calls = []
+    for tc in (getattr(msg, "tool_calls", None) or []):
+        args = tc.function.arguments if getattr(tc, "function", None) else "{}"
+        tool_calls.append(
+            {
+                "id": getattr(tc, "id", None),
+                "function": {
+                    "name": tc.function.name if getattr(tc, "function", None) else "",
+                    "arguments": args,
+                },
+            }
+        )
+    return {
+        "message": {
+            "role": getattr(msg, "role", "assistant"),
+            "content": getattr(msg, "content", "") or "",
+            "tool_calls": tool_calls,
+        }
     }
 
-    async with httpx.AsyncClient(timeout=300, proxy=None) as client:
-        resp = await client.post(f"{OPENAI_BASE}/chat/completions", headers=headers, json=payload)
-        resp.raise_for_status()
-        data = resp.json()
 
-    choices = data.get("choices", [])
-    if not choices:
-        return {"message": {"role": "assistant", "content": ""}}
-    raw_msg = choices[0].get("message", {})
-    return {"message": normalize_openai_message(raw_msg)}
+def print_provider_menu(current_provider: str) -> None:
+    print("\n可选模型厂商：")
+    for profile in list_provider_profiles():
+        mark = "*" if profile["id"] == current_provider else " "
+        status = "enabled" if profile["enabled"] else "disabled"
+        key_status = "key:yes" if profile["api_key"] else "key:no"
+        print(f" {mark} {profile['id']:<10} {profile['display_name']:<18} [{status}, {key_status}]")
+
+
+def configure_provider_interactive(provider: str) -> None:
+    provider = normalize_provider(provider)
+    profile = find_profile(provider)
+    if profile is None:
+        print(f"[ERROR] 未找到 provider: {provider}")
+        return
+    print(f"\n--- 配置 {profile['display_name']} ({provider}) ---")
+    current_base = profile["api_base"] or ""
+    current_models = ", ".join(profile["models"] or [])
+    api_base = input(f"API Base [{current_base}]: ").strip() or current_base
+    api_key = input("API Key（留空保持不变）: ").strip()
+    models_input = input(f"模型列表(逗号分隔) [{current_models}]: ").strip()
+    enabled_input = input(f"启用? (y/n) [{'y' if profile['enabled'] else 'n'}]: ").strip().lower()
+    enabled = profile["enabled"] if enabled_input == "" else enabled_input in {"y", "yes", "1"}
+    models = (
+        [m.strip() for m in models_input.split(",") if m.strip()]
+        if models_input
+        else profile["models"]
+    )
+    get_provider_store().upsert_profile(
+        provider,
+        api_base=api_base,
+        api_key=api_key if api_key else None,
+        models=models,
+        enabled=enabled,
+    )
+    print(f"[OK] 已保存 {provider} 配置")
 
 
 # ── ReAct loop ──────────────────────────────────────────────────────
@@ -253,17 +337,15 @@ async def react_loop(
     user_input: str,
     messages: list[dict],
     model: str,
-    provider: str,
+    api_base: str | None,
+    api_key: str | None,
 ) -> str:
     """Run the ReAct loop: Thought → Action → Observation → ... → done."""
     messages.append({"role": "user", "content": user_input})
 
     for i in range(MAX_ITERATIONS):
         # Call LLM with tools
-        if provider == "openai":
-            resp = await openai_chat(messages, model, tools=TOOLS)
-        else:
-            resp = await ollama_chat(messages, model, tools=TOOLS)
+        resp = await litellm_chat(messages, model, api_base=api_base, api_key=api_key, tools=TOOLS)
         msg = resp.get("message", {})
         content = msg.get("content", "")
         tool_calls = msg.get("tool_calls", [])
@@ -339,11 +421,11 @@ Rules:
 
 
 async def main_loop(model: str, provider: str, system_prompt: str | None = None):
-    provider = resolve_provider(provider)
-    if provider == "openai" and model == DEFAULT_MODEL:
-        model = OPENAI_CHAT_MODEL
+    provider = resolve_provider(provider, model)
+    model = resolve_model_for_provider(provider, model)
+    api_base, api_key = require_provider_configured(provider)
     messages: list[dict] = []
-    endpoint = OPENAI_BASE if provider == "openai" else OLLAMA_BASE
+    endpoint = api_base or "(provider default)"
     default_prompt = SYSTEM_PROMPT_TEMPLATE.format(
         provider=provider,
         model=model,
@@ -354,7 +436,7 @@ async def main_loop(model: str, provider: str, system_prompt: str | None = None)
 
     print(f"\033[1mOpenAgentic Agent\033[0m  |  provider: {provider}  |  model: {model}")
     print(f"Tools: run_command, read_file, write_file")
-    print("Commands: /clear /model <name> /quit")
+    print("Commands: /clear /model <name> /providers /provider <id> /provider-config [id] /quit")
     print("-" * 60)
 
     while True:
@@ -374,8 +456,38 @@ async def main_loop(model: str, provider: str, system_prompt: str | None = None)
             print("[history cleared]")
             continue
         if user_input.startswith("/model "):
-            model = user_input[7:].strip()
+            model = resolve_model_for_provider(provider, user_input[7:].strip())
             print(f"[model → {model}]")
+            continue
+        if user_input == "/providers":
+            print_provider_menu(provider)
+            continue
+        if user_input.startswith("/provider "):
+            selected = normalize_provider(user_input[10:].strip())
+            if not find_profile(selected):
+                print(f"[ERROR] 未知 provider: {selected}")
+                continue
+            provider = selected
+            configure_provider_interactive(provider)
+            api_base, api_key = require_provider_configured(provider)
+            model = resolve_model_for_provider(provider, model)
+            endpoint = api_base or "(provider default)"
+            messages[0] = {
+                "role": "system",
+                "content": SYSTEM_PROMPT_TEMPLATE.format(
+                    provider=provider,
+                    model=model,
+                    endpoint=endpoint,
+                ),
+            }
+            print(f"[provider → {provider}] [model → {model}]")
+            continue
+        if user_input.startswith("/provider-config"):
+            target = user_input.replace("/provider-config", "", 1).strip() or provider
+            configure_provider_interactive(target)
+            if target == provider:
+                api_base, api_key = require_provider_configured(provider)
+                endpoint = api_base or "(provider default)"
             continue
         if is_identity_question(user_input):
             identity_answer = build_identity_answer(provider, model, endpoint)
@@ -385,12 +497,7 @@ async def main_loop(model: str, provider: str, system_prompt: str | None = None)
             continue
 
         try:
-            await react_loop(user_input, messages, model, provider)
-        except httpx.ConnectError:
-            if provider == "openai":
-                print(f"\033[31m[ERROR] Cannot connect to OpenAI-compatible endpoint at {OPENAI_BASE}\033[0m")
-            else:
-                print(f"\033[31m[ERROR] Cannot connect to Ollama at {OLLAMA_BASE}\033[0m")
+            await react_loop(user_input, messages, model, api_base, api_key)
         except Exception as e:
             print(f"\033[31m[ERROR] {type(e).__name__}: {e}\033[0m")
 
@@ -404,8 +511,7 @@ def main():
     parser.add_argument(
         "--provider",
         default="auto",
-        choices=["auto", "ollama", "openai"],
-        help="LLM provider: auto/ollama/openai-compatible",
+        help="LLM provider id (auto/openai/anthropic/xai/gemini/deepseek/qwen/ollama)",
     )
     parser.add_argument("-s", "--system", default=None, help="Custom system prompt")
     args = parser.parse_args()

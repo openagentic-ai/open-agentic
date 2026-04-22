@@ -5,7 +5,7 @@ from collections.abc import AsyncGenerator
 
 import litellm
 
-from openagentic.config import settings
+from openagentic.core.llm.provider_config import get_provider_store
 
 # Configure LiteLLM
 litellm.drop_params = True
@@ -18,13 +18,14 @@ async def chat_completion(
     max_tokens: int | None = None,
 ) -> dict:
     """Non-streaming chat completion."""
-    model = model or settings.litellm_default_model
+    model, api_base, api_key = get_provider_store().resolve_runtime(model)
     response = await litellm.acompletion(
         model=model,
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,
-        api_base=_get_api_base(model),
+        api_base=api_base,
+        api_key=api_key,
     )
     choice = response.choices[0]
     usage = response.usage
@@ -47,14 +48,15 @@ async def chat_completion_stream(
     max_tokens: int | None = None,
 ) -> AsyncGenerator[str, None]:
     """Streaming chat completion, yields SSE-formatted events."""
-    model = model or settings.litellm_default_model
+    model, api_base, api_key = get_provider_store().resolve_runtime(model)
     response = await litellm.acompletion(
         model=model,
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,
         stream=True,
-        api_base=_get_api_base(model),
+        api_base=api_base,
+        api_key=api_key,
     )
 
     full_content = ""
@@ -67,10 +69,3 @@ async def chat_completion_stream(
         if chunk.choices[0].finish_reason:
             usage = getattr(chunk, "usage", None)
             yield f"data: {json.dumps({'event': 'done', 'data': full_content, 'usage': {'prompt_tokens': getattr(usage, 'prompt_tokens', 0) if usage else 0, 'completion_tokens': getattr(usage, 'completion_tokens', 0) if usage else 0}})}\n\n"
-
-
-def _get_api_base(model: str) -> str | None:
-    """Return api_base for Ollama models."""
-    if model.startswith("ollama/"):
-        return settings.ollama_api_base
-    return None

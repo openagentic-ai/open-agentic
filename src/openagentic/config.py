@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     # LLM
     litellm_default_model: str = "ollama/qwen3:14b"
     ollama_api_base: str = "http://localhost:11434"
+    model_provider_config_path: str = ".openagentic/model_providers.json"
 
     # File storage
     upload_dir: str = "/data/uploads"
