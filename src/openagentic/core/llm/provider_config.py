@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -110,6 +111,70 @@ def _clone_config(config: ProviderConfig) -> ProviderConfig:
     )
 
 
+def _infer_provider_from_api_base(api_base: str) -> str:
+    base = api_base.lower()
+    if "deepseek" in base:
+        return "deepseek"
+    if "x.ai" in base or "grok" in base:
+        return "xai"
+    if "generativelanguage.googleapis.com" in base or "googleapis.com" in base:
+        return "gemini"
+    if "dashscope.aliyuncs.com" in base:
+        return "qwen"
+    if "anthropic" in base:
+        return "anthropic"
+    return "openai"
+
+
+def _normalize_model(provider_id: str, model: str) -> str:
+    if "/" in model:
+        return model
+    return f"{provider_id}/{model}"
+
+
+def _apply_env_bootstrap(config: ProviderConfig) -> tuple[ProviderConfig, bool]:
+    env_api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    env_api_base = os.getenv("OPENAI_BASE_URL", "").strip()
+    env_chat_model = os.getenv("OPENAI_CHAT_MODEL", "").strip()
+    if not (env_api_key or env_api_base or env_chat_model):
+        return config, False
+
+    provider_id = _infer_provider_from_api_base(env_api_base) if env_api_base else "openai"
+    profiles_by_id = {p.id: p for p in config.profiles}
+    profile = profiles_by_id.get(provider_id)
+    changed = False
+    if profile is None:
+        profile = ProviderProfile(id=provider_id, display_name=provider_id.upper(), enabled=True)
+        config.profiles.append(profile)
+        changed = True
+
+    if env_api_base and profile.api_base != env_api_base:
+        profile.api_base = env_api_base
+        changed = True
+    if env_api_key and profile.api_key != env_api_key:
+        profile.api_key = env_api_key
+        changed = True
+    if not profile.enabled:
+        profile.enabled = True
+        changed = True
+
+    normalized_model = _normalize_model(provider_id, env_chat_model) if env_chat_model else ""
+    if normalized_model:
+        if normalized_model not in profile.models:
+            profile.models.insert(0, normalized_model)
+            changed = True
+        # Upgrade stale default from initial ollama or empty state.
+        if (
+            config.default_model == DEFAULT_CONFIG.default_model
+            or config.default_model.startswith("ollama/")
+            or config.default_model == ""
+        ) and config.default_model != normalized_model:
+            config.default_model = normalized_model
+            changed = True
+
+    return config, changed
+
+
 class ProviderConfigStore:
     """JSON-file backed store for provider profiles."""
 
@@ -174,23 +239,35 @@ class ProviderConfigStore:
     def _load(self) -> ProviderConfig:
         if not self.path.exists():
             self.path.parent.mkdir(parents=True, exist_ok=True)
+            cfg = _clone_config(DEFAULT_CONFIG)
+            cfg, _ = _apply_env_bootstrap(cfg)
             data = {
-                "default_model": DEFAULT_CONFIG.default_model,
-                "profiles": [asdict(profile) for profile in DEFAULT_CONFIG.profiles],
+                "default_model": cfg.default_model,
+                "profiles": [asdict(profile) for profile in cfg.profiles],
             }
             self.path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-            return _clone_config(DEFAULT_CONFIG)
+            return cfg
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
             profiles = [ProviderProfile(**item) for item in data.get("profiles", [])]
             if not profiles:
                 profiles = [ProviderProfile(**asdict(profile)) for profile in DEFAULT_PROFILES]
-            return ProviderConfig(
+            cfg = ProviderConfig(
                 default_model=data.get("default_model", settings.litellm_default_model),
                 profiles=profiles,
             )
+            cfg, changed = _apply_env_bootstrap(cfg)
+            if changed:
+                data = {
+                    "default_model": cfg.default_model,
+                    "profiles": [asdict(profile) for profile in cfg.profiles],
+                }
+                self.path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            return cfg
         except (json.JSONDecodeError, OSError, TypeError):
-            return _clone_config(DEFAULT_CONFIG)
+            cfg = _clone_config(DEFAULT_CONFIG)
+            cfg, _ = _apply_env_bootstrap(cfg)
+            return cfg
 
     def _save_unlocked(self) -> None:
         data = {

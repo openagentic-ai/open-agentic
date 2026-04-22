@@ -44,3 +44,17 @@ def test_resolve_runtime_uses_default_model_profile():
         assert api_base == "https://api.openai.com/v1"
         assert api_key == "sk-openai-abc12345"
 
+
+def test_env_bootstrap_updates_stale_default_to_deepseek(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-deepseek-abc12345")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.deepseek.com/v1")
+    monkeypatch.setenv("OPENAI_CHAT_MODEL", "deepseek-chat")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = f"{tmpdir}/providers.json"
+        store = ProviderConfigStore(path)
+        cfg = store.get()
+        assert cfg.default_model == "deepseek/deepseek-chat"
+        deepseek = next(p for p in cfg.profiles if p.id == "deepseek")
+        assert deepseek.api_key == "sk-deepseek-abc12345"
+        assert deepseek.api_base == "https://api.deepseek.com/v1"
+

@@ -1,0 +1,83 @@
+{
+  "default_model": "ollama/qwen3:14b",
+  "profiles": [
+    {
+      "id": "openai",
+      "display_name": "OpenAI",
+      "api_base": "https://api.openai.com/v1",
+      "api_key": "",
+      "models": [
+        "openai/gpt-4.1",
+        "openai/gpt-4.1-mini",
+        "openai/gpt-4o-mini"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "anthropic",
+      "display_name": "Anthropic Claude",
+      "api_base": "https://api.anthropic.com",
+      "api_key": "",
+      "models": [
+        "anthropic/claude-sonnet-4-20250514",
+        "anthropic/claude-3-7-sonnet-latest"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "xai",
+      "display_name": "xAI Grok",
+      "api_base": "https://api.x.ai/v1",
+      "api_key": "",
+      "models": [
+        "xai/grok-3-beta"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "gemini",
+      "display_name": "Google Gemini",
+      "api_base": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "api_key": "",
+      "models": [
+        "gemini/gemini-2.0-flash",
+        "gemini/gemini-1.5-pro"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "deepseek",
+      "display_name": "DeepSeek",
+      "api_base": "https://api.deepseek.com/v1",
+      "api_key": "",
+      "models": [
+        "deepseek/deepseek-chat",
+        "deepseek/deepseek-reasoner"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "qwen",
+      "display_name": "Qwen",
+      "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "api_key": "",
+      "models": [
+        "qwen/qwen-max",
+        "qwen/qwen-plus",
+        "qwen/qwen3-32b"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "ollama",
+      "display_name": "Ollama (local)",
+      "api_base": "http://host.docker.internal:11434",
+      "api_key": "",
+      "models": [
+        "ollama/qwen3:14b",
+        "ollama/deepseek-r1:32b"
+      ],
+      "enabled": true
+    }
+  ]
+}
