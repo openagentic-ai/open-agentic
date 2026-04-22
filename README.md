@@ -44,7 +44,8 @@
 | **Phase 0** | **基本完成** | FastAPI 工厂、`lifespan`、Docker Compose（**`pgvector/pgvector:pg16`**）、健康检查、`core` 目录与依赖链、**`structlog` 已接入启动日志**（见 `main.py`）。 |
 | **Phase 0 注意项** | **已完成** | Alembic revision `62da57f49c3e_initial_tables` 已补齐用户、会话、消息、Agent 与执行历史等建表逻辑；开发环境仍由 `create_all` 兜底，生产环境走 `alembic upgrade head`。 |
 | **Phase 1** | **已完成** | 注册 / 登录 / **JWT**、会话与消息 **CRUD**、**LiteLLM** 调用、**SSE**（`StreamingResponse` + `text/event-stream`，见 `core/chat`）、**`ui/`** 前端与 Phase 1 API 协同。 |
-| **Phase 2** | **基础版已完成** | 新增 `agent/` 与 `mcp/` 实现：Agent CRUD、最小 ReAct 执行器、内置工具注册表、MCP HTTP JSON-RPC 客户端、执行历史落库与 API；`workflow/`、`knowledge/` 仍为后续 Phase 3/4。 |
+| **Phase 2** | **基础版已完成** | 新增 `agent/` 与 `mcp/` 实现：Agent CRUD、最小 ReAct 执行器、内置工具注册表、MCP HTTP JSON-RPC 客户端、执行历史落库与 API；`knowledge/` 为后续 Phase 4。 |
+| **Phase 3** | **已完成** | `workflow/` 已实现：Workflow CRUD、Run 执行与取消、DAG 校验与拓扑执行、节点重试/超时、变量模板渲染、运行轨迹与状态查询等核心能力。 |
 | **Phase 5** | **未实现（仅部分基建）** | 无完整多租户计费闭环、无 Prometheus **`/metrics`** 等；**`structlog` 已接入** 不等于「可观测性全套」。`tenant/`、`observability/` 多为占位。 |
 | **Phase 6** | **部分** | **`ui/`** 已有多页面（如 Sessions、Settings、Skills、Channels、Devices 等）；README 常见列的 **React Flow 工作流编辑器、知识库管理 UI、Agent 模板市场、生产级 Nginx Compose 拓扑** 等 **尚未与 Phase 4/5 后端能力形成闭环**，以代码为准。 |
 
@@ -586,11 +587,92 @@ alembic/                 # 迁移脚本目录（revision 需维护）
 
 **代码状态**：`agent/` 已落地模型、服务、路由、执行器与工具；`mcp/` 提供轻量客户端；后续可在此基础上扩展多步规划、工具自动选择策略与外部 MCP 服务治理。
 
-### Phase 3：工作流引擎 — **未开始（占位）**
+### Phase 3：工作流引擎 — **已完成**
 
-- [ ] JSON DAG、拓扑执行、节点类型、WebSocket 进度等
+- [x] JSON DAG、拓扑执行、节点类型、运行状态追踪与取消控制
 
-**代码状态**：`workflow/` 占位。
+**代码状态**：`workflow/` 已落地 `models`、`service`、`router`、`runtime` 与 `schemas`，并在主应用完成路由接入。
+
+**Phase 3 实施计划（已确认）**
+
+- [x] **工具协议化（ToolSpec）**：在当前工具注册表上补齐 `is_read_only`、`is_destructive`、`is_concurrency_safe`、`validate_input`、`check_permissions` 元数据，作为工作流节点统一执行契约。
+- [x] **执行引擎升级（QueryEngine 风格）**：新增多轮执行状态机（`max_turns`、`max_budget_usd`、`retry`、`stop_reason`、中断控制），支撑 DAG 节点稳定编排。
+- [x] **任务系统（Task Runtime）**：引入 `pending/running/completed/failed/killed` 生命周期、任务输出偏移与 kill 能力，为 WebSocket 进度与长任务恢复做基础。
+- [x] **MCP 连接管理层**：从单次 HTTP 调用演进到多服务连接、健康状态、工具动态装载与重连机制，供 Workflow 节点统一复用。
+- [x] **安全基线（Secret 扫描 + 脱敏）**：在工作流输入、工具参数、执行日志链路增加高置信密钥扫描与 redact，避免敏感信息外泄。
+- [x] **可观测性闭环**：补齐 `request_id/correlation_id`、节点耗时、token/cost、失败分类与重试指标，支撑 Phase 5 计费与运维分析。
+
+**落地顺序建议**：先完成「工具协议化 + 执行引擎升级」，再接「任务系统 + MCP 管理」，最后补齐「安全与可观测性」。
+
+**Phase 3 验收标准（DoD）**
+
+- [x] `workflow/` 具备可运行的 JSON DAG 执行能力：支持拓扑排序、并行节点、失败重试、超时终止。
+- [x] 工作流运行时可提供结构化执行记录：节点状态、开始/结束时间、错误原因、重试次数、token/cost（如可得）。
+- [x] 提供可用 API：工作流 CRUD、运行触发、运行列表与详情查询，接口契约在 OpenAPI 可见。
+- [x] 支持实时进度事件：最小可用形态为 WebSocket 或 SSE 的节点状态推送。
+- [x] 具备中断与恢复能力：支持取消运行，异常退出后可定位到最后已完成节点。
+
+**Phase 3 里程碑拆分（建议）**
+
+- **Phase 3.1（执行核心）**：工具协议化（ToolSpec）+ 执行引擎状态机（turn/retry/budget/stop_reason）。
+- **Phase 3.2（调度与进度）**：任务系统（Task Runtime）+ 实时事件流（WebSocket/SSE）+ 运行历史查询。
+- **Phase 3.3（治理强化）**：MCP 连接管理 + Secret 扫描/脱敏 + 指标/日志闭环。
+
+**Phase 3 风险与回滚策略**
+
+- **重试风暴风险**：为节点设置最大重试与指数退避；触发阈值后自动熔断工作流运行。
+- **并发争用风险**：设置全局并发上限和每工作流并发上限，超过阈值排队执行。
+- **外部依赖不稳定（MCP/LLM）**：支持节点级降级策略（跳过 / 备用工具 / 备用模型）。
+- **回滚策略**：核心执行路径通过 feature flag 开关，异常时可快速切回串行/简化执行模式。
+
+**Phase 3 API 草案（占位，后续以 `/docs` 为准）**
+
+- `GET/POST /api/workflows`
+- `GET/PATCH/DELETE /api/workflows/{workflow_id}`
+- `POST /api/workflows/{workflow_id}/runs`
+- `GET /api/workflow-runs`
+- `GET /api/workflow-runs/{run_id}`
+- `POST /api/workflow-runs/{run_id}/cancel`
+- `GET /api/workflow-runs/{run_id}/events`（SSE）或 `WS /ws/workflow-runs/{run_id}`
+
+**Phase 3 测试计划（最小矩阵）**
+
+- **单元测试**：DAG 校验、拓扑排序、变量模板渲染、重试与超时分支。
+- **集成测试**：MCP 工具失败/超时、LLM 调用失败、降级策略生效。
+- **端到端测试**：创建工作流→触发运行→接收进度→查看结果→取消运行。
+- **稳定性测试**：固定并发场景下验证成功率、平均时延、失败分布与恢复时间。
+
+**Phase 3 规划配置项（建议加入 `.env.example`）**
+
+- `WORKFLOW_MAX_PARALLEL=4`
+- `WORKFLOW_MAX_RETRIES=2`
+- `WORKFLOW_RUN_TIMEOUT_SEC=300`
+- `WORKFLOW_NODE_TIMEOUT_SEC=120`
+- `WORKFLOW_EVENTS_TRANSPORT=sse`（可选 `sse`/`websocket`）
+- `SECRET_SCAN_ENABLED=true`
+- `WORKFLOW_FEATURE_FLAG=true`
+
+**Phase 3 执行模型名单（用于你的这套 ReAct/Workflow 方案）**
+
+> 说明：为保证工具调用稳定性，建议按「主执行模型 + 经济模型 + 备用模型」分层配置；不要只依赖单一模型。
+
+- **主执行模型（推荐）**：`claude-sonnet-4`、`gpt-4.1`
+- **强推理备用（复杂链路）**：`o4-mini`、`deepseek-reasoner`
+- **经济档模型（日常低风险任务）**：`deepseek-chat`、`qwen/qwen3-32b`（或同级 Instruct）
+- **本地模型（离线/内网优先）**：`ollama/qwen3:14b`、`ollama/deepseek-r1:32b`
+
+**最低能力要求（达不到不建议接入 Phase 3 执行链）**
+
+- 支持稳定的 **tool calling / function calling**
+- 支持较长上下文并具备多轮一致性
+- 可控的延迟与错误率（支持超时重试场景）
+- 能在系统提示约束下保持身份与输出格式稳定
+
+**默认建议策略**
+
+- `primary_model`：`gpt-4.1` 或 `claude-sonnet-4`
+- `secondary_model`：`deepseek-chat`（成本优化）
+- `fallback_model`：`deepseek-reasoner` 或 `o4-mini`（主模型失败时兜底）
 
 ### Phase 4：知识库 / RAG — **未开始（占位）**
 
@@ -643,13 +725,16 @@ PYTHONPATH=src uvicorn openagentic.main:app --host 0.0.0.0 --port 8000
 
 ## CLI 模式（直接对话）
 
-无需启动 Web 服务，直接在终端与本地 Ollama 模型流式对话：
+无需启动 Web 服务，直接在终端与模型对话（支持本地 Ollama 或 OpenAI 兼容网关）：
 
 ```bash
 cd /opt/open-agentic && source .venv/bin/activate
 
 # 默认使用 qwen3:14b
 python -m openagentic.cli
+
+# 使用 OpenAI 兼容网关（如 DeepSeek）
+python -m openagentic.cli --provider openai -m deepseek-chat
 
 # 指定模型
 python -m openagentic.cli -m ollama/deepseek-r1:32b
@@ -660,6 +745,12 @@ python -m openagentic.cli -s "你是一个Python专家，用中文回答"
 # 也可以用注册的命令
 openagentic
 ```
+
+CLI Provider 说明：
+
+- `--provider auto`（默认）：若检测到 `OPENAI_API_KEY`，优先走 OpenAI 兼容接口；否则走 Ollama。
+- `--provider ollama`：使用 `OLLAMA_API_BASE`（默认 `http://localhost:11434`）。
+- `--provider openai`：使用 `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_CHAT_MODEL`。
 
 CLI 内置命令：
 

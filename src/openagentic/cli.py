@@ -1,17 +1,28 @@
-"""OpenAgentic CLI — ReAct Agent with tool calling via Ollama."""
+"""OpenAgentic CLI — ReAct Agent with tool calling via Ollama/OpenAI-compatible APIs."""
 
 import argparse
 import readline  # noqa: F401 — enables arrow keys + history in input()
 import asyncio
 import json
 import os
+import re
 import subprocess
 import sys
 
 import httpx
+from dotenv import load_dotenv
+
+load_dotenv()
 
 DEFAULT_MODEL = "qwen3:14b"
 OLLAMA_BASE = os.getenv("OLLAMA_API_BASE", "http://localhost:11434")
+OPENAI_BASE = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
+IDENTITY_QUESTION_RE = re.compile(
+    r"(你背后|你用的|什么模型|哪个模型|provider|底层模型|大模型|what model|which model|model provider)",
+    re.IGNORECASE,
+)
 
 # ── Tool definitions (sent to LLM) ──────────────────────────────────
 
@@ -144,45 +155,93 @@ def execute_tool(name: str, args: dict) -> str:
         return f"[ERROR] {type(e).__name__}: {e}"
 
 
-# ── Ollama API client ───────────────────────────────────────────────
+# ── Model API clients ───────────────────────────────────────────────
+
+def resolve_provider(provider: str) -> str:
+    """Resolve provider from explicit value or environment."""
+    if provider in {"ollama", "openai"}:
+        return provider
+    if OPENAI_API_KEY:
+        return "openai"
+    return "ollama"
+
+
+def normalize_openai_message(message: dict) -> dict:
+    """Normalize OpenAI chat message shape for local loop processing."""
+    role = message.get("role", "assistant")
+    content = message.get("content")
+    if content is None:
+        content = ""
+    return {
+        "role": role,
+        "content": content,
+        "tool_calls": message.get("tool_calls", []),
+    }
+
+
+def is_identity_question(text: str) -> bool:
+    return bool(IDENTITY_QUESTION_RE.search(text))
+
+
+def build_identity_answer(provider: str, model: str, endpoint: str) -> str:
+    return (
+        "当前运行时配置如下：\n"
+        f"- provider: {provider}\n"
+        f"- model: {model}\n"
+        f"- endpoint: {endpoint}\n\n"
+        "我只会按这里的实时配置回答，不会引用其它默认话术。"
+    )
+
 
 async def ollama_chat(
     messages: list[dict],
     model: str,
     tools: list[dict] | None = None,
-    stream: bool = False,
 ) -> dict:
-    """Call Ollama /api/chat."""
-    payload = {"model": model, "messages": messages, "stream": stream}
+    """Call Ollama /api/chat (non-streaming for tool loop)."""
+    payload = {"model": model, "messages": messages, "stream": False}
     if tools:
         payload["tools"] = tools
 
     async with httpx.AsyncClient(timeout=300, proxy=None) as client:
-        if not stream:
-            resp = await client.post(f"{OLLAMA_BASE}/api/chat", json=payload)
-            resp.raise_for_status()
-            return resp.json()
-        else:
-            # streaming — yield chunks, return final assembled
-            full_content = ""
-            async with client.stream("POST", f"{OLLAMA_BASE}/api/chat", json=payload) as resp:
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    if not line:
-                        continue
-                    chunk = json.loads(line)
-                    msg = chunk.get("message", {})
-                    delta = msg.get("content", "")
-                    if delta:
-                        print(delta, end="", flush=True)
-                        full_content += delta
-                    if chunk.get("done"):
-                        print()
-                        # Return the final message structure
-                        if not msg.get("content"):
-                            msg["content"] = full_content
-                        return chunk
-            return {"message": {"role": "assistant", "content": full_content}}
+        resp = await client.post(f"{OLLAMA_BASE}/api/chat", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+
+async def openai_chat(
+    messages: list[dict],
+    model: str,
+    tools: list[dict] | None = None,
+) -> dict:
+    """Call OpenAI-compatible /chat/completions endpoint."""
+    if not OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY is not set")
+
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.3,
+    }
+    if tools:
+        payload["tools"] = tools
+        payload["tool_choice"] = "auto"
+
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=300, proxy=None) as client:
+        resp = await client.post(f"{OPENAI_BASE}/chat/completions", headers=headers, json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+
+    choices = data.get("choices", [])
+    if not choices:
+        return {"message": {"role": "assistant", "content": ""}}
+    raw_msg = choices[0].get("message", {})
+    return {"message": normalize_openai_message(raw_msg)}
 
 
 # ── ReAct loop ──────────────────────────────────────────────────────
@@ -190,13 +249,21 @@ async def ollama_chat(
 MAX_ITERATIONS = 15
 
 
-async def react_loop(user_input: str, messages: list[dict], model: str) -> str:
+async def react_loop(
+    user_input: str,
+    messages: list[dict],
+    model: str,
+    provider: str,
+) -> str:
     """Run the ReAct loop: Thought → Action → Observation → ... → done."""
     messages.append({"role": "user", "content": user_input})
 
     for i in range(MAX_ITERATIONS):
         # Call LLM with tools
-        resp = await ollama_chat(messages, model, tools=TOOLS, stream=False)
+        if provider == "openai":
+            resp = await openai_chat(messages, model, tools=TOOLS)
+        else:
+            resp = await ollama_chat(messages, model, tools=TOOLS)
         msg = resp.get("message", {})
         content = msg.get("content", "")
         tool_calls = msg.get("tool_calls", [])
@@ -242,7 +309,10 @@ async def react_loop(user_input: str, messages: list[dict], model: str) -> str:
             result = execute_tool(name, args)
             print(f"  \033[2m{result[:500]}\033[0m")
 
-            messages.append({"role": "tool", "content": result})
+            tool_msg = {"role": "tool", "content": result}
+            if tc.get("id"):
+                tool_msg["tool_call_id"] = tc["id"]
+            messages.append(tool_msg)
 
     print("\n\033[31m[max iterations reached]\033[0m")
     return "(max iterations)"
@@ -250,7 +320,12 @@ async def react_loop(user_input: str, messages: list[dict], model: str) -> str:
 
 # ── Main REPL ───────────────────────────────────────────────────────
 
-SYSTEM_PROMPT = """You are OpenAgentic, an AI agent running on a Linux server. You can execute shell commands, read/write files to accomplish tasks.
+SYSTEM_PROMPT_TEMPLATE = """You are OpenAgentic, an AI agent running on a Linux server. You can execute shell commands, read/write files to accomplish tasks.
+
+Runtime identity (MUST be truthful):
+- provider: {provider}
+- model: {model}
+- endpoint: {endpoint}
 
 Rules:
 1. Think step by step about what needs to be done.
@@ -258,15 +333,26 @@ Rules:
 3. After completing the task, call the `done` tool with a summary.
 4. If the user asks a simple question that doesn't need tools, answer directly without calling any tool.
 5. Be careful with destructive operations (rm -rf, etc.) — confirm intent first.
-6. Keep command outputs concise; use head/tail/grep when appropriate."""
+6. Keep command outputs concise; use head/tail/grep when appropriate.
+7. If user asks what model/provider you are using, answer strictly from runtime identity above.
+8. Never claim a different vendor/model (e.g., Claude/OpenAI/DeepSeek) unless it matches runtime identity."""
 
 
-async def main_loop(model: str, system_prompt: str | None = None):
+async def main_loop(model: str, provider: str, system_prompt: str | None = None):
+    provider = resolve_provider(provider)
+    if provider == "openai" and model == DEFAULT_MODEL:
+        model = OPENAI_CHAT_MODEL
     messages: list[dict] = []
-    sp = system_prompt or SYSTEM_PROMPT
+    endpoint = OPENAI_BASE if provider == "openai" else OLLAMA_BASE
+    default_prompt = SYSTEM_PROMPT_TEMPLATE.format(
+        provider=provider,
+        model=model,
+        endpoint=endpoint,
+    )
+    sp = system_prompt or default_prompt
     messages.append({"role": "system", "content": sp})
 
-    print(f"\033[1mOpenAgentic Agent\033[0m  |  model: {model}")
+    print(f"\033[1mOpenAgentic Agent\033[0m  |  provider: {provider}  |  model: {model}")
     print(f"Tools: run_command, read_file, write_file")
     print("Commands: /clear /model <name> /quit")
     print("-" * 60)
@@ -291,11 +377,20 @@ async def main_loop(model: str, system_prompt: str | None = None):
             model = user_input[7:].strip()
             print(f"[model → {model}]")
             continue
+        if is_identity_question(user_input):
+            identity_answer = build_identity_answer(provider, model, endpoint)
+            print(f"\n\033[32m{identity_answer}\033[0m")
+            messages.append({"role": "user", "content": user_input})
+            messages.append({"role": "assistant", "content": identity_answer})
+            continue
 
         try:
-            await react_loop(user_input, messages, model)
+            await react_loop(user_input, messages, model, provider)
         except httpx.ConnectError:
-            print(f"\033[31m[ERROR] Cannot connect to Ollama at {OLLAMA_BASE}\033[0m")
+            if provider == "openai":
+                print(f"\033[31m[ERROR] Cannot connect to OpenAI-compatible endpoint at {OPENAI_BASE}\033[0m")
+            else:
+                print(f"\033[31m[ERROR] Cannot connect to Ollama at {OLLAMA_BASE}\033[0m")
         except Exception as e:
             print(f"\033[31m[ERROR] {type(e).__name__}: {e}\033[0m")
 
@@ -304,11 +399,17 @@ def main():
     parser = argparse.ArgumentParser(description="OpenAgentic Agent CLI (ReAct)")
     parser.add_argument(
         "-m", "--model", default=DEFAULT_MODEL,
-        help=f"Ollama model (default: {DEFAULT_MODEL})",
+        help=f"Model name (default: {DEFAULT_MODEL}; OpenAI mode uses OPENAI_CHAT_MODEL when unchanged)",
+    )
+    parser.add_argument(
+        "--provider",
+        default="auto",
+        choices=["auto", "ollama", "openai"],
+        help="LLM provider: auto/ollama/openai-compatible",
     )
     parser.add_argument("-s", "--system", default=None, help="Custom system prompt")
     args = parser.parse_args()
-    asyncio.run(main_loop(args.model, args.system))
+    asyncio.run(main_loop(args.model, args.provider, args.system))
 
 
 if __name__ == "__main__":
