@@ -7,7 +7,6 @@ import uuid
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from openagentic.core.auth.models import User
 from openagentic.db.session import get_db
 from openagentic.deps import get_current_user
 from openagentic.main import app

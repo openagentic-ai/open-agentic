@@ -511,6 +511,15 @@ alembic/                 # 迁移脚本目录（revision 需维护）
 - **可部署性**：Docker Compose 定义 Postgres 与应用依赖，便于在客户内网复现相同拓扑；Postgres 服务建议配置 **healthcheck**，应用 **`depends_on` 条件** 等待数据库就绪。
 - **可观测性（路线）**：Phase 5 明确 Prometheus、structlog、correlation ID —— 与 **Agent 可观测性** 学习主题对齐（跨请求 trace）。**当前仓库**：`structlog` 已在启动路径接入；其余按路线图迭代。
 - **安全**：JWT + bcrypt 基线；后续多租户与 **操作审计** 需与会话、模型调用日志关联。
+- **静态代码质量**：已接入 SonarCloud（见 `.github/workflows/sonarcloud.yml` 与 `sonar-project.properties`），PR 会基于测试覆盖率做质量分析。
+
+### SonarCloud 配置说明
+
+1. 在 SonarCloud 创建项目并绑定本仓库。
+2. 在 GitHub 仓库 `Settings -> Secrets and variables -> Actions` 中添加：
+   - `SONAR_TOKEN`（必需）
+3. 首次执行可在 Actions 页手动触发 `SonarCloud` 工作流。
+4. 质量规则、质量门禁（Quality Gate）在 SonarCloud 项目后台配置。
 
 ---
 

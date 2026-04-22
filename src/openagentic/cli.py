@@ -4,6 +4,7 @@ import argparse
 import readline  # noqa: F401 — enables arrow keys + history in input()
 import asyncio
 import json
+import os
 import re
 import subprocess
 
@@ -435,7 +436,7 @@ async def main_loop(model: str, provider: str, system_prompt: str | None = None)
     messages.append({"role": "system", "content": sp})
 
     print(f"\033[1mOpenAgentic Agent\033[0m  |  provider: {provider}  |  model: {model}")
-    print(f"Tools: run_command, read_file, write_file")
+    print("Tools: run_command, read_file, write_file")
     print("Commands: /clear /model <name> /providers /provider <id> /provider-config [id] /quit")
     print("-" * 60)
 
