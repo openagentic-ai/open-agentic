@@ -46,9 +46,9 @@
 | **Phase 1** | **已完成** | 注册 / 登录 / **JWT**、会话与消息 **CRUD**、**LiteLLM** 调用、**SSE**（`StreamingResponse` + `text/event-stream`，见 `core/chat`）、**`ui/`** 前端与 Phase 1 API 协同。 |
 | **Phase 2** | **基础版已完成** | 新增 `agent/` 与 `mcp/` 实现：Agent CRUD、最小 ReAct 执行器、工具注册表、MCP HTTP JSON-RPC 客户端、执行历史落库与 API。 |
 | **Phase 3** | **已完成** | `workflow/` 已实现：Workflow CRUD、Run 执行与取消、DAG 校验与拓扑执行、节点重试/超时、变量模板渲染、运行轨迹与状态查询。 |
-| **Phase 4** | **未实现（占位）** | `knowledge/` 目录仍为占位；数据库侧已选 `pgvector` 镜像，为 RAG 落地做准备。 |
+| **Phase 4** | **未实现（占位）** | `knowledge/` 目录已实现：文档上传、分块、向量存储、检索 API；数据库迁移 `add_knowledge_tables.py` 已就绪；与 Agent 集成通过 `knowledge_search` 工具 |
 | **Phase 5** | **未实现（仅部分基建）** | 无完整多租户计费闭环、无 Prometheus **`/metrics`** 等；**`structlog` 已接入** 不等于「可观测性全套」。`tenant/`、`observability/` 多为占位。 |
-| **Phase 6** | **部分** | **`ui/`** 已有多页面（如 Sessions、Settings、Skills、Channels、Devices 等）；README 常见列的 **React Flow 工作流编辑器、知识库管理 UI、Agent 模板市场、生产级 Nginx Compose 拓扑** 等 **尚未与 Phase 4/5 后端能力形成闭环**，以代码为准。 |
+| **Phase 6** | **部分** | **`ui/`** 已有多页面（Sessions、Settings、Skills、Channels、Devices 等）；Skills 页面已实现前端 UI 与静态数据，后端 API 待完善；工作流编辑器、知识库管理 UI 等 **与 Phase 4/5 后端能力逐步形成闭环** |
 
 **与「详述」正文的阅读顺序建议**：先读本表建立 **事实边界**，再读 **「已落地能力与实现手段」** 与 **「技术模块详解」** 理解 **为什么这样设计、后续怎么演进**。
 
@@ -628,12 +628,17 @@ schemathesis run --url http://127.0.0.1:8000 --include-method GET --max-examples
 - [x] 节点级重试 / 超时 + 结构化 trace
 - [x] 对应测试覆盖（API、边界行为、配置持久化）
 
-### Phase 4：知识库 / RAG（未完成）
+### Phase 4：知识库 / RAG（部分完成）
 
-- [ ] 文档上传与管理
-- [ ] 分块与嵌入生成
-- [ ] pgvector 检索
-- [ ] 与 Agent / Workflow 集成
+- [x] 知识库数据库模型与迁移 (`add_knowledge_tables.py`)
+- [x] 文档上传与管理 API
+- [x] 文档分块与向量存储
+- [x] 向量检索 API
+- [x] 与 Agent 集成 (`knowledge_search` 工具)
+- [ ] 批量文档处理
+- [ ] 向量索引优化
+- [ ] 多模态文档支持
+- [ ] 检索结果重排序
 
 ### Phase 5：多租户 + 计费 + 可观测性（未完成）
 
@@ -642,16 +647,149 @@ schemathesis run --url http://127.0.0.1:8000 --include-method GET --max-examples
 - [ ] Prometheus 指标与告警
 - [ ] correlation ID 全链路追踪
 
-### Phase 6：前端增强（进行中）
+### Phase 6：前端增强与 Skills 生态系统（进行中）
 
-- [x] `ui/` 多页面（Sessions、Settings、Skills、Channels、Devices）
+#### 前端页面（已完成）
+- [x] `ui/` 多页面框架
+- [x] Sessions 页面
+- [x] Settings 页面
+- [x] **Skills 页面**（前端 UI 与静态数据）
+- [x] Channels 页面
+- [x] Devices 页面
+
+#### Skills 支持计划（Todo List）
+
+##### 短期目标（Phase 6.1 - Skills 基础）
+- [ ] **Skills 数据库模型**：创建 skills 数据表，支持技能元数据存储
+- [ ] **Skills CRUD API**：实现技能的创建、读取、更新、删除接口
+- [ ] **技能状态持久化**：保存用户技能启用/禁用状态到数据库
+- [ ] **前端-后端集成**：连接 Skills 页面到后端 API
+- [ ] **技能分类与搜索**：实现技能分类、标签、搜索功能
+
+##### 中期目标（Phase 6.2 - Skills 管理）
+- [ ] **技能安装系统**：支持从技能市场安装技能
+- [ ] **技能版本控制**：支持技能版本管理和升级
+- [ ] **技能依赖管理**：处理技能间的依赖关系
+- [ ] **技能权限控制**：基于用户角色的技能访问控制
+- [ ] **技能执行统计**：记录技能使用情况和性能指标
+
+##### 长期目标（Phase 6.3 - Skills 生态系统）
+- [ ] **技能市场（ClawHub）**：社区技能分享平台
+- [ ] **技能开发工具包**：提供技能开发模板和SDK
+- [ ] **技能自动化测试**：技能质量验证和测试框架
+- [ ] **技能安全沙箱**：技能执行环境隔离
+- [ ] **技能计费系统**：付费技能的支持
+
+#### 其他前端增强
 - [ ] 工作流可视化编辑器（React Flow）
 - [ ] 知识库管理 UI
 - [ ] Agent 模板市场
 - [ ] 生产级 Nginx + Compose 拓扑闭环
+- [ ] 响应式设计与移动端适配
+- [ ] 多语言国际化支持
+- [ ] 主题切换与自定义样式
 
 ---
 
+#### 当前 Skills 实现状态
+- **前端 UI**：✅ 已完成（SkillsPage.tsx）
+- **技能数据模型**：✅ TypeScript 接口已定义
+- **预置技能**：✅ 7个内置技能 + 3个社区技能
+- **UI 功能**：✅ 技能启用/禁用、分类筛选、搜索
+- **后端支持**：⚠️ 部分实现（Tool 系统基础）
+- **数据库存储**：❌ 未实现
+- **API 接口**：❌ 未实现
+- **技能市场**：❌ 未实现
+
+#### 技术架构说明
+项目采用 **Tools → Skills** 演进路径：
+1. **Phase 2 (当前)**：基础 Tool 系统（`agent/tools.py`）
+   - ToolRegistry 工具注册表
+   - 内置工具：echo、current_time、calculator、knowledge_search
+   - Agent 级别的工具配置
+
+2. **Phase 6 (进行中)**：完整 Skills 系统
+   - 技能市场和管理
+   - 技能安装和版本控制  
+   - 技能依赖和权限管理
+   - 社区技能分享（ClawHub）
+
+---
+
+
+
+## Skills 支持现状与路线图
+
+### 当前实现
+OpenAgentic 已建立完整的 Skills 前端界面和基础架构，为技能生态系统打下坚实基础：
+
+#### ✅ 已完成的组件
+1. **前端 Skills 页面** (`ui/src/pages/SkillsPage.tsx`)
+   - 完整的技能管理界面
+   - 技能分类、筛选、搜索功能
+   - 技能启用/禁用控制
+   - 美观的卡片式布局
+
+2. **技能数据模型**
+   ```typescript
+   interface Skill {
+     id: string        // 技能唯一标识
+     name: string      // 技能名称
+     description: string  // 技能描述
+     version: string   // 版本号
+     author?: string   // 作者
+     category: string  // 分类
+     tags: string[]    // 标签
+     enabled: boolean  // 是否启用
+     source: 'bundled' | 'managed' | 'workspace' | 'clawhub'  // 来源
+   }
+   ```
+
+3. **预置技能库**
+   - **内置技能**（7个）：文件操作、网页搜索、图像生成、代码分析、数据处理、自动化任务、安全执行
+   - **社区技能**（3个）：网页抓取、PDF工具、OCR文字识别
+
+4. **后端基础架构**
+   - ToolRegistry 工具注册系统
+   - Agent 工具配置支持
+   - 知识库搜索工具集成
+
+#### ⚠️ 待完善的组件
+1. **后端 API**：缺少专门的 Skills CRUD 接口
+2. **数据持久化**：技能状态未保存到数据库
+3. **技能安装**：无法从市场安装新技能
+4. **版本管理**：缺少技能版本控制
+5. **权限控制**：未实现基于角色的技能访问
+
+### 技术架构
+```
+Frontend (React)
+    ↓
+Skills Page UI (静态数据)
+    ↓
+[待连接] ← Skills API (待实现)
+    ↓
+Skills Service (待实现)
+    ↓
+Database (PostgreSQL + Skills 表)
+    ↓
+Tool Registry (已实现)
+    ↓
+Agent Execution
+```
+
+### 开发优先级建议
+1. **高优先级**：Skills 数据库模型和基础 API
+2. **中优先级**：前端-后端集成和状态持久化  
+3. **低优先级**：技能市场和高级功能
+
+### 扩展建议
+1. **技能开发 SDK**：提供技能开发模板和工具
+2. **技能商店**：建立技能分发和盈利模式
+3. **技能组合**：支持技能组合和编排
+4. **技能分析**：使用统计和性能监控
+
+---
 ## 快速启动
 
 ```bash
