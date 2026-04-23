@@ -1,4 +1,4 @@
-﻿"""Knowledge base API routes for Phase 4 MVP."""
+"""Knowledge base API routes for Phase 4 MVP."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ async def upload_document(
 ):
     raw = await file.read()
     if not raw:
-        raise HTTPException(status_code=400, detail="涓婁紶鏂囦欢涓虹┖")
+        raise HTTPException(status_code=400, detail="上传文件为空")
     doc = await service.ingest_document(
         db,
         filename=file.filename or "untitled.txt",
@@ -45,7 +45,7 @@ async def list_documents(
 async def delete_document(document_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     deleted = await service.delete_document_by_id(db, document_id)
     if not deleted:
-        raise HTTPException(status_code=404, detail="鏂囨。涓嶅瓨鍦?)
+        raise HTTPException(status_code=404, detail="文档不存在")
     return {"ok": True}
 
 

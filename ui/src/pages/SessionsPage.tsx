@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { Users, Plus, Trash2, RefreshCw, MessageSquare } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 
@@ -29,14 +29,14 @@ export function SessionsPage() {
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
       {/* Sidebar */}
       <aside className="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 p-4">
-        <h2 className="text-lg font-semibold mb-4">浼氳瘽绠＄悊</h2>
+        <h2 className="text-lg font-semibold mb-4">会话管理</h2>
         <nav className="space-y-1">
           <button
             onClick={() => window.history.back()}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
           >
             <RefreshCw className="w-5 h-5" />
-            <span>杩斿洖</span>
+            <span>返回</span>
           </button>
         </nav>
       </aside>
@@ -45,24 +45,24 @@ export function SessionsPage() {
       <div className="flex-1 overflow-y-auto p-8">
         <div className="max-w-4xl mx-auto">
           <div className="flex items-center justify-between mb-6">
-            <h1 className="text-2xl font-bold">浼氳瘽绠＄悊</h1>
+            <h1 className="text-2xl font-bold">会话管理</h1>
             <button className="flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600">
               <Plus className="w-5 h-5" />
-              鏂板缓浼氳瘽
+              新建会话
             </button>
           </div>
 
           {/* Sessions List */}
           <section>
-            <h2 className="text-lg font-semibold mb-4">娲昏穬浼氳瘽</h2>
+            <h2 className="text-lg font-semibold mb-4">活跃会话</h2>
             <div className="space-y-2">
               {loading ? (
-                <div className="text-center py-8 text-gray-500">鍔犺浇涓?..</div>
+                <div className="text-center py-8 text-gray-500">加载中...</div>
               ) : sessions.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   <Users className="w-10 h-10 mx-auto mb-2 opacity-50" />
-                  <p>鏆傛棤娲昏穬浼氳瘽</p>
-                  <p className="text-sm mt-1">寮€濮嬪璇濆皢鑷姩鍒涘缓浼氳瘽</p>
+                  <p>暂无活跃会话</p>
+                  <p className="text-sm mt-1">开始对话将自动创建会话</p>
                 </div>
               ) : (
                 sessions.map((session) => (
@@ -80,7 +80,7 @@ export function SessionsPage() {
                       <div>
                         <p className="font-medium">{session.name}</p>
                         <p className="text-sm text-gray-500">
-                          {session.channelId && `閫氶亾: ${session.channelId}`}
+                          {session.channelId && `通道: ${session.channelId}`}
                           {session.agentId && ` | Agent: ${session.agentId}`}
                         </p>
                       </div>
@@ -101,21 +101,21 @@ export function SessionsPage() {
 
           {/* Session Stats */}
           <section className="mt-8">
-            <h2 className="text-lg font-semibold mb-4">浼氳瘽缁熻</h2>
+            <h2 className="text-lg font-semibold mb-4">会话统计</h2>
             <div className="grid grid-cols-3 gap-4">
               <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
                 <p className="text-2xl font-bold text-primary-600">{sessions.length}</p>
-                <p className="text-sm text-gray-500">鎬讳細璇濇暟</p>
+                <p className="text-sm text-gray-500">总会话数</p>
               </div>
               <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
                 <p className="text-2xl font-bold text-green-600">
                   {sessions.filter((s) => s.id === currentSessionId).length || 0}
                 </p>
-                <p className="text-sm text-gray-500">娲昏穬浼氳瘽</p>
+                <p className="text-sm text-gray-500">活跃会话</p>
               </div>
               <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
                 <p className="text-2xl font-bold text-gray-600">0</p>
-                <p className="text-sm text-gray-500">浠婃棩娑堟伅</p>
+                <p className="text-sm text-gray-500">今日消息</p>
               </div>
             </div>
           </section>

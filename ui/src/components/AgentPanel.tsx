@@ -1,4 +1,4 @@
-﻿import { useState } from 'react'
+import { useState } from 'react'
 import { Bot, ChevronRight, Circle, Plus } from 'lucide-react'
 import { useAppStore, type Agent } from '../store/appStore'
 
@@ -16,9 +16,9 @@ export function AgentPanel() {
 
   const getStatusText = (status: Agent['status']) => {
     switch (status) {
-      case 'online': return '鍦ㄧ嚎'
-      case 'idle': return '绌洪棽'
-      case 'offline': return '绂荤嚎'
+      case 'online': return '在线'
+      case 'idle': return '空闲'
+      case 'offline': return '离线'
     }
   }
 
@@ -26,7 +26,7 @@ export function AgentPanel() {
     <div className="w-72 bg-gray-50 dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 flex flex-col">
       {/* Header */}
       <div className="h-14 px-4 flex items-center justify-between border-b border-gray-200 dark:border-gray-700">
-        <h2 className="font-semibold">鏅鸿兘浣?/h2>
+        <h2 className="font-semibold">智能体</h2>
         <button className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded">
           <Plus className="w-5 h-5" />
         </button>
@@ -37,7 +37,7 @@ export function AgentPanel() {
         {agents.length === 0 ? (
           <div className="text-center text-gray-400 py-8">
             <Bot className="w-10 h-10 mx-auto mb-2 opacity-50" />
-            <p className="text-sm">鏆傛棤鏅鸿兘浣?/p>
+            <p className="text-sm">暂无智能体</p>
           </div>
         ) : (
           agents.map((agent) => (
@@ -70,7 +70,7 @@ export function AgentPanel() {
           <h3 className="font-semibold mb-3">{selectedAgent.name}</h3>
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
-              <span className="text-gray-500">鐘舵€?/span>
+              <span className="text-gray-500">状态</span>
               <span className={getStatusColor(selectedAgent.status)}>
                 {getStatusText(selectedAgent.status)}
               </span>
@@ -82,10 +82,10 @@ export function AgentPanel() {
           </div>
           <div className="mt-4 flex gap-2">
             <button className="flex-1 px-3 py-1.5 text-sm bg-primary-500 text-white rounded-lg hover:bg-primary-600">
-              閰嶇疆
+              配置
             </button>
             <button className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
-              缁熻
+              统计
             </button>
           </div>
         </div>

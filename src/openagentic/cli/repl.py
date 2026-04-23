@@ -1,4 +1,4 @@
-﻿"""CLI read-eval-print loop (commands + chat turns)."""
+"""CLI read-eval-print loop (commands + chat turns)."""
 
 from __future__ import annotations
 
@@ -27,14 +27,14 @@ def print_help() -> None:
         "/help /clear /model <name> /providers /provider [/provider <id>] /provider-config [id] "
         "/login-platform /logout-platform /quit"
     )
-    print("Tools: write_file锛堟柊寤轰笌瑕嗙洊锛? delete_file 鎵ц鍓嶅潎闇€鍦ㄧ粓绔緭鍏?y/yes 纭銆?)
+    print("Tools: write_file（新建与覆盖）/ delete_file 执行前均需在终端输入 y/yes 确认。")
     print(
-        "Tips: /provider 鍒囨崲鍘傚晢锛堝凡鏈?Key 鍒欎笉鍐嶅脊閰嶇疆锛夛紱"
-        "/provider-config 淇敼 Key 鎴?API Base锛?help 鏌ョ湅鍏ㄩ儴鍛戒护銆?
+        "Tips: /provider 切换厂商（已有 Key 则不再弹配置）；"
+        "/provider-config 修改 Key 或 API Base；/help 查看全部命令。"
     )
     print(
-        "骞冲彴璐﹀彿: 鍚姩鏃?`--require-auth` / `--api-base URL` 浼氳姹傜櫥褰曟垨娉ㄥ唽锛圝WT锛夛紱"
-        "浼氳瘽鍐呭彲鐢?/login-platform銆?logout-platform銆備笌 LLM 鍘傚晢 API Key 鏄袱灞傝璇併€?
+        "平台账号: 启动时 `--require-auth` / `--api-base URL` 会要求登录或注册（JWT）；"
+        "会话内可用 /login-platform、/logout-platform。与 LLM 厂商 API Key 是两层认证。"
     )
 
 
@@ -54,7 +54,7 @@ async def main_loop(
     if requested_provider == "auto":
         profile = find_profile(provider)
         if profile and provider != "ollama" and not profile["api_key"]:
-            print("\n[閰嶇疆鍚戝] 褰撳墠榛樿鍘傚晢鏈厤缃?API Key銆傝鍏堥€夋嫨鍘傚晢锛屽啀鎸夋彁绀哄～鍐?Key銆?)
+            print("\n[配置向导] 当前默认厂商未配置 API Key。请先选择厂商，再按提示填写 Key。")
             selected = select_provider_interactive(provider)
             if selected:
                 normalized = normalize_provider(selected)
@@ -62,7 +62,7 @@ async def main_loop(
                     provider = normalized
                     model = resolve_model_for_provider(provider, model)
                 else:
-                    print(f"[WARN] 鏈瘑鍒?provider: {selected}锛岀户缁娇鐢?{provider}")
+                    print(f"[WARN] 未识别 provider: {selected}，继续使用 {provider}")
 
     api_base, api_key = require_provider_configured(provider)
     endpoint = api_base or "(provider default)"
@@ -89,7 +89,7 @@ async def main_loop(
     print(f"\033[1mOpenAgentic Agent\033[0m  |  provider: {provider}  |  model: {model}")
     if plat["email"] and plat["base"]:
         print(f"  platform: {plat['email']} @ {plat['base'].rstrip('/')}")
-    print("Tools: run_command, read_file, write_file锛堟柊寤?瑕嗙洊鍧囬渶纭锛? delete_file锛堥渶纭锛?)
+    print("Tools: run_command, read_file, write_file（新建/覆盖均需确认）, delete_file（需确认）")
     print_help()
     print("-" * 60)
 
@@ -116,7 +116,7 @@ async def main_loop(
             continue
         if user_input.startswith("/model "):
             model = resolve_model_for_provider(provider, user_input[7:].strip())
-            print(f"[model 鈫?{model}]")
+            print(f"[model → {model}]")
             rebuild_system_message()
             continue
         if user_input == "/providers":
@@ -132,19 +132,19 @@ async def main_loop(
             model = resolve_model_for_provider(provider, model)
             endpoint = api_base or "(provider default)"
             rebuild_system_message()
-            print(f"[provider 鈫?{provider}] [model 鈫?{model}]")
+            print(f"[provider → {provider}] [model → {model}]")
             continue
         if user_input.startswith("/provider "):
             selected = normalize_provider(user_input[10:].strip())
             if not find_profile(selected):
-                print(f"[ERROR] 鏈煡 provider: {selected}")
+                print(f"[ERROR] 未知 provider: {selected}")
                 continue
             provider = selected
             api_base, api_key = require_provider_configured(provider)
             model = resolve_model_for_provider(provider, model)
             endpoint = api_base or "(provider default)"
             rebuild_system_message()
-            print(f"[provider 鈫?{provider}] [model 鈫?{model}]")
+            print(f"[provider → {provider}] [model → {model}]")
             continue
         if user_input == "/logout-platform":
             clear_cli_session_file()
@@ -152,23 +152,23 @@ async def main_loop(
             plat["email"] = None
             rebuild_system_message()
             print(
-                "[骞冲彴] 宸查€€鍑虹櫥褰曪紙鏈湴 JWT 浼氳瘽鏂囦欢宸插垹闄わ級銆?
-                "鑻ユ浘鎸囧畾杩囨湇鍔″湴鍧€锛屽彲鐩存帴 /login-platform锛涘惁鍒欒鍏堣緭鍏?URL銆?
+                "[平台] 已退出登录（本地 JWT 会话文件已删除）。"
+                "若曾指定过服务地址，可直接 /login-platform；否则请先输入 URL。"
             )
             continue
         if user_input == "/login-platform":
             base = (plat["base"] or "").strip() or input(
-                "OpenAgentic 鏍?URL锛堝 http://127.0.0.1:8000锛屽洖杞﹀彇娑堬級: "
+                "OpenAgentic 根 URL（如 http://127.0.0.1:8000，回车取消）: "
             ).strip()
             if not base:
-                print("[ERROR] 闇€瑕佹湁鏁堢殑鏈嶅姟鍦板潃")
+                print("[ERROR] 需要有效的服务地址")
                 continue
             plat["base"] = base.rstrip("/")
             tok, em = platform_authenticate_sync(plat["base"])
             plat["token"] = tok
             plat["email"] = em
             rebuild_system_message()
-            print(f"[骞冲彴] 宸茬櫥褰? {em}")
+            print(f"[平台] 已登录: {em}")
             continue
         if user_input.startswith("/provider-config"):
             target = user_input.replace("/provider-config", "", 1).strip() or provider

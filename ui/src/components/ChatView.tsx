@@ -1,4 +1,4 @@
-﻿import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Send, Bot, User, Loader2 } from 'lucide-react'
 import { useAppStore, type Message } from '../store/appStore'
 
@@ -60,7 +60,7 @@ export function ChatView() {
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-gray-400">
             <Bot className="w-12 h-12 mb-4" />
-            <p>寮€濮嬩笌 OpenAgentic 瀵硅瘽</p>
+            <p>开始与 OpenAgentic 对话</p>
           </div>
         ) : (
           messages.map((msg) => (
@@ -114,7 +114,7 @@ export function ChatView() {
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="杈撳叆娑堟伅..."
+            placeholder="输入消息..."
             className="flex-1 px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500"
             disabled={isLoading}
           />

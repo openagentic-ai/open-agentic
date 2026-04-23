@@ -1,4 +1,4 @@
-﻿"""CLI ReAct loop (one user turn: model 鈫?tools until done or cap)."""
+"""CLI ReAct loop (one user turn: model ↔ tools until done or cap)."""
 
 from __future__ import annotations
 
@@ -20,12 +20,12 @@ async def react_loop(
     platform_api_base: str | None = None,
     platform_user_email: str | None = None,
 ) -> str:
-    """Run the ReAct loop: Thought 鈫?Action 鈫?Observation 鈫?... 鈫?done."""
+    """Run the ReAct loop: Thought → Action → Observation → ... → done."""
     base = (platform_api_base or "").strip()
     if base and not (platform_user_email or "").strip():
         msg = (
-            "[骞冲彴] 宸查厤缃?OpenAgentic 鏈嶅姟鍦板潃锛屼絾鏈櫥褰曪紝ReAct 浠ｇ悊涓嶄細璋冪敤澶фā鍨嬨€?
-            "璇峰厛鎵ц `/login-platform` 瀹屾垚娉ㄥ唽鎴栫櫥褰曪紙涓?LLM 鍘傚晢 Key 鏃犲叧锛夛紝鍐嶅彂浠诲姟銆?
+            "[平台] 已配置 OpenAgentic 服务地址，但未登录，ReAct 代理不会调用大模型。"
+            "请先执行 `/login-platform` 完成注册或登录（与 LLM 厂商 Key 无关），再发任务。"
         )
         print(f"\n\033[33m{msg}\033[0m")
         messages.append({"role": "user", "content": user_input})
@@ -42,8 +42,8 @@ async def react_loop(
     for i in range(max_iter):
         if max_iter > 10 and i == max_iter - 6:
             print(
-                f"\n\033[33m[鎻愮ず] 宸叉帴杩戝崟杞伐鍏峰惊鐜笂闄愶紙{max_iter}锛夛紝"
-                "鑻ヤ粛鏃犵粓绛斿皢鑷姩鍋滄骞剁粰鍑烘槑纭鏄庛€俓033[0m"
+                f"\n\033[33m[提示] 已接近单轮工具循环上限（{max_iter}），"
+                "若仍无终答将自动停止并给出明确说明。\033[0m"
             )
 
         resp = await litellm_chat(messages, model, api_base=api_base, api_key=api_key, tools=TOOLS)
@@ -87,7 +87,7 @@ async def react_loop(
                 print(f"\n\033[32m{summary}\033[0m")
                 tid_done = tc.get("id")
                 if not tid_done:
-                    raise RuntimeError("妯″瀷杩斿洖鐨?tool_call 缂哄皯 id锛屾棤娉曞鎺?DeepSeek/OpenAI 鍏煎 API")
+                    raise RuntimeError("模型返回的 tool_call 缺少 id，无法对接 DeepSeek/OpenAI 兼容 API")
                 messages.append({"role": "tool", "tool_call_id": tid_done, "content": summary})
                 return summary
 
@@ -99,22 +99,22 @@ async def react_loop(
             tool_msg: dict = {"role": "tool", "content": result}
             tid = tc.get("id")
             if not tid:
-                raise RuntimeError("妯″瀷杩斿洖鐨?tool_call 缂哄皯 id锛屾棤娉曞鎺?DeepSeek/OpenAI 鍏煎 API")
+                raise RuntimeError("模型返回的 tool_call 缺少 id，无法对接 DeepSeek/OpenAI 兼容 API")
             tool_msg["tool_call_id"] = tid
             messages.append(tool_msg)
 
     conclusion = (
-        f"鏈疆銆屾ā鍨?鈫?宸ュ叿銆嶅惊鐜凡杈惧埌涓婇檺锛堝叡 {max_iter} 杞級锛屽凡鑷姩鍋滄锛岄伩鍏嶆寰幆鎴栨棤闄愭秷鑰?token銆俓n\n"
-        "**缁撹**锛氭ā鍨嬫湭鍦ㄩ檺鍒跺唴缁欏嚭绾枃鏈粓绛旓紝涔熸湭璋冪敤 `done` 宸ュ叿鏀跺熬锛屽洜姝ゆ棤娉曞垽瀹氫换鍔″凡瀹屾暣瀹屾垚銆俓n"
+        f"本轮「模型 ↔ 工具」循环已达到上限（共 {max_iter} 轮），已自动停止，避免死循环或无限消耗 token。\n\n"
+        "**结论**：模型未在限制内给出纯文本终答，也未调用 `done` 工具收尾，因此无法判定任务已完整完成。\n"
     )
     if last_tool_name:
-        conclusion += f"**鏈€鍚庢墽琛岀殑宸ュ叿**锛歚{last_tool_name}`\n"
+        conclusion += f"**最后执行的工具**：`{last_tool_name}`\n"
     if last_result_preview:
-        conclusion += f"**璇ユ杈撳嚭鎽樿锛堟埅鏂級**锛歿last_result_preview}\n"
+        conclusion += f"**该步输出摘要（截断）**：{last_result_preview}\n"
     conclusion += (
-        "\n**寤鸿浣?*锛氣憼 鏌ョ湅涓婃柟鍚勬宸ュ叿杈撳嚭鑷鍒ゆ柇杩涘害锛涒憽 鎶婇渶姹傛媶灏忓悗閲嶈瘯锛?
-        "鈶?涓嬩竴鏉℃秷鎭姹傛ā鍨嬨€屽厛鐢ㄤ竴娈佃瘽鎬荤粨褰撳墠杩涘害涓庣己鍙ｏ紝涓嶈缁х画璋冨伐鍏枫€嶃€?
+        "\n**建议你**：① 查看上方各步工具输出自行判断进度；② 把需求拆小后重试；"
+        "③ 下一条消息要求模型「先用一段话总结当前进度与缺口，不要继续调工具」。"
     )
-    print(f"\n\033[31m[宸茶揪 ReAct 寰幆涓婇檺]\033[0m\n\033[33m{conclusion}\033[0m")
+    print(f"\n\033[31m[已达 ReAct 循环上限]\033[0m\n\033[33m{conclusion}\033[0m")
     messages.append({"role": "assistant", "content": conclusion})
     return conclusion

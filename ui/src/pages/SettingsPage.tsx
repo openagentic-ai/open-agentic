@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Settings as SettingsIcon, Key, Globe, Bell, Palette } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { useApi, type LlmProviderProfile } from '../lib/api'
@@ -18,7 +18,7 @@ export function SettingsPage() {
     setLoadingProviders(true)
     const resp = await api.llm.getProviders()
     if (!resp.success || !resp.data) {
-      setStatusMessage(resp.error || '鍔犺浇妯″瀷閰嶇疆澶辫触')
+      setStatusMessage(resp.error || '加载模型配置失败')
       setLoadingProviders(false)
       return
     }
@@ -58,11 +58,11 @@ export function SettingsPage() {
       enabled: draft.enabled,
     })
     if (!resp.success) {
-      setStatusMessage(resp.error || `淇濆瓨 ${providerId} 澶辫触`)
+      setStatusMessage(resp.error || `保存 ${providerId} 失败`)
       setSavingProviderId(null)
       return
     }
-    setStatusMessage(`宸蹭繚瀛?${providerId} 閰嶇疆`)
+    setStatusMessage(`已保存 ${providerId} 配置`)
     await loadProviderSettings()
     setSavingProviderId(null)
   }
@@ -72,28 +72,28 @@ export function SettingsPage() {
     setSavingDefaultModel(true)
     const resp = await api.llm.setDefaultModel(defaultModel.trim())
     if (!resp.success) {
-      setStatusMessage(resp.error || '淇濆瓨榛樿妯″瀷澶辫触')
+      setStatusMessage(resp.error || '保存默认模型失败')
       setSavingDefaultModel(false)
       return
     }
-    setStatusMessage('榛樿妯″瀷宸叉洿鏂?)
+    setStatusMessage('默认模型已更新')
     await loadProviderSettings()
     setSavingDefaultModel(false)
   }
 
   const sections = [
-    { id: 'general', icon: SettingsIcon, label: '閫氱敤' },
-    { id: 'api', icon: Key, label: 'API 瀵嗛挜' },
-    { id: 'gateway', icon: Globe, label: '缃戝叧' },
-    { id: 'notifications', icon: Bell, label: '閫氱煡' },
-    { id: 'appearance', icon: Palette, label: '澶栬' },
+    { id: 'general', icon: SettingsIcon, label: '通用' },
+    { id: 'api', icon: Key, label: 'API 密钥' },
+    { id: 'gateway', icon: Globe, label: '网关' },
+    { id: 'notifications', icon: Bell, label: '通知' },
+    { id: 'appearance', icon: Palette, label: '外观' },
   ]
 
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
       {/* Sidebar */}
       <aside className="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 p-4">
-        <h2 className="text-lg font-semibold mb-4">璁剧疆</h2>
+        <h2 className="text-lg font-semibold mb-4">设置</h2>
         <nav className="space-y-1">
           {sections.map((section) => (
             <button
@@ -112,7 +112,7 @@ export function SettingsPage() {
         <div className="max-w-2xl mx-auto space-y-8">
           {/* Gateway URL */}
           <section>
-            <h3 className="text-lg font-semibold mb-4">缃戝叧璁剧疆</h3>
+            <h3 className="text-lg font-semibold mb-4">网关设置</h3>
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-2">Gateway URL</label>
@@ -129,10 +129,10 @@ export function SettingsPage() {
 
           {/* Appearance */}
           <section>
-            <h3 className="text-lg font-semibold mb-4">澶栬</h3>
+            <h3 className="text-lg font-semibold mb-4">外观</h3>
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <span>娣辫壊妯″紡</span>
+                <span>深色模式</span>
                 <button
                   onClick={() => setDarkMode(!darkMode)}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
@@ -151,13 +151,13 @@ export function SettingsPage() {
 
           {/* API Keys */}
           <section>
-            <h3 className="text-lg font-semibold mb-4">妯″瀷渚涘簲鍟嗕笌 API</h3>
+            <h3 className="text-lg font-semibold mb-4">模型供应商与 API</h3>
             {loadingProviders ? (
-              <p className="text-sm text-gray-500">姝ｅ湪鍔犺浇妯″瀷閰嶇疆...</p>
+              <p className="text-sm text-gray-500">正在加载模型配置...</p>
             ) : (
               <div className="space-y-6">
                 <div className="p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-                  <label className="block text-sm font-medium mb-2">榛樿妯″瀷锛坓lobal锛?/label>
+                  <label className="block text-sm font-medium mb-2">默认模型（global）</label>
                   <div className="flex gap-2">
                     <input
                       type="text"
@@ -171,7 +171,7 @@ export function SettingsPage() {
                       disabled={savingDefaultModel}
                       className="px-4 py-2 rounded-lg bg-primary-500 text-white hover:bg-primary-600 disabled:opacity-60"
                     >
-                      淇濆瓨
+                      保存
                     </button>
                   </div>
                 </div>
@@ -197,7 +197,7 @@ export function SettingsPage() {
                               }))
                             }
                           />
-                          鍚敤
+                          启用
                         </label>
                       </div>
 
@@ -217,7 +217,7 @@ export function SettingsPage() {
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium mb-1">API Key锛堢暀绌鸿〃绀轰笉淇敼锛?/label>
+                        <label className="block text-sm font-medium mb-1">API Key（留空表示不修改）</label>
                         <input
                           type="password"
                           value={draft.apiKey}
@@ -228,12 +228,12 @@ export function SettingsPage() {
                             }))
                           }
                           className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700"
-                          placeholder={provider.api_key_configured ? provider.api_key_masked || '宸查厤缃? : 'sk-...'}
+                          placeholder={provider.api_key_configured ? provider.api_key_masked || '已配置' : 'sk-...'}
                         />
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium mb-1">妯″瀷鍒楄〃锛堥€楀彿鍒嗛殧锛?/label>
+                        <label className="block text-sm font-medium mb-1">模型列表（逗号分隔）</label>
                         <input
                           type="text"
                           value={draft.models}
@@ -254,7 +254,7 @@ export function SettingsPage() {
                           disabled={savingProviderId === provider.id}
                           className="px-4 py-2 rounded-lg bg-primary-500 text-white hover:bg-primary-600 disabled:opacity-60"
                         >
-                          淇濆瓨 {provider.display_name}
+                          保存 {provider.display_name}
                         </button>
                       </div>
                     </div>

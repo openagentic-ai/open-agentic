@@ -1,4 +1,4 @@
-﻿"""Console entrypoint: works even when `openagentic` is not yet importable (fresh clone / broken venv)."""
+"""Console entrypoint: works even when `openagentic` is not yet importable (fresh clone / broken venv)."""
 
 from __future__ import annotations
 
@@ -18,14 +18,14 @@ def main() -> None:
     try:
         from openagentic.cli import main as cli_main
     except ModuleNotFoundError:
-        print("[bootstrap] 鏈娴嬪埌宸插畨瑁呯殑 openagentic锛屾鍦ㄦ墽琛? pip install -e .", flush=True)
+        print("[bootstrap] 未检测到已安装的 openagentic，正在执行: pip install -e .", flush=True)
         r = subprocess.run(
             [sys.executable, "-m", "pip", "install", "-e", str(root)],
             cwd=str(root),
         )
         if r.returncode != 0:
             print(
-                "[ERROR] 鑷姩瀹夎澶辫触銆傝鍦ㄤ粨搴撴牴鐩綍鎵ц:\n"
+                "[ERROR] 自动安装失败。请在仓库根目录执行:\n"
                 f"  {sys.executable} -m pip install -e .",
                 file=sys.stderr,
             )
@@ -33,7 +33,7 @@ def main() -> None:
         try:
             from openagentic.cli import main as cli_main
         except ModuleNotFoundError:
-            # Same interpreter 鏈夋椂浠嶆湭鍒锋柊璺緞锛岀敤瀛愯繘绋嬪惎鍔?CLI
+            # Same interpreter 有时仍未刷新路径，用子进程启动 CLI
             sys.exit(
                 subprocess.call(
                     [sys.executable, "-m", "openagentic.cli", *sys.argv[1:]],

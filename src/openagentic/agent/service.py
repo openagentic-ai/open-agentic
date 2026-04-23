@@ -1,4 +1,4 @@
-﻿"""Agent business services for Phase 2."""
+"""Agent business services for Phase 2."""
 
 import uuid
 
@@ -87,8 +87,8 @@ async def execute_agent(
     except Exception as exc:
         status = ExecutionStatus.failed
         error = str(exc)
-        answer = "鎵ц澶辫触锛岃鏌ョ湅閿欒淇℃伅銆?
-        steps = [AgentStep(step="error", thought="鎵ц鍣ㄦ姏鍑哄紓甯?, observation=str(exc))]
+        answer = "执行失败，请查看错误信息。"
+        steps = [AgentStep(step="error", thought="执行器抛出异常", observation=str(exc))]
 
     execution = AgentExecution(
         agent_id=agent.id,

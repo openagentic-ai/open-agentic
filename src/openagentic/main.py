@@ -1,4 +1,4 @@
-﻿"""FastAPI application factory."""
+"""FastAPI application factory."""
 
 from contextlib import asynccontextmanager
 
@@ -79,7 +79,7 @@ def create_app() -> FastAPI:
     # Backward-compatible endpoints matching Rust backend
     @app.get("/api/sessions")
     async def list_sessions_compat():
-        """Stub for frontend compatibility 鈥?will be replaced in Phase 2."""
+        """Stub for frontend compatibility — will be replaced in Phase 2."""
         return []
 
     @app.get("/api/channels")

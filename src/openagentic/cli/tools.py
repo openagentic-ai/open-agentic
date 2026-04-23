@@ -1,4 +1,4 @@
-﻿"""CLI ReAct tool definitions and execution."""
+"""CLI ReAct tool definitions and execution."""
 
 from __future__ import annotations
 
@@ -112,13 +112,13 @@ TOOLS = [
 
 
 def confirm_user_action(title: str, detail: str) -> bool:
-    """Interactive yes/no; non-TTY or cancel 鈫?False (Claude-style gate)."""
+    """Interactive yes/no; non-TTY or cancel → False (Claude-style gate)."""
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         return False
-    print(f"\n\033[33m[闇€瑕佺‘璁 {title}\033[0m")
+    print(f"\n\033[33m[需要确认] {title}\033[0m")
     print(detail)
     try:
-        ans = input("纭缁х画? (Y/N): ").strip().lower()
+        ans = input("确认继续? (Y/N): ").strip().lower()
     except (EOFError, KeyboardInterrupt):
         return False
     return ans in ("y", "yes")
@@ -161,13 +161,13 @@ def execute_tool(name: str, args: dict) -> str:
                 return "[ERROR] write_file: path is empty"
             p = Path(path).resolve()
             if p.exists() and p.is_dir():
-                return f"[ERROR] write_file: 璺緞鏄洰褰曪紝璇锋寚瀹氬叿浣撴枃浠惰矾寰? {p}"
+                return f"[ERROR] write_file: 路径是目录，请指定具体文件路径: {p}"
             exists = p.is_file()
-            op_label = "瑕嗙洊宸叉湁鏂囦欢" if exists else "鏂板缓鏂囦欢锛堝鍔犳枃浠讹級"
-            title = "瑕嗙洊鍐欏叆鏂囦欢" if exists else "鏂板缓鏂囦欢"
-            preview = f"璺緞: {p}\n瀛楄妭鏁? {len(content.encode('utf-8'))}\n鎿嶄綔: {op_label}"
+            op_label = "覆盖已有文件" if exists else "新建文件（增加文件）"
+            title = "覆盖写入文件" if exists else "新建文件"
+            preview = f"路径: {p}\n字节数: {len(content.encode('utf-8'))}\n操作: {op_label}"
             if not confirm_user_action(title, preview):
-                return "[REFUSED] 鐢ㄦ埛鏈‘璁ゅ啓鍏ワ紝宸插彇娑堬紙鍙敤鑷劧璇█璇存槑濡備綍鎵嬪姩淇敼锛?
+                return "[REFUSED] 用户未确认写入，已取消（可用自然语言说明如何手动修改）"
             print(f"  \033[33m[write] {p} ({len(content)} chars)\033[0m")
             os.makedirs(str(p.parent), exist_ok=True)
             with open(p, "w", encoding="utf-8") as f:
@@ -180,9 +180,9 @@ def execute_tool(name: str, args: dict) -> str:
                 return "[ERROR] delete_file: path is empty"
             p = Path(raw).resolve()
             if not p.is_file():
-                return f"[ERROR] delete_file: 涓嶆槸鏅€氭枃浠舵垨涓嶅瓨鍦? {p}"
-            if not confirm_user_action("鍒犻櫎鏂囦欢", f"璺緞: {p}\n姝ゆ搷浣滀笉鍙挙閿€"):
-                return "[REFUSED] 鐢ㄦ埛鏈‘璁ゅ垹闄わ紝宸插彇娑?
+                return f"[ERROR] delete_file: 不是普通文件或不存在: {p}"
+            if not confirm_user_action("删除文件", f"路径: {p}\n此操作不可撤销"):
+                return "[REFUSED] 用户未确认删除，已取消"
             print(f"  \033[33m[delete] {p}\033[0m")
             p.unlink()
             return f"OK: deleted file {p}"

@@ -1,4 +1,4 @@
-﻿import i18n from 'i18next';
+import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import LanguageDetector from 'i18next-browser-languagedetector';
 
@@ -28,25 +28,25 @@ const resources = {
   },
   zh: {
     translation: {
-      welcome: '娆㈣繋浣跨敤 OpenAgentic',
-      'error.not_found': '璧勬簮鏈壘鍒?,
-      'error.timeout': '璇锋眰瓒呮椂',
-      'error.invalid_input': '杈撳叆鏃犳晥',
-      'error.internal': '鍐呴儴閿欒',
-      'search.placeholder': '鎼滅储...',
-      'search.no_results': '鏈壘鍒扮粨鏋?,
-      'search.loading': '鎼滅储涓?..',
-      'tool.web_search': '缃戦〉鎼滅储宸ュ叿',
-      'tool.image_gen': '鍥惧儚鐢熸垚宸ュ叿',
-      'tool.filesystem': '鏂囦欢绯荤粺宸ュ叿',
-      'tool.calculator': '璁＄畻鍣ㄥ伐鍏?,
-      'status.connected': '宸茶繛鎺?,
-      'status.disconnected': '宸叉柇寮€',
-      'status.error': '閿欒',
-      'action.submit': '鎻愪氦',
-      'action.cancel': '鍙栨秷',
-      'action.confirm': '纭',
-      'action.retry': '閲嶈瘯',
+      welcome: '欢迎使用 OpenAgentic',
+      'error.not_found': '资源未找到',
+      'error.timeout': '请求超时',
+      'error.invalid_input': '输入无效',
+      'error.internal': '内部错误',
+      'search.placeholder': '搜索...',
+      'search.no_results': '未找到结果',
+      'search.loading': '搜索中...',
+      'tool.web_search': '网页搜索工具',
+      'tool.image_gen': '图像生成工具',
+      'tool.filesystem': '文件系统工具',
+      'tool.calculator': '计算器工具',
+      'status.connected': '已连接',
+      'status.disconnected': '已断开',
+      'status.error': '错误',
+      'action.submit': '提交',
+      'action.cancel': '取消',
+      'action.confirm': '确认',
+      'action.retry': '重试',
     },
   },
 };
@@ -78,5 +78,5 @@ export const getCurrentLanguage = () => {
 
 export const supportedLanguages = [
   { code: 'en', name: 'English' },
-  { code: 'zh', name: '涓枃' },
+  { code: 'zh', name: '中文' },
 ];

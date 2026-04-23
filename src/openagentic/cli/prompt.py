@@ -1,4 +1,4 @@
-﻿"""CLI system prompt and identity helpers."""
+"""CLI system prompt and identity helpers."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import platform
 import re
 
 IDENTITY_QUESTION_RE = re.compile(
-    r"(浣犺儗鍚巪浣犵敤鐨剕浠€涔堟ā鍨媩鍝釜妯″瀷|provider|搴曞眰妯″瀷|澶фā鍨媩what model|which model|model provider)",
+    r"(你背后|你用的|什么模型|哪个模型|provider|底层模型|大模型|what model|which model|model provider)",
     re.IGNORECASE,
 )
 
@@ -29,9 +29,9 @@ Runtime identity (MUST be truthful):
 
 Capabilities:
 - Optional tools can run shell commands on this host (OS-specific) and read files when the task requires it.
-- `write_file` (鏂板缓鎴栬鐩? / `delete_file` 閮戒細鍦ㄧ粓绔唴瑕佹眰鐢ㄦ埛杈撳叆 y/yes 纭锛涚敤鎴锋嫆缁濆悗鍙敤鏂囧瓧璇存槑锛岀姝㈢敤 `run_command` 閲嶅畾鍚戠瓑鏂瑰紡缁曡繃纭銆?
+- `write_file` (新建或覆盖) / `delete_file` 都会在终端内要求用户输入 y/yes 确认；用户拒绝后只用文字说明，禁止用 `run_command` 重定向等方式绕过确认。
 - On Windows, `run_command` uses cmd.exe by default: use `cd`, `dir`, `echo %CD%` instead of `pwd` / `ls -la` (those are Unix shells).
-- For greetings, small talk, or general Q&A that does not need tools, reply normally in natural language 鈥?do not claim you are on a remote Linux server unless host above is actually Linux.
+- For greetings, small talk, or general Q&A that does not need tools, reply normally in natural language — do not claim you are on a remote Linux server unless host above is actually Linux.
 
 Rules:
 1. Think step by step about what needs to be done.
@@ -65,7 +65,7 @@ def compose_cli_system_message(
     sp = system_prompt_override or build_system_prompt(provider, model, endpoint)
     if platform_user_email and platform_api_base:
         sp += (
-            f"\n\nOpenAgentic 骞冲彴璐﹀彿锛堝凡閫氳繃璇ユ湇鍔＄殑 JWT 璁よ瘉锛? {platform_user_email} "
+            f"\n\nOpenAgentic 平台账号（已通过该服务的 JWT 认证）: {platform_user_email} "
             f"(API {platform_api_base.rstrip('/')})"
         )
     return sp
@@ -77,7 +77,7 @@ def is_identity_question(text: str) -> bool:
 
 def build_identity_answer(provider: str, model: str, endpoint: str) -> str:
     return (
-        "褰撳墠杩愯鏃堕厤缃涓嬶細\n"
+        "当前运行时配置如下：\n"
         f"- host: {runtime_environment_summary()}\n"
         f"- provider: {provider}\n"
         f"- model: {model}\n"

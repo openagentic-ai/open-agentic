@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useAppStore } from '../store/appStore'
 
 export interface CanvasElement {
@@ -31,7 +31,7 @@ export function CanvasPage() {
   
   const [canvasState, setCanvasState] = useState({
     id: '',
-    name: '鏂扮敾甯?,
+    name: '新画布',
     elements: [] as CanvasElement[],
     users: [] as CanvasUser[],
     selectedTool: 'select' as 'select' | 'rect' | 'circle' | 'line' | 'text' | 'pen' | 'eraser',
@@ -345,12 +345,12 @@ export function CanvasPage() {
   }, [handleKeyDown])
 
   const tools = [
-    { id: 'select', label: '閫夋嫨', icon: '鈫? },
-    { id: 'rect', label: '鐭╁舰', icon: '鈻? },
-    { id: 'circle', label: '鍦嗗舰', icon: '鈼? },
-    { id: 'line', label: '鐩寸嚎', icon: '/' },
-    { id: 'pen', label: '鐢荤瑪', icon: '鉁? },
-    { id: 'eraser', label: '姗＄毊', icon: '鈼? },
+    { id: 'select', label: '选择', icon: '↖' },
+    { id: 'rect', label: '矩形', icon: '▢' },
+    { id: 'circle', label: '圆形', icon: '○' },
+    { id: 'line', label: '直线', icon: '/' },
+    { id: 'pen', label: '画笔', icon: '✏' },
+    { id: 'eraser', label: '橡皮', icon: '◻' },
   ] as const
 
   const colors = ['#000000', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#ffffff']
@@ -397,7 +397,7 @@ export function CanvasPage() {
         <div className="h-6 w-px bg-gray-300 dark:bg-gray-600" />
         
         <div className="flex items-center gap-2">
-          <label className="text-sm">绾垮:</label>
+          <label className="text-sm">线宽:</label>
           <input
             type="range"
             min="1"
@@ -414,7 +414,7 @@ export function CanvasPage() {
 
         <div className="ml-auto flex items-center gap-2">
           <span className="text-sm text-gray-500">
-            {connectedUsers} 浜哄湪绾?
+            {connectedUsers} 人在线
           </span>
           <button
             onClick={() => {
@@ -428,7 +428,7 @@ export function CanvasPage() {
             }}
             className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600"
           >
-            娓呯┖
+            清空
           </button>
         </div>
       </div>
