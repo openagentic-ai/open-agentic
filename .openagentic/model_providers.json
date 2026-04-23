@@ -1,5 +1,5 @@
 {
-  "default_model": "ollama/qwen3:14b",
+  "default_model": "openai/gpt-4o-mini",
   "profiles": [
     {
       "id": "openai",
@@ -51,8 +51,8 @@
       "api_base": "https://api.deepseek.com/v1",
       "api_key": "",
       "models": [
-        "deepseek/deepseek-chat",
-        "deepseek/deepseek-reasoner"
+        "deepseek/deepseek-reasoner",
+        "deepseek/deepseek-chat"
       ],
       "enabled": true
     },
