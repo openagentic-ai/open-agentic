@@ -10,15 +10,24 @@ from openagentic.deps import get_current_user
 from openagentic.core.auth.models import User
 from openagentic.knowledge import service
 from openagentic.knowledge.schemas import (
+    BatchDocumentUploadRequest,
+    BatchDocumentUploadResponse,
     DocumentResponse,
     DocumentUpload,
     KnowledgeBaseCreate,
     KnowledgeBaseResponse,
     SearchRequest,
     SearchResult,
+    VectorIndexOptimizeResponse,
 )
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
+
+
+def _item_status(item) -> str:
+    if isinstance(item, dict):
+        return str(item.get("status", ""))
+    return str(getattr(item, "status", ""))
 
 
 @router.get("/", response_model=list[KnowledgeBaseResponse])
@@ -89,9 +98,43 @@ async def add_document(
             filename=payload.filename,
             content=payload.content,
             content_type=payload.content_type,
+            parts=payload.parts,
+            metadata=payload.metadata,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{kb_id}/documents/batch",
+    response_model=BatchDocumentUploadResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_documents_batch(
+    kb_id: uuid.UUID,
+    payload: BatchDocumentUploadRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        items = await service.add_documents_batch(
+            db=db,
+            kb_id=kb_id,
+            user_id=user.id,
+            documents=[doc.model_dump() for doc in payload.documents],
+            stop_on_error=payload.stop_on_error,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+    succeeded = sum(1 for item in items if _item_status(item) == "completed")
+    failed = len(items) - succeeded
+    return BatchDocumentUploadResponse(
+        total=len(items),
+        succeeded=succeeded,
+        failed=failed,
+        items=items,
+    )
 
 
 @router.get("/{kb_id}/documents", response_model=list[DocumentResponse])
@@ -135,6 +178,21 @@ async def search_knowledge_base(
             user_id=user.id,
             query=payload.query,
             top_k=payload.top_k,
+            rerank=payload.rerank,
+            rerank_top_n=payload.rerank_top_n,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post("/{kb_id}/optimize-index", response_model=VectorIndexOptimizeResponse)
+async def optimize_vector_index(
+    kb_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        indexes = await service.optimize_index(db=db, kb_id=kb_id, user_id=user.id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    return VectorIndexOptimizeResponse(applied=bool(indexes), indexes=indexes)

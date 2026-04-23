@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -31,8 +31,19 @@ class KnowledgeBaseResponse(BaseModel):
 
 class DocumentUpload(BaseModel):
     filename: str = Field(..., max_length=500)
-    content: str
+    content: str = ""
     content_type: str = "text/plain"
+    parts: list["DocumentPart"] | None = None
+    metadata: dict[str, Any] | None = None
+
+
+class DocumentPart(BaseModel):
+    type: str = Field(..., description="text/image/audio/video/table/file")
+    text: str | None = None
+    mime_type: str | None = None
+    name: str | None = None
+    url: str | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class DocumentResponse(BaseModel):
@@ -50,6 +61,8 @@ class DocumentResponse(BaseModel):
 class SearchRequest(BaseModel):
     query: str = Field(..., min_length=1)
     top_k: int = Field(default=5, ge=1, le=50)
+    rerank: bool = True
+    rerank_top_n: int = Field(default=20, ge=1, le=200)
 
 
 class SearchResult(BaseModel):
@@ -58,3 +71,29 @@ class SearchResult(BaseModel):
     chunk_index: int
     document_id: str
     score: float
+    rerank_score: float | None = None
+
+
+class BatchDocumentUploadRequest(BaseModel):
+    documents: list[DocumentUpload] = Field(default_factory=list, min_length=1, max_length=200)
+    stop_on_error: bool = False
+
+
+class BatchDocumentUploadItem(BaseModel):
+    index: int
+    filename: str
+    status: str
+    document_id: str | None = None
+    error: str | None = None
+
+
+class BatchDocumentUploadResponse(BaseModel):
+    total: int
+    succeeded: int
+    failed: int
+    items: list[BatchDocumentUploadItem]
+
+
+class VectorIndexOptimizeResponse(BaseModel):
+    applied: bool
+    indexes: list[str]

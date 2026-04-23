@@ -46,7 +46,7 @@
 | **Phase 1** | **已完成** | 注册 / 登录 / **JWT**、会话与消息 **CRUD**、**LiteLLM** 调用、**SSE**（`StreamingResponse` + `text/event-stream`，见 `core/chat`）、**`ui/`** 前端与 Phase 1 API 协同。 |
 | **Phase 2** | **基础版已完成** | 新增 `agent/` 与 `mcp/` 实现：Agent CRUD、最小 ReAct 执行器、工具注册表、MCP HTTP JSON-RPC 客户端、执行历史落库与 API。 |
 | **Phase 3** | **已完成** | `workflow/` 已实现：Workflow CRUD、Run 执行与取消、DAG 校验与拓扑执行、节点重试/超时、变量模板渲染、运行轨迹与状态查询。 |
-| **Phase 4** | **未实现（占位）** | `knowledge/` 目录已实现：文档上传、分块、向量存储、检索 API；数据库迁移 `add_knowledge_tables.py` 已就绪；与 Agent 集成通过 `knowledge_search` 工具 |
+| **Phase 4** | **已完成** | `knowledge/` 已落地：知识库 CRUD、文档上传/批量处理、多模态文档摘要入库、向量检索 + 重排序、向量索引优化、`knowledge_search` 工具集成。 |
 | **Phase 5** | **未实现（仅部分基建）** | 无完整多租户计费闭环、无 Prometheus **`/metrics`** 等；**`structlog` 已接入** 不等于「可观测性全套」。`tenant/`、`observability/` 多为占位。 |
 | **Phase 6** | **部分** | **`ui/`** 已有多页面（Sessions、Settings、Skills、Channels、Devices 等）；Skills 页面已实现前端 UI 与静态数据，后端 API 待完善；工作流编辑器、知识库管理 UI 等 **与 Phase 4/5 后端能力逐步形成闭环** |
 
@@ -472,7 +472,7 @@ src/
     ├── agent/               # Phase 2 已实现（基础版）
     ├── mcp/                 # Phase 2 已实现（基础版）
     ├── workflow/            # Phase 3 已实现
-    ├── knowledge/           # Phase 4 占位
+    ├── knowledge/           # Phase 4 已完成（RAG）
     ├── tenant/              # Phase 5 占位
     ├── observability/       # Phase 5 占位
     └── db/                  # session、Base
@@ -505,7 +505,8 @@ alembic/                     # 迁移脚本目录（revision 需维护）
 - 认证：`POST /api/auth/register`、`/login`、`/refresh`，`GET /api/auth/me`
 - 对话：`GET/POST /api/conversations`，`GET/POST /api/conversations/{id}/messages`（发送在 **`stream=true`** 时为 **SSE**）
 - 运维：`GET /health`；模型：`GET /api/models`
-- **`/api/agents`**、`/api/agents/{id}/execute`、`/api/agents/{id}/executions`、`/api/agent/message` 已在 Phase 2 提供最小可用实现；`/api/sessions`、`/api/channels` 与 `/api/presence` 仍保留兼容性 stub。
+- 知识库：`/api/knowledge`（知识库 CRUD）、`/{kb_id}/documents`（单文档/批量文档）、`/{kb_id}/search`（向量检索+重排序）、`/{kb_id}/optimize-index`（索引优化）
+- **`/api/agents`**、`/api/agents/{id}/execute`、`/api/agents/{id}/executions` 已在 Phase 2 提供最小可用实现；`/api/sessions`、`/api/channels` 与 `/api/presence` 仍保留兼容性 stub。
 
 ---
 
@@ -628,17 +629,17 @@ schemathesis run --url http://127.0.0.1:8000 --include-method GET --max-examples
 - [x] 节点级重试 / 超时 + 结构化 trace
 - [x] 对应测试覆盖（API、边界行为、配置持久化）
 
-### Phase 4：知识库 / RAG（部分完成）
+### Phase 4：知识库 / RAG（已完成）
 
 - [x] 知识库数据库模型与迁移 (`add_knowledge_tables.py`)
 - [x] 文档上传与管理 API
 - [x] 文档分块与向量存储
 - [x] 向量检索 API
 - [x] 与 Agent 集成 (`knowledge_search` 工具)
-- [ ] 批量文档处理
-- [ ] 向量索引优化
-- [ ] 多模态文档支持
-- [ ] 检索结果重排序
+- [x] 批量文档处理
+- [x] 向量索引优化
+- [x] 多模态文档支持
+- [x] 检索结果重排序
 
 ### Phase 5：多租户 + 计费 + 可观测性（未完成）
 

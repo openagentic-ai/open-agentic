@@ -28,6 +28,11 @@ class ExecutionStatus(str, enum.Enum):
     running = "running"
     completed = "completed"
     failed = "failed"
+    cancelled = "cancelled"
+
+
+# Backward-compatible alias kept for existing API/tests.
+WorkflowRunStatus = ExecutionStatus
 
 
 class Workflow(Base, UUIDPrimaryKeyMixin, TimestampMixin):

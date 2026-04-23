@@ -11,7 +11,7 @@ from openagentic.db.session import get_db
 from openagentic.deps import get_current_user
 from openagentic.main import app
 from openagentic.workflow import service
-from openagentic.workflow.models import WorkflowRunStatus
+from openagentic.workflow.models import ExecutionStatus
 
 
 @pytest.fixture
@@ -39,7 +39,7 @@ async def workflow_api_client(monkeypatch):
             name=body.name,
             description=body.description,
             definition=body.definition,
-            is_active=body.is_active,
+            is_active=True,
             created_at=now,
             updated_at=now,
         )
@@ -62,31 +62,30 @@ async def workflow_api_client(monkeypatch):
     async def delete_workflow(_db, workflow):
         state["workflows"].pop(workflow.id, None)
 
-    async def create_run(_db, workflow, input_payload):
+    async def create_run(_db, workflow, input_data):
         run_id = uuid.uuid4()
         run = SimpleNamespace(
             id=run_id,
             workflow_id=workflow.id,
             user_id=workflow.user_id,
-            status=WorkflowRunStatus.pending,
-            input_payload=input_payload,
-            output_payload=None,
-            trace=[],
-            error=None,
-            cancel_requested=False,
+            status=ExecutionStatus.pending,
+            input_data=input_data,
+            output_data=None,
+            node_states={},
             created_at=datetime.now(timezone.utc),
             started_at=None,
-            finished_at=None,
+            completed_at=None,
+            updated_at=datetime.now(timezone.utc),
         )
         state["runs"][run_id] = run
         return run
 
     async def execute_run(_db, run, _workflow):
-        run.status = WorkflowRunStatus.success
+        run.status = ExecutionStatus.completed
         run.started_at = datetime.now(timezone.utc)
-        run.finished_at = datetime.now(timezone.utc)
-        run.output_payload = {"result": "ok"}
-        run.trace = [{"node_id": "n1", "status": "success"}]
+        run.completed_at = datetime.now(timezone.utc)
+        run.output_data = {"result": "ok"}
+        run.node_states = {"trace": [{"node_id": "n1", "status": "success"}]}
         return run
 
     async def list_runs(_db, uid, workflow_id=None):
@@ -102,8 +101,8 @@ async def workflow_api_client(monkeypatch):
         return None
 
     async def request_cancel(_db, run):
-        run.cancel_requested = True
-        run.status = WorkflowRunStatus.cancelled
+        run.node_states["_cancel_requested"] = True
+        run.status = ExecutionStatus.cancelled
         return run
 
     monkeypatch.setattr(service, "list_workflows", list_workflows)
@@ -150,12 +149,12 @@ async def test_workflow_api_end_to_end(workflow_api_client):
 
     run_resp = await client.post(
         f"/api/workflows/{workflow_id}/runs",
-        json={"input": {"foo": "bar"}, "async_mode": False},
+        json={"input_data": {"foo": "bar"}},
     )
     assert run_resp.status_code == 200
     run_payload = run_resp.json()
     run_id = run_payload["id"]
-    assert run_payload["status"] == "success"
+    assert run_payload["status"] == "completed"
 
     run_list_resp = await client.get(f"/api/workflow-runs?workflow_id={workflow_id}")
     assert run_list_resp.status_code == 200
@@ -163,5 +162,15 @@ async def test_workflow_api_end_to_end(workflow_api_client):
 
     cancel_resp = await client.post(f"/api/workflow-runs/{run_id}/cancel")
     assert cancel_resp.status_code == 200
-    assert cancel_resp.json()["cancel_requested"] is True
+    assert cancel_resp.json()["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_workflow_run_returns_404_when_workflow_missing(workflow_api_client):
+    client = workflow_api_client
+    resp = await client.post(
+        f"/api/workflows/{uuid.uuid4()}/runs",
+        json={"input_data": {"foo": "bar"}},
+    )
+    assert resp.status_code == 404
 

@@ -15,8 +15,8 @@ from openagentic.db.session import engine
 from openagentic.core.auth.models import User, ApiKey  # noqa: F401
 from openagentic.core.chat.models import Conversation, Message  # noqa: F401
 from openagentic.agent.models import Agent, AgentExecution  # noqa: F401
-from openagentic.workflow.models import Workflow, WorkflowRun  # noqa: F401
-from openagentic.knowledge.models import KnowledgeDocument, KnowledgeChunk  # noqa: F401
+from openagentic.workflow.models import Workflow, WorkflowExecution  # noqa: F401
+from openagentic.knowledge.models import KnowledgeBase, Document, Chunk  # noqa: F401
 
 logger = structlog.get_logger()
 

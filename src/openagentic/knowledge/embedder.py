@@ -2,7 +2,7 @@
 
 import httpx
 
-from openagentic.config import settings
+from openagentic.config import SETTINGS
 
 
 async def embed_texts(texts: list[str], model: str = "nomic-embed-text") -> list[list[float]]:
@@ -11,7 +11,7 @@ async def embed_texts(texts: list[str], model: str = "nomic-embed-text") -> list
     async with httpx.AsyncClient(timeout=120.0) as client:
         for text in texts:
             resp = await client.post(
-                f"{settings.ollama_api_base}/api/embed",
+                f"{SETTINGS.OLLAMA_API_BASE}/api/embed",
                 json={"model": model, "input": text},
             )
             resp.raise_for_status()

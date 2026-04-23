@@ -74,10 +74,10 @@ async def delete_workflow(
     await service.delete_workflow(db, workflow)
 
 
-@router.post("/workflows/{workflow_id}/runs", response_model=schemas.WorkflowRunResponse)
+@router.post("/workflows/{workflow_id}/runs", response_model=schemas.WorkflowExecutionResponse)
 async def start_workflow_run(
     workflow_id: uuid.UUID,
-    body: schemas.WorkflowRunCreate,
+    body: schemas.WorkflowRunRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -87,23 +87,11 @@ async def start_workflow_run(
     if not workflow.is_active:
         raise HTTPException(status_code=400, detail="Workflow is inactive")
 
-    run = await service.create_run(db, workflow, body.input)
-
-    if body.async_mode:
-        runtime.start(
-            run.id,
-            service.execute_run_by_id(
-                run_id=run.id,
-                workflow_id=workflow.id,
-                user_id=current_user.id,
-            ),
-        )
-        return run
-
+    run = await service.create_run(db, workflow, body.input_data)
     return await service.execute_run(db, run, workflow)
 
 
-@router.get("/workflow-runs", response_model=list[schemas.WorkflowRunResponse])
+@router.get("/workflow-runs", response_model=list[schemas.WorkflowExecutionResponse])
 async def list_workflow_runs(
     workflow_id: uuid.UUID | None = Query(default=None),
     current_user: User = Depends(get_current_user),
@@ -112,7 +100,7 @@ async def list_workflow_runs(
     return await service.list_runs(db, current_user.id, workflow_id)
 
 
-@router.get("/workflow-runs/{run_id}", response_model=schemas.WorkflowRunResponse)
+@router.get("/workflow-runs/{run_id}", response_model=schemas.WorkflowExecutionResponse)
 async def get_workflow_run(
     run_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
@@ -124,7 +112,7 @@ async def get_workflow_run(
     return run
 
 
-@router.post("/workflow-runs/{run_id}/cancel", response_model=schemas.WorkflowRunResponse)
+@router.post("/workflow-runs/{run_id}/cancel", response_model=schemas.WorkflowExecutionResponse)
 async def cancel_workflow_run(
     run_id: uuid.UUID,
     current_user: User = Depends(get_current_user),

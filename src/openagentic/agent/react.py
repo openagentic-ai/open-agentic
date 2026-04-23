@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 
 from openagentic.agent.models import Agent
-from openagentic.agent.schemas import AgentStep
 from openagentic.agent.tools import ToolRegistry
 from openagentic.core.llm.service import chat_completion
 
@@ -18,9 +17,9 @@ class ReactExecutor:
     def __init__(self, registry: ToolRegistry) -> None:
         self.registry = registry
 
-    async def run(self, agent: Agent, user_input: str) -> tuple[str, list[AgentStep]]:
-        steps: list[AgentStep] = [AgentStep(step="think", thought="分析用户输入并决定是否调用工具")]
-        allowed_tools = set(agent.tool_names or [])
+    async def run(self, agent: Agent, user_input: str) -> tuple[str, list[dict]]:
+        steps: list[dict] = [{"step": "think", "thought": "分析用户输入并决定是否调用工具"}]
+        allowed_tools = set(agent.tools or [])
 
         tool_name, tool_arg = self._pick_tool(user_input, allowed_tools)
         observation = None
@@ -28,17 +27,13 @@ class ReactExecutor:
             try:
                 observation = self.registry.call(tool_name, tool_arg)
                 steps.append(
-                    AgentStep(
-                        step="act",
-                        action=f"{tool_name}({tool_arg})",
-                        observation=observation,
-                    )
+                    {"step": "act", "action": f"{tool_name}({tool_arg})", "observation": observation}
                 )
             except ValueError as exc:
-                steps.append(AgentStep(step="act", action=tool_name, observation=str(exc)))
+                steps.append({"step": "act", "action": tool_name, "observation": str(exc)})
 
         answer = await self._final_answer(agent, user_input, observation)
-        steps.append(AgentStep(step="final", thought="基于工具结果和上下文给出最终答复"))
+        steps.append({"step": "final", "thought": "基于工具结果和上下文给出最终答复"})
         return answer, steps
 
     def _pick_tool(self, text: str, allowed_tools: set[str]) -> tuple[str | None, str]:

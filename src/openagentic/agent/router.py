@@ -2,7 +2,7 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openagentic.agent import schemas, service
@@ -67,10 +67,10 @@ async def delete_agent(
     await service.delete_agent(db, agent)
 
 
-@router.post("/agents/{agent_id}/execute", response_model=schemas.AgentExecutionResponse)
+@router.post("/agents/{agent_id}/execute", response_model=schemas.ExecutionResponse)
 async def execute_agent(
     agent_id: uuid.UUID,
-    body: schemas.AgentExecuteRequest,
+    body: schemas.AgentRunRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -80,7 +80,7 @@ async def execute_agent(
     return await service.execute_agent(db, agent, body.input)
 
 
-@router.get("/agents/{agent_id}/executions", response_model=list[schemas.AgentExecutionResponse])
+@router.get("/agents/{agent_id}/executions", response_model=list[schemas.ExecutionResponse])
 async def list_executions(
     agent_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
@@ -90,40 +90,4 @@ async def list_executions(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
     return await service.list_executions(db, agent.id)
-
-
-@router.post("/agent/message", response_model=schemas.AgentMessageResponse)
-async def agent_message(
-    body: schemas.AgentMessageRequest,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-    create_if_missing: bool = Query(
-        True,
-        description="When no agent exists, auto-create one with default tools.",
-    ),
-):
-    agent = None
-    if body.agentId:
-        try:
-            agent = await service.get_agent(db, uuid.UUID(body.agentId), current_user.id)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail="Invalid agentId") from exc
-
-    if not agent:
-        agents = await service.list_agents(db, current_user.id)
-        if agents:
-            agent = agents[0]
-
-    if not agent and create_if_missing:
-        agent = await service.create_agent(
-            db,
-            current_user.id,
-            schemas.AgentCreate(name="Default Agent", tool_names=service.tool_registry.list_tools()),
-        )
-
-    if not agent:
-        raise HTTPException(status_code=404, detail="No available agent")
-
-    execution = await service.execute_agent(db, agent, body.message)
-    return schemas.AgentMessageResponse(message=execution.output_text, execution_id=execution.id)
 

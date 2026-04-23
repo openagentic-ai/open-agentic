@@ -11,15 +11,15 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from openagentic.agent.tools import ToolRegistry
+from openagentic.agent.tools import default_registry
 from openagentic.core.llm.service import chat_completion
 from openagentic.db.session import async_session
-from openagentic.workflow.models import Workflow, WorkflowRun, WorkflowRunStatus
+from openagentic.workflow.models import ExecutionStatus, Workflow, WorkflowExecution
 from openagentic.workflow.schemas import WorkflowCreate, WorkflowUpdate
 
 VAR_PATTERN = re.compile(r"\{\{\s*([^}]+)\s*\}\}")
-
-tool_registry = ToolRegistry()
+TRACE_KEY = "trace"
+CANCEL_KEY = "_cancel_requested"
 
 
 async def list_workflows(db: AsyncSession, user_id: uuid.UUID) -> list[Workflow]:
@@ -76,7 +76,7 @@ async def create_workflow(db: AsyncSession, user_id: uuid.UUID, body: WorkflowCr
         name=body.name,
         description=body.description,
         definition=body.definition,
-        is_active=body.is_active,
+        is_active=True,
     )
     db.add(workflow)
     await db.flush()
@@ -100,14 +100,15 @@ async def delete_workflow(db: AsyncSession, workflow: Workflow) -> None:
 async def create_run(
     db: AsyncSession,
     workflow: Workflow,
-    input_payload: dict[str, Any],
-) -> WorkflowRun:
-    run = WorkflowRun(
+    input_data: dict[str, Any] | None,
+) -> WorkflowExecution:
+    run = WorkflowExecution(
         workflow_id=workflow.id,
         user_id=workflow.user_id,
-        status=WorkflowRunStatus.pending,
-        input_payload=input_payload,
-        trace=[],
+        status=ExecutionStatus.pending,
+        input_data=input_data or {},
+        output_data=None,
+        node_states={TRACE_KEY: []},
     )
     db.add(run)
     await db.flush()
@@ -116,34 +117,47 @@ async def create_run(
 
 async def list_runs(
     db: AsyncSession, user_id: uuid.UUID, workflow_id: uuid.UUID | None = None
-) -> list[WorkflowRun]:
-    stmt = select(WorkflowRun).where(WorkflowRun.user_id == user_id).order_by(WorkflowRun.created_at.desc())
+) -> list[WorkflowExecution]:
+    stmt = select(WorkflowExecution).where(WorkflowExecution.user_id == user_id).order_by(
+        WorkflowExecution.created_at.desc()
+    )
     if workflow_id:
-        stmt = stmt.where(WorkflowRun.workflow_id == workflow_id)
+        stmt = stmt.where(WorkflowExecution.workflow_id == workflow_id)
     result = await db.execute(stmt)
     return list(result.scalars().all())
 
 
-async def get_run(db: AsyncSession, run_id: uuid.UUID, user_id: uuid.UUID) -> WorkflowRun | None:
+async def get_run(
+    db: AsyncSession, run_id: uuid.UUID, user_id: uuid.UUID
+) -> WorkflowExecution | None:
     result = await db.execute(
-        select(WorkflowRun).where(WorkflowRun.id == run_id, WorkflowRun.user_id == user_id)
+        select(WorkflowExecution).where(
+            WorkflowExecution.id == run_id,
+            WorkflowExecution.user_id == user_id,
+        )
     )
     return result.scalar_one_or_none()
 
 
-async def request_cancel(db: AsyncSession, run: WorkflowRun) -> WorkflowRun:
-    run.cancel_requested = True
+async def request_cancel(db: AsyncSession, run: WorkflowExecution) -> WorkflowExecution:
+    run.node_states = {**(run.node_states or {}), CANCEL_KEY: True}
     await db.flush()
     return run
 
 
-async def execute_run(db: AsyncSession, run: WorkflowRun, workflow: Workflow) -> WorkflowRun:
-    run.status = WorkflowRunStatus.running
+def _is_cancel_requested(run: WorkflowExecution) -> bool:
+    node_states = getattr(run, "node_states", None) or {}
+    if bool(node_states.get(CANCEL_KEY)):
+        return True
+    return bool(getattr(run, "cancel_requested", False))
+
+
+async def execute_run(db: AsyncSession, run: WorkflowExecution, workflow: Workflow) -> WorkflowExecution:
+    run.status = ExecutionStatus.running
     run.started_at = datetime.now(timezone.utc)
-    run.finished_at = None
-    run.error = None
-    run.output_payload = None
-    run.trace = []
+    run.completed_at = None
+    run.output_data = None
+    run.node_states = {TRACE_KEY: []}
     await db.flush()
 
     try:
@@ -151,22 +165,22 @@ async def execute_run(db: AsyncSession, run: WorkflowRun, workflow: Workflow) ->
             db=db,
             run=run,
             definition=workflow.definition,
-            input_payload=run.input_payload,
+            input_payload=run.input_data or {},
         )
-        if run.cancel_requested:
-            run.status = WorkflowRunStatus.cancelled
+        if _is_cancel_requested(run):
+            run.status = ExecutionStatus.cancelled
         else:
-            run.status = WorkflowRunStatus.success
-        run.output_payload = {"result": output}
-        run.trace = trace
+            run.status = ExecutionStatus.completed
+        run.output_data = {"result": output}
+        run.node_states = {**(run.node_states or {}), TRACE_KEY: trace}
     except asyncio.CancelledError:
-        run.status = WorkflowRunStatus.cancelled
-        run.error = "Run cancelled"
+        run.status = ExecutionStatus.cancelled
+        run.node_states = {**(run.node_states or {}), "error": "Run cancelled"}
     except Exception as exc:
-        run.status = WorkflowRunStatus.failed
-        run.error = str(exc)
+        run.status = ExecutionStatus.failed
+        run.node_states = {**(run.node_states or {}), "error": str(exc)}
     finally:
-        run.finished_at = datetime.now(timezone.utc)
+        run.completed_at = datetime.now(timezone.utc)
         await db.flush()
     return run
 
@@ -210,7 +224,7 @@ def _topological_order(definition: dict[str, Any]) -> list[str]:
 
 async def _execute_definition(
     db: AsyncSession,
-    run: WorkflowRun,
+    run: WorkflowExecution,
     definition: dict[str, Any],
     input_payload: dict[str, Any],
 ) -> tuple[Any, list[dict[str, Any]]]:
@@ -221,7 +235,7 @@ async def _execute_definition(
 
     for node_id in order:
         await db.refresh(run)
-        if run.cancel_requested:
+        if _is_cancel_requested(run):
             trace.append({"node_id": node_id, "status": "cancelled", "reason": "cancel_requested"})
             break
 
@@ -289,10 +303,13 @@ async def _execute_node(node_type: str, config: dict[str, Any]) -> Any:
         name = config.get("tool_name")
         if not name:
             raise ValueError("tool node requires config.tool_name")
+        tool = default_registry.get(str(name))
+        if tool is None:
+            raise ValueError(f"Unknown tool: {name}")
         arg = config.get("arg", "")
         if isinstance(arg, (dict, list)):
             arg = str(arg)
-        return tool_registry.call(name, str(arg))
+        return await tool.execute({"input": str(arg), "query": str(arg), "command": str(arg)})
 
     if node_type == "llm":
         prompt = config.get("prompt")
