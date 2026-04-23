@@ -77,6 +77,84 @@ DEFAULT_PROFILES: list[ProviderProfile] = [
         models=["deepseek/deepseek-chat", "deepseek/deepseek-reasoner"],
     ),
     ProviderProfile(
+        id="mistral",
+        display_name="Mistral AI",
+        api_base="https://api.mistral.ai/v1",
+        models=["mistral/mistral-large-latest", "mistral/mistral-medium-latest"],
+    ),
+    ProviderProfile(
+        id="cohere",
+        display_name="Cohere",
+        api_base="https://api.cohere.com/v2",
+        models=["cohere/command-r-plus", "cohere/command-r"],
+    ),
+    ProviderProfile(
+        id="groq",
+        display_name="Groq",
+        api_base="https://api.groq.com/openai/v1",
+        models=["openai/llama-3.3-70b-versatile", "openai/mixtral-8x7b-32768"],
+    ),
+    ProviderProfile(
+        id="openrouter",
+        display_name="OpenRouter",
+        api_base="https://openrouter.ai/api/v1",
+        models=["openai/openai/gpt-4o-mini", "openai/anthropic/claude-3.7-sonnet"],
+    ),
+    ProviderProfile(
+        id="moonshot",
+        display_name="Moonshot (Kimi)",
+        api_base="https://api.moonshot.cn/v1",
+        models=["openai/moonshot-v1-8k", "openai/moonshot-v1-128k"],
+    ),
+    ProviderProfile(
+        id="zhipu",
+        display_name="Zhipu AI (GLM)",
+        api_base="https://open.bigmodel.cn/api/paas/v4",
+        models=["openai/glm-4.5", "openai/glm-4.5-air"],
+    ),
+    ProviderProfile(
+        id="minimax",
+        display_name="MiniMax",
+        api_base="https://api.minimax.chat/v1",
+        models=["openai/minimax-m2", "openai/minimax-m2.5"],
+    ),
+    ProviderProfile(
+        id="volcengine",
+        display_name="ByteDance Volcengine (Doubao)",
+        api_base="https://ark.cn-beijing.volces.com/api/v3",
+        models=["openai/doubao-seed-1-6-thinking", "openai/doubao-pro-32k"],
+    ),
+    ProviderProfile(
+        id="baidu",
+        display_name="Baidu ERNIE",
+        api_base="https://qianfan.baidubce.com/v2",
+        models=["openai/ernie-4.0-8k", "openai/ernie-4.0-turbo-8k"],
+    ),
+    ProviderProfile(
+        id="tencent",
+        display_name="Tencent Hunyuan",
+        api_base="https://api.hunyuan.cloud.tencent.com/v1",
+        models=["openai/hunyuan-turbos-latest", "openai/hunyuan-large"],
+    ),
+    ProviderProfile(
+        id="nvidia",
+        display_name="NVIDIA NIM",
+        api_base="https://integrate.api.nvidia.com/v1",
+        models=["openai/meta/llama-3.1-70b-instruct", "openai/nvidia/llama-3.1-nemotron-70b-instruct"],
+    ),
+    ProviderProfile(
+        id="together",
+        display_name="Together AI",
+        api_base="https://api.together.xyz/v1",
+        models=["openai/meta-llama/Llama-3.3-70B-Instruct-Turbo", "openai/Qwen/Qwen2.5-72B-Instruct-Turbo"],
+    ),
+    ProviderProfile(
+        id="fireworks",
+        display_name="Fireworks AI",
+        api_base="https://api.fireworks.ai/inference/v1",
+        models=["openai/accounts/fireworks/models/llama-v3p3-70b-instruct", "openai/accounts/fireworks/models/qwen3-32b"],
+    ),
+    ProviderProfile(
         id="qwen",
         display_name="Qwen",
         api_base="https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -113,6 +191,32 @@ def _clone_config(config: ProviderConfig) -> ProviderConfig:
 
 def _infer_provider_from_api_base(api_base: str) -> str:
     base = api_base.lower()
+    if "openrouter.ai" in base:
+        return "openrouter"
+    if "mistral.ai" in base:
+        return "mistral"
+    if "cohere.com" in base:
+        return "cohere"
+    if "groq.com" in base:
+        return "groq"
+    if "moonshot.cn" in base:
+        return "moonshot"
+    if "bigmodel.cn" in base:
+        return "zhipu"
+    if "minimax.chat" in base:
+        return "minimax"
+    if "volces.com" in base:
+        return "volcengine"
+    if "baidubce.com" in base or "qianfan" in base:
+        return "baidu"
+    if "hunyuan" in base or "tencent" in base:
+        return "tencent"
+    if "nvidia.com" in base:
+        return "nvidia"
+    if "together.xyz" in base:
+        return "together"
+    if "fireworks.ai" in base:
+        return "fireworks"
     if "deepseek" in base:
         return "deepseek"
     if "x.ai" in base or "grok" in base:
