@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import re
 import sys
+import getpass
 
 import httpx
+from prompt_toolkit import prompt as pt_prompt
 
 from openagentic.cli.platform_adapter import CLI_PLATFORM
 from openagentic.config import SETTINGS
@@ -58,6 +61,9 @@ OPENAI_COMPATIBLE_PROVIDERS = {
     "together",
     "fireworks",
 }
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+CARET_ESCAPE_RE = re.compile(r"\^\[\[[0-9;?]*[ -/]*[@-~]")
+CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
 
 def normalize_provider(provider: str) -> str:
@@ -199,6 +205,40 @@ def read_nav_key() -> str:
     return CLI_PLATFORM.read_nav_key()
 
 
+def _sanitize_cli_input(value: str) -> str:
+    if not value:
+        return value
+    cleaned = ANSI_ESCAPE_RE.sub("", value)
+    cleaned = CARET_ESCAPE_RE.sub("", cleaned)
+    cleaned = CONTROL_CHAR_RE.sub("", cleaned)
+    return cleaned
+
+
+def _prompt_input(prompt: str) -> str:
+    CLI_PLATFORM.ensure_line_input_mode()
+    CLI_PLATFORM.drain_stdin_buffer(settle_ms=80)
+    if sys.stdin.isatty() and sys.stdout.isatty():
+        try:
+            raw = pt_prompt(prompt)
+        except Exception:
+            raw = input(prompt)
+    else:
+        raw = input(prompt)
+    return _sanitize_cli_input(raw).strip()
+
+
+def _prompt_secret_input(prompt: str) -> str:
+    CLI_PLATFORM.ensure_line_input_mode()
+    CLI_PLATFORM.drain_stdin_buffer(settle_ms=80)
+    try:
+        raw = getpass.getpass(prompt)
+    except (EOFError, KeyboardInterrupt):
+        raise
+    except Exception:
+        raw = input(prompt)
+    return _sanitize_cli_input(raw).strip()
+
+
 def select_provider_interactive(current_provider: str) -> str | None:
     profiles = list_provider_profiles()
     if not profiles:
@@ -206,10 +246,33 @@ def select_provider_interactive(current_provider: str) -> str | None:
     ids = [p["id"] for p in profiles]
     selected_idx = ids.index(current_provider) if current_provider in ids else 0
 
+    # Non-interactive fallback (pipes/CI): use text input mode.
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
-        print_provider_menu(current_provider)
-        selected = input(f"请选择 provider（默认 {current_provider}）: ").strip()
-        return normalize_provider(selected) if selected else current_provider
+        print("\n可选模型厂商（输入序号/ID，回车保持默认，q 取消）：")
+        for idx, profile in enumerate(profiles, start=1):
+            mark = "*" if profile["id"] == current_provider else " "
+            status = "enabled" if profile["enabled"] else "disabled"
+            key_status = "key:yes" if profile["api_key"] else "key:no"
+            print(
+                f" {mark} [{idx}] {profile['id']:<10} {profile['display_name']:<22} "
+                f"[{status}, {key_status}]"
+            )
+        while True:
+            selected = _prompt_input(f"请选择 provider（默认 {current_provider}）: ")
+            if not selected:
+                return current_provider
+            if selected.lower() in {"q", "quit"}:
+                return None
+            if selected.isdigit():
+                n = int(selected)
+                if 1 <= n <= len(profiles):
+                    return profiles[n - 1]["id"]
+                print(f"[ERROR] 序号越界：{n}，有效范围 1-{len(profiles)}")
+                continue
+            normalized = normalize_provider(selected)
+            if normalized in ids:
+                return normalized
+            print(f"[ERROR] 未识别 provider: {selected}")
 
     while True:
         CLI_PLATFORM.clear_screen()
@@ -231,8 +294,10 @@ def select_provider_interactive(current_provider: str) -> str | None:
             selected_idx = (selected_idx + 1) % len(profiles)
             continue
         if key == "enter":
+            CLI_PLATFORM.drain_stdin_buffer(settle_ms=120)
             return profiles[selected_idx]["id"]
         if key in {"quit", "interrupt"}:
+            CLI_PLATFORM.drain_stdin_buffer(settle_ms=120)
             return None
 
 
@@ -259,7 +324,7 @@ def configure_provider_interactive(provider: str) -> None:
     if provider != "ollama":
         while True:
             hint = "（必填，无默认项）" if not current_key else "（默认：保持不变）"
-            api_key = input(f"API Key{hint}: ").strip()
+            api_key = _prompt_secret_input(f"API Key{hint}: ")
             if api_key:
                 break
             if current_key:
@@ -276,7 +341,7 @@ def configure_provider_interactive(provider: str) -> None:
         else:
             print("[AUTO] 未探测到模型列表，使用内置默认模型。")
 
-        quick = input("仅使用自动配置并保存? (Y/n): ").strip().lower()
+        quick = _prompt_input("仅使用自动配置并保存? (Y/n): ").lower()
         if quick in {"", "y", "yes"}:
             get_provider_store().upsert_profile(
                 provider,
@@ -288,7 +353,7 @@ def configure_provider_interactive(provider: str) -> None:
             print(f"[OK] 已保存 {provider} 配置（自动模式）")
             return
 
-    api_base_input = input(f"API Base [{current_base}]: ").strip()
+    api_base_input = _prompt_input(f"API Base [{current_base}]: ")
     api_base = api_base_input or current_base
 
     if looks_like_api_key(api_base_input) and not api_key and provider != "ollama":
@@ -297,8 +362,8 @@ def configure_provider_interactive(provider: str) -> None:
         api_base = current_base
         print("[WARN] 检测到你把 API Key 填到了 API Base，已自动纠正。")
 
-    models_input = input(f"模型列表(逗号分隔) [{current_models}]: ").strip()
-    enabled_input = input(f"启用? (y/n) [{'y' if profile['enabled'] else 'n'}]: ").strip().lower()
+    models_input = _prompt_input(f"模型列表(逗号分隔) [{current_models}]: ")
+    enabled_input = _prompt_input(f"启用? (y/n) [{'y' if profile['enabled'] else 'n'}]: ").lower()
     enabled = profile["enabled"] if enabled_input == "" else enabled_input in {"y", "yes", "1"}
     models = (
         [m.strip() for m in models_input.split(",") if m.strip()]

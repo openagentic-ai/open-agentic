@@ -2,12 +2,32 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 from openagentic.cli.platform_adapter import CLI_PLATFORM
+
+
+def _build_source_fingerprint(pyproject: Path, src_dir: Path) -> str:
+    h = hashlib.sha256()
+
+    def _feed(path: Path) -> None:
+        rel = path.as_posix().encode("utf-8", errors="replace")
+        try:
+            stat = path.stat()
+        except OSError:
+            return
+        h.update(rel)
+        h.update(str(stat.st_size).encode("ascii"))
+        h.update(str(stat.st_mtime_ns).encode("ascii"))
+
+    _feed(pyproject)
+    for path in sorted(src_dir.rglob("*.py")):
+        _feed(path)
+    return h.hexdigest()
 
 
 def maybe_auto_install_editable() -> None:
@@ -25,21 +45,22 @@ def maybe_auto_install_editable() -> None:
     if not pyproject.exists() or not src_dir.exists():
         return
 
-    latest_mtime = pyproject.stat().st_mtime
-    for path in src_dir.rglob("*.py"):
-        try:
-            latest_mtime = max(latest_mtime, path.stat().st_mtime)
-        except OSError:
-            continue
-
-    last_installed = 0.0
+    current_fingerprint = _build_source_fingerprint(pyproject, src_dir)
+    last_fingerprint = ""
     if stamp_file.exists():
         try:
-            last_installed = float(stamp_file.read_text(encoding="utf-8").strip())
-        except (OSError, ValueError):
-            last_installed = 0.0
+            raw = stamp_file.read_text(encoding="utf-8").strip()
+            if raw.startswith("{"):
+                payload = json.loads(raw)
+                if isinstance(payload, dict):
+                    last_fingerprint = str(payload.get("fingerprint", ""))
+            else:
+                # legacy numeric stamp format; force one-time upgrade install.
+                last_fingerprint = ""
+        except (OSError, ValueError, json.JSONDecodeError):
+            last_fingerprint = ""
 
-    if last_installed >= latest_mtime:
+    if last_fingerprint == current_fingerprint:
         return
 
     print("[bootstrap] 检测到本地源码更新，正在执行: pip install -e .")
@@ -57,5 +78,8 @@ def maybe_auto_install_editable() -> None:
         return
 
     stamp_dir.mkdir(parents=True, exist_ok=True)
-    stamp_file.write_text(str(time.time()), encoding="utf-8")
+    stamp_file.write_text(
+        json.dumps({"fingerprint": current_fingerprint}, ensure_ascii=False),
+        encoding="utf-8",
+    )
     print("[bootstrap] 已完成自动安装。")

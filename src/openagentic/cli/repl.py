@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import sys
+
+from prompt_toolkit import PromptSession
+from prompt_toolkit.patch_stdout import patch_stdout
+
 from openagentic.cli.auth import clear_cli_session_file, platform_authenticate_sync
+from openagentic.cli.platform_adapter import CLI_PLATFORM
 from openagentic.cli.prompt import (
     build_identity_answer,
     compose_cli_system_message,
@@ -47,6 +53,19 @@ async def main_loop(
     platform_user_email: str | None = None,
     platform_access_token: str | None = None,
 ):
+    session = PromptSession()
+
+    async def _read_line(prompt_text: str) -> str:
+        CLI_PLATFORM.ensure_line_input_mode()
+        CLI_PLATFORM.drain_stdin_buffer(settle_ms=80)
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            return input(prompt_text)
+        try:
+            with patch_stdout():
+                return await session.prompt_async(prompt_text)
+        except Exception:
+            return input(prompt_text)
+
     requested_provider = provider
     provider = resolve_provider(provider, model)
     model = resolve_model_for_provider(provider, model)
@@ -86,7 +105,7 @@ async def main_loop(
 
     rebuild_system_message()
 
-    print(f"\033[1mOpenAgentic Agent\033[0m  |  provider: {provider}  |  model: {model}")
+    print(f"OpenAgentic Agent  |  provider: {provider}  |  model: {model}")
     if plat["email"] and plat["base"]:
         print(f"  platform: {plat['email']} @ {plat['base'].rstrip('/')}")
     print("Tools: run_command, read_file, write_file（新建/覆盖均需确认）, delete_file（需确认）")
@@ -95,7 +114,7 @@ async def main_loop(
 
     while True:
         try:
-            user_input = input("\n\033[1m> \033[0m").strip()
+            user_input = (await _read_line("\n> ")).strip()
         except (EOFError, KeyboardInterrupt):
             print("\nBye!")
             break
@@ -157,9 +176,9 @@ async def main_loop(
             )
             continue
         if user_input == "/login-platform":
-            base = (plat["base"] or "").strip() or input(
-                "OpenAgentic 根 URL（如 http://127.0.0.1:8000，回车取消）: "
-            ).strip()
+            base = (plat["base"] or "").strip()
+            if not base:
+                base = (await _read_line("OpenAgentic 根 URL（如 http://127.0.0.1:8000，回车取消）: ")).strip()
             if not base:
                 print("[ERROR] 需要有效的服务地址")
                 continue
@@ -180,7 +199,7 @@ async def main_loop(
             continue
         if is_identity_question(user_input):
             identity_answer = build_identity_answer(provider, model, endpoint)
-            print(f"\n\033[32m{identity_answer}\033[0m")
+            print(f"\n{identity_answer}")
             messages.append({"role": "user", "content": user_input})
             messages.append({"role": "assistant", "content": identity_answer})
             continue
@@ -196,4 +215,4 @@ async def main_loop(
                 platform_user_email=plat["email"],
             )
         except Exception as e:
-            print(f"\033[31m[ERROR] {type(e).__name__}: {e}\033[0m")
+            print(f"[ERROR] {type(e).__name__}: {e}")

@@ -20,6 +20,7 @@ load_dotenv()
 def main() -> None:
     maybe_auto_install_editable()
     CLI_PLATFORM.configure_event_loop_policy()
+    CLI_PLATFORM.ensure_line_input_mode()
     parser = argparse.ArgumentParser(description="OpenAgentic Agent CLI (ReAct)")
     parser.add_argument(
         "-m",
@@ -62,13 +63,16 @@ def main() -> None:
     if api_base:
         platform_token, platform_email = platform_authenticate_sync(api_base)
 
-    asyncio.run(
-        main_loop(
-            args.model,
-            args.provider,
-            args.system,
-            platform_api_base=api_base,
-            platform_user_email=platform_email,
-            platform_access_token=platform_token,
+    try:
+        asyncio.run(
+            main_loop(
+                args.model,
+                args.provider,
+                args.system,
+                platform_api_base=api_base,
+                platform_user_email=platform_email,
+                platform_access_token=platform_token,
+            )
         )
-    )
+    except KeyboardInterrupt:
+        print("\nBye!")
