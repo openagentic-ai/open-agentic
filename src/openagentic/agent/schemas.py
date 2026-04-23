@@ -1,75 +1,67 @@
-"""Pydantic schemas for Phase 2 agent APIs."""
+"""Pydantic schemas for the Agent module."""
+
+from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
-from pydantic import BaseModel, Field
-
-from openagentic.agent.models import AgentStatus, ExecutionStatus
+from pydantic import BaseModel
 
 
 class AgentCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
+    name: str
     description: str | None = None
-    model: str | None = None
     system_prompt: str | None = None
-    tool_names: list[str] = Field(default_factory=list)
+    model: str | None = None
+    tools: list[str] | None = None
+    config: dict[str, Any] | None = None
 
 
 class AgentUpdate(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=120)
+    name: str | None = None
     description: str | None = None
-    model: str | None = None
     system_prompt: str | None = None
-    status: AgentStatus | None = None
-    tool_names: list[str] | None = None
+    model: str | None = None
+    tools: list[str] | None = None
+    config: dict[str, Any] | None = None
+    is_active: bool | None = None
 
 
 class AgentResponse(BaseModel):
     id: uuid.UUID
     name: str
     description: str | None
-    model: str | None
     system_prompt: str | None
-    status: AgentStatus
-    tool_names: list[str]
+    model: str | None
+    tools: list[str] | None
+    config: dict[str, Any] | None
+    is_active: bool
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
 
 
-class AgentExecuteRequest(BaseModel):
-    input: str = Field(min_length=1)
+class AgentRunRequest(BaseModel):
+    input: str
 
 
-class AgentStep(BaseModel):
-    step: str
-    thought: str | None = None
-    action: str | None = None
-    observation: str | None = None
-
-
-class AgentExecutionResponse(BaseModel):
+class ExecutionResponse(BaseModel):
     id: uuid.UUID
     agent_id: uuid.UUID
-    input_text: str
-    output_text: str
-    status: ExecutionStatus
-    trace: list[AgentStep]
-    error: str | None
-    created_at: datetime
+    status: str
+    input: str
+    output: str | None
+    steps: list[dict[str, Any]] | None
+    token_total: int | None
+    started_at: datetime | None
+    completed_at: datetime | None
 
     model_config = {"from_attributes": True}
 
 
-class AgentMessageRequest(BaseModel):
-    message: str = Field(min_length=1)
-    sessionId: str | None = None
-    agentId: str | None = None
-
-
-class AgentMessageResponse(BaseModel):
-    message: str
-    execution_id: uuid.UUID | None = None
-
+class ToolInfo(BaseModel):
+    name: str
+    description: str
+    parameters: dict[str, Any]

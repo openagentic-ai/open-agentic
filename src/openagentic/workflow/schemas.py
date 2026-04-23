@@ -1,25 +1,23 @@
-"""Pydantic schemas for workflow APIs."""
+"""Workflow Pydantic schemas."""
+
+from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
 
 from pydantic import BaseModel, Field
 
-from openagentic.workflow.models import WorkflowRunStatus
-
 
 class WorkflowCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
+    name: str = Field(..., max_length=255)
     description: str | None = None
-    definition: dict[str, Any] = Field(default_factory=dict)
-    is_active: bool = True
+    definition: dict = Field(..., description="DAG definition with nodes and edges")
 
 
 class WorkflowUpdate(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=120)
+    name: str | None = None
     description: str | None = None
-    definition: dict[str, Any] | None = None
+    definition: dict | None = None
     is_active: bool | None = None
 
 
@@ -27,7 +25,7 @@ class WorkflowResponse(BaseModel):
     id: uuid.UUID
     name: str
     description: str | None
-    definition: dict[str, Any]
+    definition: dict
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -35,23 +33,35 @@ class WorkflowResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class WorkflowRunCreate(BaseModel):
-    input: dict[str, Any] = Field(default_factory=dict)
-    async_mode: bool = True
+class WorkflowRunRequest(BaseModel):
+    input_data: dict | None = None
 
 
-class WorkflowRunResponse(BaseModel):
+class WorkflowExecutionResponse(BaseModel):
     id: uuid.UUID
     workflow_id: uuid.UUID
-    status: WorkflowRunStatus
-    input_payload: dict[str, Any]
-    output_payload: dict[str, Any] | None
-    trace: list[dict[str, Any]]
-    error: str | None
-    cancel_requested: bool
-    created_at: datetime
+    status: str
+    input_data: dict | None
+    output_data: dict | None
+    node_states: dict
     started_at: datetime | None
-    finished_at: datetime | None
+    completed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
 
     model_config = {"from_attributes": True}
 
+
+class NodeDefinition(BaseModel):
+    """Schema for documenting node structure within a workflow definition."""
+    id: str
+    type: str
+    config: dict = Field(default_factory=dict)
+    position: dict | None = None
+
+
+class EdgeDefinition(BaseModel):
+    """Schema for documenting edge structure within a workflow definition."""
+    source: str
+    target: str
+    condition: str | None = None

@@ -1,185 +1,192 @@
-"""Knowledge base service: ingest, chunk, embedding, and semantic retrieval."""
+"""Knowledge base service layer."""
 
-from __future__ import annotations
-
-import hashlib
-import math
 import uuid
+import logging
 
-import litellm
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from openagentic.config import SETTINGS
-from openagentic.core.llm.provider_config import get_provider_store
-from openagentic.knowledge.models import KnowledgeChunk, KnowledgeDocument, KnowledgeDocumentStatus
-from openagentic.knowledge.schemas import KnowledgeSearchResult
+from openagentic.knowledge.models import KnowledgeBase, Document, Chunk
+from openagentic.knowledge.chunker import chunk_text
+from openagentic.knowledge.embedder import embed_texts
+from openagentic.knowledge.search import similarity_search
 
-CHUNK_SIZE = 900
-CHUNK_OVERLAP = 180
-EMBEDDING_DIMENSION = 1536
-DEFAULT_EMBEDDING_MODEL = "openai/text-embedding-3-small"
+logger = logging.getLogger(__name__)
 
 
-def split_text_chunks(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
-    """Split text with simple overlap strategy for retrieval quality."""
-    source = text.strip()
-    if not source:
-        return []
-    if chunk_size <= overlap:
-        overlap = max(0, chunk_size // 4)
-
-    chunks: list[str] = []
-    start = 0
-    length = len(source)
-    while start < length:
-        end = min(length, start + chunk_size)
-        chunk = source[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-        if end >= length:
-            break
-        start = max(0, end - overlap)
-    return chunks
-
-
-def estimate_tokens(text: str) -> int:
-    # Rough estimate; precise tokenizer is not required for MVP.
-    return max(1, len(text) // 4)
-
-
-def _deterministic_embedding(text: str, dimension: int = EMBEDDING_DIMENSION) -> list[float]:
-    """Stable fallback embedding to keep ingestion available without external model."""
-    seed = hashlib.sha256(text.encode("utf-8")).digest()
-    values: list[float] = []
-    for i in range(dimension):
-        byte = seed[i % len(seed)]
-        values.append((byte / 255.0) * 2.0 - 1.0)
-    norm = math.sqrt(sum(v * v for v in values))
-    if norm > 0:
-        values = [v / norm for v in values]
-    return values
-
-
-async def generate_embedding(text: str) -> list[float]:
-    """Try provider-backed embedding first, then fallback to deterministic local vector."""
-    try:
-        model, api_base, api_key = get_provider_store().resolve_runtime(
-            SETTINGS.OPENAI_CHAT_MODEL or DEFAULT_EMBEDDING_MODEL
-        )
-        response = await litellm.aembedding(
-            model=model,
-            input=[text],
-            api_base=api_base,
-            api_key=api_key,
-        )
-        vector = response.data[0]["embedding"]
-        if isinstance(vector, list) and len(vector) > 0:
-            if len(vector) == EMBEDDING_DIMENSION:
-                return [float(v) for v in vector]
-    except Exception:
-        pass
-    return _deterministic_embedding(text)
-
-
-async def ingest_document(
+async def create_knowledge_base(
     db: AsyncSession,
-    *,
-    filename: str,
-    content_type: str,
-    data: bytes,
-    title: str | None = None,
-    user_id: uuid.UUID | None = None,
-) -> KnowledgeDocument:
-    """Ingest a text document and build chunks + embeddings."""
-    doc = KnowledgeDocument(
+    user_id: uuid.UUID,
+    name: str,
+    description: str | None = None,
+    embedding_model: str = "nomic-embed-text",
+    chunk_size: int = 500,
+    chunk_overlap: int = 50,
+) -> KnowledgeBase:
+    """Create a new knowledge base."""
+    kb = KnowledgeBase(
         user_id=user_id,
-        title=(title or filename or "untitled").strip()[:255],
-        filename=(filename or "unknown.txt").strip()[:255],
-        content_type=(content_type or "text/plain").strip()[:100],
-        size_bytes=len(data),
-        status=KnowledgeDocumentStatus.processing,
-        metadata_json={},
+        name=name,
+        description=description,
+        embedding_model=embedding_model,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+    )
+    db.add(kb)
+    await db.flush()
+    return kb
+
+
+async def list_knowledge_bases(db: AsyncSession, user_id: uuid.UUID) -> list[KnowledgeBase]:
+    """List all knowledge bases for a user."""
+    result = await db.execute(
+        select(KnowledgeBase)
+        .where(KnowledgeBase.user_id == user_id)
+        .order_by(KnowledgeBase.created_at.desc())
+    )
+    return list(result.scalars().all())
+
+
+async def get_knowledge_base(
+    db: AsyncSession, kb_id: uuid.UUID, user_id: uuid.UUID
+) -> KnowledgeBase | None:
+    """Get a knowledge base by ID, verifying ownership."""
+    result = await db.execute(
+        select(KnowledgeBase).where(
+            KnowledgeBase.id == kb_id,
+            KnowledgeBase.user_id == user_id,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def delete_knowledge_base(
+    db: AsyncSession, kb_id: uuid.UUID, user_id: uuid.UUID
+) -> bool:
+    """Delete a knowledge base and all its documents/chunks (via CASCADE)."""
+    kb = await get_knowledge_base(db, kb_id, user_id)
+    if not kb:
+        return False
+    await db.delete(kb)
+    await db.flush()
+    return True
+
+
+async def add_document(
+    db: AsyncSession,
+    kb_id: uuid.UUID,
+    user_id: uuid.UUID,
+    filename: str,
+    content: str,
+    content_type: str = "text/plain",
+) -> Document:
+    """Add a document to a knowledge base: chunk, embed, and store."""
+    kb = await get_knowledge_base(db, kb_id, user_id)
+    if not kb:
+        raise ValueError("Knowledge base not found or access denied")
+
+    doc = Document(
+        knowledge_base_id=kb_id,
+        filename=filename,
+        content_type=content_type,
+        content=content,
+        status="processing",
     )
     db.add(doc)
     await db.flush()
 
     try:
-        text = data.decode("utf-8", errors="ignore").strip()
-        chunks = split_text_chunks(text)
+        chunks = chunk_text(content, chunk_size=kb.chunk_size, chunk_overlap=kb.chunk_overlap)
+
         if not chunks:
-            raise ValueError("文档内容为空或不可解析")
+            doc.status = "completed"
+            doc.chunk_count = 0
+            await db.flush()
+            return doc
 
-        chunk_models: list[KnowledgeChunk] = []
-        for idx, chunk in enumerate(chunks):
-            embedding = await generate_embedding(chunk)
-            chunk_models.append(
-                KnowledgeChunk(
-                    document_id=doc.id,
-                    chunk_index=idx,
-                    content=chunk,
-                    token_count=estimate_tokens(chunk),
-                    embedding=embedding,
-                )
+        embeddings = await embed_texts(chunks, model=kb.embedding_model)
+
+        for i, (chunk_content, embedding) in enumerate(zip(chunks, embeddings)):
+            chunk = Chunk(
+                document_id=doc.id,
+                knowledge_base_id=kb_id,
+                content=chunk_content,
+                chunk_index=i,
+                embedding=embedding,
             )
-        db.add_all(chunk_models)
-        doc.chunk_count = len(chunk_models)
-        doc.status = KnowledgeDocumentStatus.ready
-    except Exception as exc:
-        doc.status = KnowledgeDocumentStatus.failed
-        doc.error_message = str(exc)
+            db.add(chunk)
 
-    await db.flush()
+        doc.status = "completed"
+        doc.chunk_count = len(chunks)
+        kb.document_count = kb.document_count + 1
+        await db.flush()
+
+    except Exception:
+        doc.status = "failed"
+        await db.flush()
+        logger.exception("Failed to process document %s", doc.id)
+        raise
+
     return doc
 
 
-async def list_documents(db: AsyncSession, *, limit: int = 100) -> list[KnowledgeDocument]:
-    stmt = select(KnowledgeDocument).order_by(KnowledgeDocument.created_at.desc()).limit(limit)
-    result = await db.execute(stmt)
+async def list_documents(
+    db: AsyncSession, kb_id: uuid.UUID, user_id: uuid.UUID
+) -> list[Document]:
+    """List all documents in a knowledge base."""
+    kb = await get_knowledge_base(db, kb_id, user_id)
+    if not kb:
+        raise ValueError("Knowledge base not found or access denied")
+
+    result = await db.execute(
+        select(Document)
+        .where(Document.knowledge_base_id == kb_id)
+        .order_by(Document.created_at.desc())
+    )
     return list(result.scalars().all())
 
 
-async def delete_document_by_id(db: AsyncSession, document_id: uuid.UUID) -> bool:
-    doc = await db.get(KnowledgeDocument, document_id)
+async def delete_document(
+    db: AsyncSession, doc_id: uuid.UUID, user_id: uuid.UUID
+) -> bool:
+    """Delete a document and its chunks, update knowledge base count."""
+    result = await db.execute(
+        select(Document)
+        .join(KnowledgeBase, Document.knowledge_base_id == KnowledgeBase.id)
+        .where(Document.id == doc_id, KnowledgeBase.user_id == user_id)
+    )
+    doc = result.scalar_one_or_none()
     if not doc:
         return False
-    await db.execute(delete(KnowledgeChunk).where(KnowledgeChunk.document_id == document_id))
+
+    kb_result = await db.execute(
+        select(KnowledgeBase).where(KnowledgeBase.id == doc.knowledge_base_id)
+    )
+    kb = kb_result.scalar_one_or_none()
+    if kb and kb.document_count > 0:
+        kb.document_count = kb.document_count - 1
+
     await db.delete(doc)
     await db.flush()
     return True
 
 
-async def search_knowledge(
+async def search(
     db: AsyncSession,
-    *,
+    kb_id: uuid.UUID,
+    user_id: uuid.UUID,
     query: str,
     top_k: int = 5,
-) -> list[KnowledgeSearchResult]:
-    embedding = await generate_embedding(query)
+) -> list[dict]:
+    """Search a knowledge base, verifying user ownership first."""
+    kb = await get_knowledge_base(db, kb_id, user_id)
+    if not kb:
+        raise ValueError("Knowledge base not found or access denied")
 
-    stmt = (
-        select(
-            KnowledgeChunk.document_id,
-            KnowledgeDocument.title,
-            KnowledgeChunk.chunk_index,
-            KnowledgeChunk.content,
-            KnowledgeChunk.embedding.cosine_distance(embedding).label("distance"),
-        )
-        .join(KnowledgeDocument, KnowledgeDocument.id == KnowledgeChunk.document_id)
-        .where(KnowledgeDocument.status == KnowledgeDocumentStatus.ready)
-        .order_by("distance")
-        .limit(top_k)
+    return await similarity_search(
+        db=db,
+        knowledge_base_id=kb_id,
+        query=query,
+        top_k=top_k,
+        embedding_model=kb.embedding_model,
     )
-    result = await db.execute(stmt)
-    rows = result.all()
-    return [
-        KnowledgeSearchResult(
-            document_id=row.document_id,
-            title=row.title,
-            chunk_index=row.chunk_index,
-            content=row.content,
-            score=max(0.0, 1.0 - float(row.distance)),
-        )
-        for row in rows
-    ]
-

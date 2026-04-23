@@ -1,25 +1,21 @@
-"""Agent system database models for Phase 2."""
+"""Agent database models."""
 
 import enum
 import uuid
 from datetime import datetime
 
+from sqlalchemy import Boolean, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import ForeignKey, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from openagentic.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 
-class AgentStatus(str, enum.Enum):
-    online = "online"
-    idle = "idle"
-    offline = "offline"
-
-
 class ExecutionStatus(str, enum.Enum):
-    success = "success"
+    pending = "pending"
+    running = "running"
+    completed = "completed"
     failed = "failed"
 
 
@@ -29,37 +25,34 @@ class Agent(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     system_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
-    status: Mapped[AgentStatus] = mapped_column(
-        SAEnum(AgentStatus), default=AgentStatus.idle, nullable=False
-    )
-    tool_names: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
+    model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    tools: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    config: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
-    executions = relationship(
-        "AgentExecution",
-        back_populates="agent",
-        lazy="selectin",
-        order_by="desc(AgentExecution.created_at)",
-    )
+    executions = relationship("AgentExecution", back_populates="agent", lazy="selectin")
 
 
-class AgentExecution(Base, UUIDPrimaryKeyMixin):
+class AgentExecution(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "agent_executions"
 
     agent_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    input_text: Mapped[str] = mapped_column(Text, nullable=False)
-    output_text: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[ExecutionStatus] = mapped_column(
-        SAEnum(ExecutionStatus), default=ExecutionStatus.success, nullable=False
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    trace: Mapped[list[dict]] = mapped_column(JSONB, default=list, nullable=False)
-    error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default="now()")
+    status: Mapped[ExecutionStatus] = mapped_column(
+        SAEnum(ExecutionStatus), default=ExecutionStatus.pending, nullable=False
+    )
+    input: Mapped[str] = mapped_column(Text, nullable=False)
+    output: Mapped[str | None] = mapped_column(Text, nullable=True)
+    steps: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    token_total: Mapped[int | None] = mapped_column(Integer, nullable=True, default=0)
+    started_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
     agent = relationship("Agent", back_populates="executions")
-
