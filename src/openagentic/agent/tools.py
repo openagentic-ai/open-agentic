@@ -7,6 +7,10 @@ import operator
 from datetime import datetime, timezone
 from typing import Callable
 
+import httpx
+
+from openagentic.config import SETTINGS
+
 ToolFn = Callable[[str], str]
 
 
@@ -56,6 +60,34 @@ def _tool_calculator(arg: str) -> str:
     return str(value)
 
 
+def _tool_knowledge_search(arg: str) -> str:
+    query = arg.strip()
+    if not query:
+        raise ValueError("knowledge_search requires a non-empty query")
+    api_base = (SETTINGS.OPENAGENTIC_API_BASE or "http://127.0.0.1:8000").rstrip("/")
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.post(
+                f"{api_base}/api/knowledge/search",
+                json={"query": query, "top_k": 3},
+            )
+            response.raise_for_status()
+            payload = response.json()
+            results = payload.get("results", [])
+    except Exception as exc:
+        return f"knowledge_search failed: {exc}"
+
+    if not results:
+        return "knowledge_search: no matches"
+    lines = ["knowledge_search results:"]
+    for item in results[:3]:
+        title = item.get("title", "untitled")
+        chunk = item.get("chunk_index", 0)
+        content = str(item.get("content", ""))[:180]
+        lines.append(f"- {title}#{chunk}: {content}")
+    return "\n".join(lines)
+
+
 class ToolRegistry:
     """In-process tool registry with deterministic built-in tools."""
 
@@ -64,6 +96,7 @@ class ToolRegistry:
             "echo": _tool_echo,
             "current_time": _tool_current_time,
             "calculator": _tool_calculator,
+            "knowledge_search": _tool_knowledge_search,
         }
 
     def list_tools(self) -> list[str]:

@@ -10,6 +10,7 @@ import { DevicesPage } from './pages/DevicesPage'
 import { SkillsPage } from './pages/SkillsPage'
 import { ChannelsPage } from './pages/ChannelsPage'
 import { SessionsPage } from './pages/SessionsPage'
+import { KnowledgeBasePage } from './pages/KnowledgeBasePage'
 import { useAppStore } from './store/appStore'
 
 const queryClient = new QueryClient({
@@ -71,6 +72,7 @@ function App() {
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/channels" element={<ChannelsPage />} />
           <Route path="/sessions" element={<SessionsPage />} />
+          <Route path="/knowledge" element={<KnowledgeBasePage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>

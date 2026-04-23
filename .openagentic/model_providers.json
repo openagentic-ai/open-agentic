@@ -49,10 +49,10 @@
       "id": "deepseek",
       "display_name": "DeepSeek",
       "api_base": "https://api.deepseek.com/v1",
-      "api_key": "",
+      "api_key": "sk-18841a7a6337499da3e6f768b7d8ae36",
       "models": [
-        "deepseek/deepseek-reasoner",
-        "deepseek/deepseek-chat"
+        "deepseek/deepseek-chat",
+        "deepseek/deepseek-reasoner"
       ],
       "enabled": true
     },

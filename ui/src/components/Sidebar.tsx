@@ -9,7 +9,8 @@ import {
   X,
   Layout,
   Smartphone,
-  Puzzle
+  Puzzle,
+  Database
 } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 
@@ -25,6 +26,7 @@ export function Sidebar() {
     { path: '/skills', icon: Puzzle, label: '技能' },
     { path: '/channels', icon: Wifi, label: '通道' },
     { path: '/sessions', icon: Users, label: '会话' },
+    { path: '/knowledge', icon: Database, label: '知识库' },
     { path: '/settings', icon: Settings, label: '设置' },
   ]
 

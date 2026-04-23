@@ -118,7 +118,7 @@ def confirm_user_action(title: str, detail: str) -> bool:
     print(f"\n\033[33m[需要确认] {title}\033[0m")
     print(detail)
     try:
-        ans = input("输入 y 或 yes 确认，其它键取消: ").strip().lower()
+        ans = input("确认继续? (Y/N): ").strip().lower()
     except (EOFError, KeyboardInterrupt):
         return False
     return ans in ("y", "yes")

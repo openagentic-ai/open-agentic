@@ -14,6 +14,7 @@ from openagentic.core.auth.models import User, ApiKey  # noqa: F401
 from openagentic.core.chat.models import Conversation, Message  # noqa: F401
 from openagentic.agent.models import Agent, AgentExecution  # noqa: F401
 from openagentic.workflow.models import Workflow, WorkflowRun  # noqa: F401
+from openagentic.knowledge.models import KnowledgeDocument, KnowledgeChunk  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:

@@ -44,6 +44,33 @@ export interface LlmProviderConfig {
   profiles: LlmProviderProfile[]
 }
 
+export interface KnowledgeDocument {
+  id: string
+  user_id?: string | null
+  title: string
+  filename: string
+  content_type: string
+  size_bytes: number
+  status: 'pending' | 'processing' | 'ready' | 'failed'
+  error_message?: string | null
+  chunk_count: number
+  metadata_json: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface KnowledgeSearchResult {
+  document_id: string
+  title: string
+  chunk_index: number
+  content: string
+  score: number
+}
+
+export interface KnowledgeSearchResponse {
+  results: KnowledgeSearchResult[]
+}
+
 class ApiClient {
   private baseUrl: string
   
@@ -60,12 +87,16 @@ class ApiClient {
     options: RequestInit = {}
   ): Promise<ApiResponse<T>> {
     try {
+      const isFormData = options.body instanceof FormData
+      const headers = isFormData
+        ? { ...(options.headers || {}) }
+        : {
+            'Content-Type': 'application/json',
+            ...options.headers,
+          }
       const response = await fetch(`${this.baseUrl}${endpoint}`, {
         ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          ...options.headers,
-        },
+        headers,
       })
       
       const data = await response.json()
@@ -192,6 +223,36 @@ class ApiClient {
       body: JSON.stringify({ model }),
     })
   }
+
+  // Knowledge base
+  async uploadKnowledgeDocument(file: File, title?: string): Promise<ApiResponse<KnowledgeDocument>> {
+    const form = new FormData()
+    form.append('file', file)
+    if (title && title.trim()) {
+      form.append('title', title.trim())
+    }
+    return this.request<KnowledgeDocument>('/api/knowledge/documents/upload', {
+      method: 'POST',
+      body: form,
+    })
+  }
+
+  async listKnowledgeDocuments(limit = 100): Promise<ApiResponse<KnowledgeDocument[]>> {
+    return this.request<KnowledgeDocument[]>(`/api/knowledge/documents?limit=${limit}`)
+  }
+
+  async deleteKnowledgeDocument(id: string): Promise<ApiResponse<{ ok: boolean }>> {
+    return this.request<{ ok: boolean }>(`/api/knowledge/documents/${id}`, {
+      method: 'DELETE',
+    })
+  }
+
+  async searchKnowledge(query: string, topK = 5): Promise<ApiResponse<KnowledgeSearchResponse>> {
+    return this.request<KnowledgeSearchResponse>('/api/knowledge/search', {
+      method: 'POST',
+      body: JSON.stringify({ query, top_k: topK }),
+    })
+  }
 }
 
 export const apiClient = new ApiClient()
@@ -235,6 +296,12 @@ export function useApi() {
         }
       ) => apiClient.updateLlmProvider(providerId, payload),
       setDefaultModel: (model: string) => apiClient.updateDefaultModel(model),
+    },
+    knowledge: {
+      upload: (file: File, title?: string) => apiClient.uploadKnowledgeDocument(file, title),
+      list: (limit?: number) => apiClient.listKnowledgeDocuments(limit),
+      delete: (id: string) => apiClient.deleteKnowledgeDocument(id),
+      search: (query: string, topK?: number) => apiClient.searchKnowledge(query, topK),
     },
   }
 }
