@@ -464,7 +464,7 @@ src/
 └── openagentic/
     ├── main.py              # 应用工厂、lifespan、structlog
     ├── config.py / deps.py
-    ├── cli/                 # 终端 ReAct CLI（entry、repl、providers、tools 等子模块）
+    ├── cli/                 # 终端 ReAct CLI（entry、repl、providers、tools、platform_adapter 等子模块）
     ├── core/
     │   ├── auth/            # Phase 1：注册登录 JWT
     │   ├── chat/            # Phase 1：会话消息 + SSE
@@ -486,6 +486,7 @@ alembic/                     # 迁移脚本目录（revision 需维护）
 - **异步优先**：数据库与会话链路采用 async，避免阻塞事件循环，利于高并发下的 SSE 长连接场景扩展。
 - **网关抽象**：LiteLLM 将「模型名、base_url、密钥、流式协议」差异收口到统一配置，产品侧只暴露「可选模型列表 + 流式对话 API」，降低对接新厂商的边际成本。
 - **单体演进路径**：当前为 **模块化单体**（`agent/`、`workflow/`、`knowledge/`、`mcp/` 等包已占位），便于先跑通核心闭环，再按 Phase 填充，避免过早微服务化带来的运维负担。
+- **CLI 平台适配层**：`openagentic.cli.platform_adapter` 统一封装 Windows / Unix 在事件循环策略、按键读取、清屏、文件权限等差异，业务交互层不再散落 `os.name` 分支。
 
 ---
 
@@ -669,7 +670,7 @@ cp .env.example .env
 
 docker compose up -d postgres
 # 待 Alembic revision 齐全后：alembic upgrade head
-# 开发环境（且 app_env=development）：可能由 create_all 建表，见上文
+# 开发环境（且 APP_ENV=development）：可能由 create_all 建表，见上文
 
 PYTHONPATH=src uvicorn openagentic.main:app --host 0.0.0.0 --port 8000
 ```
@@ -718,7 +719,7 @@ CLI Provider 说明：
 - CLI 内可用 `/providers` 查看厂商列表，`/provider <id>` 切换并进入该厂商配置向导，`/provider-config [id]` 单独编辑配置。
 - 未配置必需的 API Key 时，CLI 会在进入会话前强制进入配置向导，配置完成后才允许继续使用。
 - 模型始终由显式配置决定（`-m`、`/model`、`default_model`、`OPENAI_CHAT_MODEL`）；API Key 仅用于鉴权，不负责“指定模型”。
-- Provider 配置文件默认位于 `.openagentic/model_providers.json`（可通过 `model_provider_config_path` 调整）。
+- Provider 配置文件默认位于 `.openagentic/model_providers.json`（可通过 `MODEL_PROVIDER_CONFIG_PATH` 调整）。
 
 CLI 内置命令：
 
@@ -787,7 +788,7 @@ DeepSeek（OpenAI 兼容）示例：
 ## 常见问题与排错
 
 1. **数据库连不上**：检查 `DATABASE_URL` 是否与 Compose 端口、库名、用户密码一致；确认 Postgres 容器 **healthy** 后再启动 app。
-2. **表不存在**：若尚无 Alembic `upgrade`，在 **开发环境** 确认 `app_env=development` 与 `create_all` 行为；**生产禁止**依赖 `create_all`。
+2. **表不存在**：若尚无 Alembic `upgrade`，在 **开发环境** 确认 `APP_ENV=development` 与 `create_all` 行为；**生产禁止**依赖 `create_all`。
 3. **SSE 被代理缓冲**：Nginx 需关闭响应缓冲（如 `proxy_buffering off`）、合理 `proxy_read_timeout`，否则打字机效果延迟。
 4. **模型 401 / 429**：核对环境变量中的 Key 与 LiteLLM 路由；限流时加重试或降级模型。
 5. **流中断后 DB 只有半条**：检查取消路径是否在 finally 中 **落库 partial** 并 **取消上游**。

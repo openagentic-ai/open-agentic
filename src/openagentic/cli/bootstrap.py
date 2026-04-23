@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 import time
 from pathlib import Path
 
+from openagentic.cli.platform_adapter import CLI_PLATFORM
+
 
 def maybe_auto_install_editable() -> None:
     """Auto-run `pip install -e .` when local source changed."""
-    if os.name == "nt":
+    if CLI_PLATFORM.should_skip_auto_editable_install():
         return
 
     # openagentic/cli/bootstrap.py -> repo root

@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 from openagentic.cli.auth import platform_authenticate_sync
 from openagentic.cli.bootstrap import maybe_auto_install_editable
+from openagentic.cli.platform_adapter import CLI_PLATFORM
 from openagentic.cli.providers import DEFAULT_MODEL
 from openagentic.cli.repl import main_loop
 from openagentic.config import SETTINGS
@@ -18,6 +19,7 @@ load_dotenv()
 
 def main() -> None:
     maybe_auto_install_editable()
+    CLI_PLATFORM.configure_event_loop_policy()
     parser = argparse.ArgumentParser(description="OpenAgentic Agent CLI (ReAct)")
     parser.add_argument(
         "-m",

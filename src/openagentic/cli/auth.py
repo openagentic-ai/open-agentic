@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
-import os
 from getpass import getpass
 from pathlib import Path
 
 import httpx
+
+from openagentic.cli.platform_adapter import CLI_PLATFORM
 
 
 def cli_session_path() -> Path:
@@ -28,11 +29,7 @@ def save_cli_session(payload: dict) -> None:
     p = cli_session_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    if os.name != "nt":
-        try:
-            os.chmod(p, 0o600)
-        except OSError:
-            pass
+    CLI_PLATFORM.secure_file_permissions(p)
 
 
 def clear_cli_session_file() -> None:

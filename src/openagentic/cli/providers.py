@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import os
-import select
 import sys
 
 import httpx
 
+from openagentic.cli.platform_adapter import CLI_PLATFORM
 from openagentic.config import SETTINGS
 from openagentic.core.llm.provider_config import get_provider_store
 
@@ -197,53 +196,7 @@ def print_provider_menu(current_provider: str) -> None:
 
 
 def read_nav_key() -> str:
-    if os.name == "nt":
-        import msvcrt
-
-        ch = msvcrt.getwch()
-        if ch in ("\r", "\n"):
-            return "enter"
-        if ch in ("\x00", "\xe0"):
-            ch2 = msvcrt.getwch()
-            if ch2 == "H":
-                return "up"
-            if ch2 == "P":
-                return "down"
-            return "other"
-        if ch == "\x03":
-            return "interrupt"
-        if ch in ("\x1b", "q", "Q"):
-            return "quit"
-        return "other"
-
-    import termios
-    import tty
-
-    fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
-    try:
-        tty.setraw(fd)
-        ch = sys.stdin.read(1)
-        if ch in ("\r", "\n"):
-            return "enter"
-        if ch == "\x03":
-            return "interrupt"
-        if ch == "\x1b":
-            seq = ""
-            if select.select([sys.stdin], [], [], 0.05)[0]:
-                seq += sys.stdin.read(1)
-            if select.select([sys.stdin], [], [], 0.05)[0]:
-                seq += sys.stdin.read(1)
-            if seq == "[A":
-                return "up"
-            if seq == "[B":
-                return "down"
-            return "quit"
-        if ch in ("q", "Q"):
-            return "quit"
-        return "other"
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    return CLI_PLATFORM.read_nav_key()
 
 
 def select_provider_interactive(current_provider: str) -> str | None:
@@ -259,11 +212,7 @@ def select_provider_interactive(current_provider: str) -> str | None:
         return normalize_provider(selected) if selected else current_provider
 
     while True:
-        if os.name == "nt":
-            os.system("cls")
-        else:
-            sys.stdout.write("\033[2J\033[H")
-            sys.stdout.flush()
+        CLI_PLATFORM.clear_screen()
         print("可选模型厂商（↑/↓ 选择，Enter 确认，q 取消）：")
         for idx, profile in enumerate(profiles):
             cursor = ">" if idx == selected_idx else " "
