@@ -164,7 +164,7 @@ export function SettingsPage() {
                       value={defaultModel}
                       onChange={(e) => setDefaultModel(e.target.value)}
                       className="flex-1 px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700"
-                      placeholder="deepseek/deepseek-chat"
+                      placeholder="deepseek/deepseek-reasoner"
                     />
                     <button
                       onClick={() => void saveDefaultModel()}

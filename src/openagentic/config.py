@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     ollama_api_base: str = "http://localhost:11434"
     model_provider_config_path: str = ".openagentic/model_providers.json"
 
+    # CLI (`openagentic` ReAct：单条用户消息内「模型↔工具」最大轮数，防死循环)
+    cli_react_max_iterations: int = 1000
+
     # File storage
     upload_dir: str = "/data/uploads"
 

@@ -1,0 +1,199 @@
+"""CLI read-eval-print loop (commands + chat turns)."""
+
+from __future__ import annotations
+
+from openagentic.cli.auth import clear_cli_session_file, platform_authenticate_sync
+from openagentic.cli.prompt import (
+    build_identity_answer,
+    compose_cli_system_message,
+    is_identity_question,
+)
+from openagentic.cli.providers import (
+    configure_provider_interactive,
+    find_profile,
+    normalize_provider,
+    print_provider_menu,
+    require_provider_configured,
+    resolve_model_for_provider,
+    resolve_provider,
+    select_provider_interactive,
+)
+from openagentic.cli.react import react_loop
+
+
+def print_help() -> None:
+    print(
+        "Commands: "
+        "/help /clear /model <name> /providers /provider [/provider <id>] /provider-config [id] "
+        "/login-platform /logout-platform /quit"
+    )
+    print("Tools: write_file（新建与覆盖）/ delete_file 执行前均需在终端输入 y/yes 确认。")
+    print(
+        "Tips: /provider 切换厂商（已有 Key 则不再弹配置）；"
+        "/provider-config 修改 Key 或 API Base；/help 查看全部命令。"
+    )
+    print(
+        "平台账号: 启动时 `--require-auth` / `--api-base URL` 会要求登录或注册（JWT）；"
+        "会话内可用 /login-platform、/logout-platform。与 LLM 厂商 API Key 是两层认证。"
+    )
+
+
+async def main_loop(
+    model: str,
+    provider: str,
+    system_prompt: str | None = None,
+    *,
+    platform_api_base: str | None = None,
+    platform_user_email: str | None = None,
+    platform_access_token: str | None = None,
+):
+    requested_provider = provider
+    provider = resolve_provider(provider, model)
+    model = resolve_model_for_provider(provider, model)
+
+    if requested_provider == "auto":
+        profile = find_profile(provider)
+        if profile and provider != "ollama" and not profile["api_key"]:
+            print("\n[配置向导] 当前默认厂商未配置 API Key。请先选择厂商，再按提示填写 Key。")
+            selected = select_provider_interactive(provider)
+            if selected:
+                normalized = normalize_provider(selected)
+                if find_profile(normalized):
+                    provider = normalized
+                    model = resolve_model_for_provider(provider, model)
+                else:
+                    print(f"[WARN] 未识别 provider: {selected}，继续使用 {provider}")
+
+    api_base, api_key = require_provider_configured(provider)
+    endpoint = api_base or "(provider default)"
+
+    plat: dict[str, str | None] = {
+        "base": platform_api_base,
+        "email": platform_user_email,
+        "token": platform_access_token,
+    }
+    messages: list[dict] = [{"role": "system", "content": ""}]
+
+    def rebuild_system_message() -> None:
+        messages[0]["content"] = compose_cli_system_message(
+            provider,
+            model,
+            endpoint,
+            system_prompt_override=system_prompt,
+            platform_api_base=plat["base"],
+            platform_user_email=plat["email"],
+        )
+
+    rebuild_system_message()
+
+    print(f"\033[1mOpenAgentic Agent\033[0m  |  provider: {provider}  |  model: {model}")
+    if plat["email"] and plat["base"]:
+        print(f"  platform: {plat['email']} @ {plat['base'].rstrip('/')}")
+    print("Tools: run_command, read_file, write_file（新建/覆盖均需确认）, delete_file（需确认）")
+    print_help()
+    print("-" * 60)
+
+    while True:
+        try:
+            user_input = input("\n\033[1m> \033[0m").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nBye!")
+            break
+
+        if not user_input:
+            continue
+        if user_input == "/quit":
+            print("Bye!")
+            break
+        if user_input == "/clear":
+            messages.clear()
+            messages.append({"role": "system", "content": ""})
+            rebuild_system_message()
+            print("[history cleared]")
+            continue
+        if user_input == "/help":
+            print_help()
+            continue
+        if user_input.startswith("/model "):
+            model = resolve_model_for_provider(provider, user_input[7:].strip())
+            print(f"[model → {model}]")
+            rebuild_system_message()
+            continue
+        if user_input == "/providers":
+            print_provider_menu(provider)
+            continue
+        if user_input == "/provider":
+            selected = select_provider_interactive(provider)
+            if not selected:
+                print("[provider unchanged]")
+                continue
+            provider = selected
+            api_base, api_key = require_provider_configured(provider)
+            model = resolve_model_for_provider(provider, model)
+            endpoint = api_base or "(provider default)"
+            rebuild_system_message()
+            print(f"[provider → {provider}] [model → {model}]")
+            continue
+        if user_input.startswith("/provider "):
+            selected = normalize_provider(user_input[10:].strip())
+            if not find_profile(selected):
+                print(f"[ERROR] 未知 provider: {selected}")
+                continue
+            provider = selected
+            api_base, api_key = require_provider_configured(provider)
+            model = resolve_model_for_provider(provider, model)
+            endpoint = api_base or "(provider default)"
+            rebuild_system_message()
+            print(f"[provider → {provider}] [model → {model}]")
+            continue
+        if user_input == "/logout-platform":
+            clear_cli_session_file()
+            plat["token"] = None
+            plat["email"] = None
+            rebuild_system_message()
+            print(
+                "[平台] 已退出登录（本地 JWT 会话文件已删除）。"
+                "若曾指定过服务地址，可直接 /login-platform；否则请先输入 URL。"
+            )
+            continue
+        if user_input == "/login-platform":
+            base = (plat["base"] or "").strip() or input(
+                "OpenAgentic 根 URL（如 http://127.0.0.1:8000，回车取消）: "
+            ).strip()
+            if not base:
+                print("[ERROR] 需要有效的服务地址")
+                continue
+            plat["base"] = base.rstrip("/")
+            tok, em = platform_authenticate_sync(plat["base"])
+            plat["token"] = tok
+            plat["email"] = em
+            rebuild_system_message()
+            print(f"[平台] 已登录: {em}")
+            continue
+        if user_input.startswith("/provider-config"):
+            target = user_input.replace("/provider-config", "", 1).strip() or provider
+            configure_provider_interactive(target)
+            if target == provider:
+                api_base, api_key = require_provider_configured(provider)
+                endpoint = api_base or "(provider default)"
+                rebuild_system_message()
+            continue
+        if is_identity_question(user_input):
+            identity_answer = build_identity_answer(provider, model, endpoint)
+            print(f"\n\033[32m{identity_answer}\033[0m")
+            messages.append({"role": "user", "content": user_input})
+            messages.append({"role": "assistant", "content": identity_answer})
+            continue
+
+        try:
+            await react_loop(
+                user_input,
+                messages,
+                model,
+                api_base,
+                api_key,
+                platform_api_base=plat["base"],
+                platform_user_email=plat["email"],
+            )
+        except Exception as e:
+            print(f"\033[31m[ERROR] {type(e).__name__}: {e}\033[0m")

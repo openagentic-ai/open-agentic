@@ -74,7 +74,7 @@ DEFAULT_PROFILES: list[ProviderProfile] = [
         id="deepseek",
         display_name="DeepSeek",
         api_base="https://api.deepseek.com/v1",
-        models=["deepseek/deepseek-chat", "deepseek/deepseek-reasoner"],
+        models=["deepseek/deepseek-reasoner", "deepseek/deepseek-chat"],
     ),
     ProviderProfile(
         id="mistral",

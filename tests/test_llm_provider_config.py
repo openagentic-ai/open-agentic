@@ -45,6 +45,14 @@ def test_resolve_runtime_uses_default_model_profile():
         assert api_key == "sk-openai-abc12345"
 
 
+def test_default_deepseek_profile_lists_reasoner_first():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = f"{tmpdir}/providers.json"
+        store = ProviderConfigStore(path)
+        deepseek = next(p for p in store.get().profiles if p.id == "deepseek")
+        assert deepseek.models[0] == "deepseek/deepseek-reasoner"
+
+
 def test_env_bootstrap_updates_stale_default_to_deepseek(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-deepseek-abc12345")
     monkeypatch.setenv("OPENAI_BASE_URL", "https://api.deepseek.com/v1")
