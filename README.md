@@ -464,7 +464,7 @@ src/
 └── openagentic/
     ├── main.py              # 应用工厂、lifespan、structlog
     ├── config.py / deps.py
-    ├── cli.py               # CLI 聊天入口（多厂商可配置）
+    ├── cli/                 # 终端 ReAct CLI（entry、repl、providers、tools 等子模块）
     ├── core/
     │   ├── auth/            # Phase 1：注册登录 JWT
     │   ├── chat/            # Phase 1：会话消息 + SSE
@@ -717,6 +717,8 @@ CLI Provider 说明：
 - `--provider <id>`：可指定 `openai`、`anthropic`、`xai`、`gemini`、`deepseek`、`qwen`、`ollama` 等。
 - CLI 内可用 `/providers` 查看厂商列表，`/provider <id>` 切换并进入该厂商配置向导，`/provider-config [id]` 单独编辑配置。
 - 未配置必需的 API Key 时，CLI 会在进入会话前强制进入配置向导，配置完成后才允许继续使用。
+- 模型始终由显式配置决定（`-m`、`/model`、`default_model`、`OPENAI_CHAT_MODEL`）；API Key 仅用于鉴权，不负责“指定模型”。
+- Provider 配置文件默认位于 `.openagentic/model_providers.json`（可通过 `model_provider_config_path` 调整）。
 
 CLI 内置命令：
 
@@ -726,6 +728,15 @@ CLI 内置命令：
 | `/model ollama/qwen3:4b` | 切换模型 |
 | `/system <prompt>` | 设置系统提示 |
 | `/quit` | 退出 |
+
+DeepSeek（OpenAI 兼容）示例：
+
+| 场景 | 建议模型 |
+|------|------|
+| 默认对话（V3.2 非思考） | `deepseek/deepseek-chat` |
+| 推理优先（V3.2 思考模式） | `deepseek/deepseek-reasoner` |
+
+说明：当前内置 DeepSeek profile 的模型顺序为 `deepseek-reasoner` 优先于 `deepseek-chat`。
 
 可用模型（Ollama 本地）：
 
