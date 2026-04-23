@@ -459,24 +459,26 @@
 ### 项目结构（代码布局）
 
 ```
-src/openagentic/
-├── main.py              # 应用工厂、lifespan、structlog
-├── config.py / deps.py
-├── cli.py               # CLI 聊天入口（多厂商可配置）
-├── core/
-│   ├── auth/            # Phase 1：注册登录 JWT
-│   ├── chat/            # Phase 1：会话消息 + SSE
-│   └── llm/             # Phase 1：LiteLLM
-├── agent/               # Phase 2 已实现（基础版）
-├── mcp/                 # Phase 2 已实现（基础版）
-├── workflow/            # Phase 3 已实现
-├── knowledge/           # Phase 4 占位
-├── tenant/              # Phase 5 占位
-├── observability/       # Phase 5 占位
-└── db/                  # session、Base
-ui/                      # Phase 1 前端；Phase 6 部分能力持续迭代
-extensions/android/      # 可选扩展（若有）
-alembic/                 # 迁移脚本目录（revision 需维护）
+src/
+├── openagentic_entry/   # 控制台入口：引导 pip install -e 后再加载 CLI（见 pyproject [project.scripts]）
+└── openagentic/
+    ├── main.py              # 应用工厂、lifespan、structlog
+    ├── config.py / deps.py
+    ├── cli.py               # CLI 聊天入口（多厂商可配置）
+    ├── core/
+    │   ├── auth/            # Phase 1：注册登录 JWT
+    │   ├── chat/            # Phase 1：会话消息 + SSE
+    │   └── llm/             # Phase 1：LiteLLM
+    ├── agent/               # Phase 2 已实现（基础版）
+    ├── mcp/                 # Phase 2 已实现（基础版）
+    ├── workflow/            # Phase 3 已实现
+    ├── knowledge/           # Phase 4 占位
+    ├── tenant/              # Phase 5 占位
+    ├── observability/       # Phase 5 占位
+    └── db/                  # session、Base
+ui/                          # Phase 1 前端；Phase 6 部分能力持续迭代
+extensions/android/          # 可选扩展（若有）
+alembic/                     # 迁移脚本目录（revision 需维护）
 ```
 
 **设计要点**
@@ -658,6 +660,8 @@ cd open-agentic
 # 建议 Python 3.12 + venv
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
+
+# 必须在仓库根目录执行一次可编辑安装，否则 `openagentic` / `import openagentic` 会报找不到模块
 pip install -e ".[dev]"     # 以 pyproject / README 仓库说明为准
 
 cp .env.example .env
@@ -674,6 +678,11 @@ PYTHONPATH=src uvicorn openagentic.main:app --host 0.0.0.0 --port 8000
 - **健康检查**：`http://<host>:8000/health`
 - **前端**：进入 `ui/` 按 `package.json` 脚本启动（如 `npm install && npm run dev`），API 基地址指向后端。
 
+**Windows 补充**
+
+- 拉代码或切换分支后，若改了依赖或入口，请在仓库根目录再次执行：`pip install -e .`（或 `pip install -e ".[dev]"`）。
+- 控制台命令 `openagentic` 由 `openagentic_entry` 包引导：若尚未安装可编辑包，首次运行会尝试自动执行 `pip install -e <仓库根>`；仍失败时请手动执行上一行的 `pip`。
+- 在 Windows 上，CLI **不会**在进程内自动反复执行 `pip install -e .`（避免替换正在使用的启动器脚本导致失败或 WinError 32）；源码有更新时请自行重装可编辑包，或直接使用 `python -m openagentic.cli`。
 
 ---
 
@@ -696,9 +705,11 @@ python -m openagentic.cli -m ollama/deepseek-r1:32b
 # 带系统提示
 python -m openagentic.cli -s "你是一个Python专家，用中文回答"
 
-# 也可以用注册的命令
+# 也可以用注册的命令（需已 pip install -e .）
 openagentic
 ```
+
+`pyproject.toml` 中 `openagentic` 入口指向 **`openagentic_entry:main`**：先保证包可导入，再调用 `openagentic.cli`。若出现 `ModuleNotFoundError: No module named 'openagentic'` 或 `'openagentic_entry'`，一律在仓库根目录执行 `pip install -e .` 后重试。
 
 CLI Provider 说明：
 
@@ -769,6 +780,8 @@ CLI 内置命令：
 3. **SSE 被代理缓冲**：Nginx 需关闭响应缓冲（如 `proxy_buffering off`）、合理 `proxy_read_timeout`，否则打字机效果延迟。
 4. **模型 401 / 429**：核对环境变量中的 Key 与 LiteLLM 路由；限流时加重试或降级模型。
 5. **流中断后 DB 只有半条**：检查取消路径是否在 finally 中 **落库 partial** 并 **取消上游**。
+6. **`openagentic` 报 `ModuleNotFoundError: No module named 'openagentic'`（或 `openagentic_entry`）**：未在仓库根目录执行可编辑安装。先 `cd` 到克隆下来的仓库根目录，激活 venv，执行 `pip install -e .`，再运行 `openagentic` 或 `python -m openagentic.cli`。
+7. **pip 反复提示 `Ignoring invalid distribution ~...`（如 `~penagentic`）**：多为上次安装中断留下的损坏目录。关闭所有使用该 venv 的进程后，在 `.venv\Lib\site-packages`（或对应 venv 的 `site-packages`）中删除名称以 `~` 开头、且明显与 `openagentic` 相关的文件夹，再执行 `pip install -e .`。
 
 ---
 

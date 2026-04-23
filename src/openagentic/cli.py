@@ -266,6 +266,11 @@ def execute_tool(name: str, args: dict) -> str:
 
 def maybe_auto_install_editable() -> None:
     """Auto-run `pip install -e .` when local source changed."""
+    # Windows: console_scripts are often launched as `python.exe` + stub; pip reinstall can
+    # fail (WinError 32 / locked launcher) or spam warnings. Skip auto-pip on Windows here.
+    if os.name == "nt":
+        return
+
     project_root = Path(__file__).resolve().parents[2]
     pyproject = project_root / "pyproject.toml"
     src_dir = project_root / "src"
