@@ -1,4 +1,4 @@
-"""Application configuration using Pydantic Settings."""
+﻿"""Application configuration using Pydantic Settings."""
 
 from pydantic_settings import BaseSettings
 
@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     OPENAI_BASE_URL: str = ""
     OPENAI_CHAT_MODEL: str = ""
 
-    # CLI (`openagentic` ReAct：单条用户消息内「模型↔工具」最大轮数，防死循环)
+    # CLI (`openagentic` ReAct锛氬崟鏉＄敤鎴锋秷鎭唴銆屾ā鍨嬧啍宸ュ叿銆嶆渶澶ц疆鏁帮紝闃叉寰幆)
     CLI_REACT_MAX_ITERATIONS: int = 1000
     CLI_DEFAULT_MODEL: str = "qwen3:14b"
     OPENAGENTIC_API_BASE: str = ""

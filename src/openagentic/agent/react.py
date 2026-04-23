@@ -1,4 +1,4 @@
-"""Minimal ReAct-style executor for Phase 2."""
+﻿"""Minimal ReAct-style executor for Phase 2."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ class ReactExecutor:
         self.registry = registry
 
     async def run(self, agent: Agent, user_input: str) -> tuple[str, list[AgentStep]]:
-        steps: list[AgentStep] = [AgentStep(step="think", thought="分析用户输入并决定是否调用工具")]
+        steps: list[AgentStep] = [AgentStep(step="think", thought="鍒嗘瀽鐢ㄦ埛杈撳叆骞跺喅瀹氭槸鍚﹁皟鐢ㄥ伐鍏?)]
         allowed_tools = set(agent.tool_names or [])
 
         tool_name, tool_arg = self._pick_tool(user_input, allowed_tools)
@@ -38,7 +38,7 @@ class ReactExecutor:
                 steps.append(AgentStep(step="act", action=tool_name, observation=str(exc)))
 
         answer = await self._final_answer(agent, user_input, observation)
-        steps.append(AgentStep(step="final", thought="基于工具结果和上下文给出最终答复"))
+        steps.append(AgentStep(step="final", thought="鍩轰簬宸ュ叿缁撴灉鍜屼笂涓嬫枃缁欏嚭鏈€缁堢瓟澶?))
         return answer, steps
 
     def _pick_tool(self, text: str, allowed_tools: set[str]) -> tuple[str | None, str]:
@@ -46,7 +46,7 @@ class ReactExecutor:
         if clean.lower().startswith("echo ") and "echo" in allowed_tools:
             return "echo", clean[5:].strip()
 
-        if ("时间" in clean or "time" in clean.lower()) and "current_time" in allowed_tools:
+        if ("鏃堕棿" in clean or "time" in clean.lower()) and "current_time" in allowed_tools:
             return "current_time", ""
 
         if "calculator" in allowed_tools and MATH_PATTERN.fullmatch(clean):
@@ -55,13 +55,13 @@ class ReactExecutor:
         return None, ""
 
     async def _final_answer(self, agent: Agent, user_input: str, observation: str | None) -> str:
-        system = agent.system_prompt or "你是一个执行任务的智能体，请给出简洁准确的回答。"
+        system = agent.system_prompt or "浣犳槸涓€涓墽琛屼换鍔＄殑鏅鸿兘浣擄紝璇风粰鍑虹畝娲佸噯纭殑鍥炵瓟銆?
         messages = [{"role": "system", "content": system}]
         if observation is not None:
             messages.append(
                 {
                     "role": "system",
-                    "content": f"工具调用结果：{observation}。请结合结果回答用户，不要编造。",
+                    "content": f"宸ュ叿璋冪敤缁撴灉锛歿observation}銆傝缁撳悎缁撴灉鍥炵瓟鐢ㄦ埛锛屼笉瑕佺紪閫犮€?,
                 }
             )
         messages.append({"role": "user", "content": user_input})
@@ -71,6 +71,6 @@ class ReactExecutor:
             return result["content"]
         except Exception:
             if observation is not None:
-                return f"工具执行完成，结果：{observation}"
-            return "执行完成，但当前模型不可用，请检查 LLM 配置后重试。"
+                return f"宸ュ叿鎵ц瀹屾垚锛岀粨鏋滐細{observation}"
+            return "鎵ц瀹屾垚锛屼絾褰撳墠妯″瀷涓嶅彲鐢紝璇锋鏌?LLM 閰嶇疆鍚庨噸璇曘€?
 

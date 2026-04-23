@@ -1,4 +1,4 @@
-"""Optional editable-install bootstrap for the CLI."""
+﻿"""Optional editable-install bootstrap for the CLI."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def maybe_auto_install_editable() -> None:
     if last_installed >= latest_mtime:
         return
 
-    print("[bootstrap] 检测到本地源码更新，正在执行: pip install -e .")
+    print("[bootstrap] 妫€娴嬪埌鏈湴婧愮爜鏇存柊锛屾鍦ㄦ墽琛? pip install -e .")
     result = subprocess.run(
         [sys.executable, "-m", "pip", "install", "-e", "."],
         cwd=str(project_root),
@@ -50,7 +50,7 @@ def maybe_auto_install_editable() -> None:
         capture_output=True,
     )
     if result.returncode != 0:
-        print("[WARN] 自动安装失败，请手动执行: pip install -e .")
+        print("[WARN] 鑷姩瀹夎澶辫触锛岃鎵嬪姩鎵ц: pip install -e .")
         err = (result.stderr or result.stdout or "").strip()
         if err:
             print(err[:800])
@@ -58,4 +58,4 @@ def maybe_auto_install_editable() -> None:
 
     stamp_dir.mkdir(parents=True, exist_ok=True)
     stamp_file.write_text(str(time.time()), encoding="utf-8")
-    print("[bootstrap] 已完成自动安装。")
+    print("[bootstrap] 宸插畬鎴愯嚜鍔ㄥ畨瑁呫€?)

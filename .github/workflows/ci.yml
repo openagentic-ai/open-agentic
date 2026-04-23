@@ -1,6 +1,6 @@
-name: CI
+﻿name: CI
 
-# CI 已禁用，修复完成后重新启用
+# CI 宸茬鐢紝淇瀹屾垚鍚庨噸鏂板惎鐢?
 # on:
 #   push:
 #     branches: [main, develop]

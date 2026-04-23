@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { Database, Upload, Search, Trash2 } from 'lucide-react'
 import { useApi, type KnowledgeDocument, type KnowledgeSearchResult } from '../lib/api'
 
@@ -16,7 +16,7 @@ export function KnowledgeBasePage() {
     setLoading(true)
     const resp = await api.knowledge.list(200)
     if (!resp.success || !resp.data) {
-      setStatusMessage(resp.error || '加载文档失败')
+      setStatusMessage(resp.error || '鍔犺浇鏂囨。澶辫触')
       setLoading(false)
       return
     }
@@ -33,11 +33,11 @@ export function KnowledgeBasePage() {
     setLoading(true)
     const resp = await api.knowledge.upload(selectedFile, title)
     if (!resp.success) {
-      setStatusMessage(resp.error || '上传失败')
+      setStatusMessage(resp.error || '涓婁紶澶辫触')
       setLoading(false)
       return
     }
-    setStatusMessage('上传成功，文档已入库并开始分块/嵌入。')
+    setStatusMessage('涓婁紶鎴愬姛锛屾枃妗ｅ凡鍏ュ簱骞跺紑濮嬪垎鍧?宓屽叆銆?)
     setSelectedFile(null)
     setTitle('')
     await loadDocuments()
@@ -46,10 +46,10 @@ export function KnowledgeBasePage() {
   const onDelete = async (id: string) => {
     const resp = await api.knowledge.delete(id)
     if (!resp.success) {
-      setStatusMessage(resp.error || '删除失败')
+      setStatusMessage(resp.error || '鍒犻櫎澶辫触')
       return
     }
-    setStatusMessage('文档已删除')
+    setStatusMessage('鏂囨。宸插垹闄?)
     await loadDocuments()
   }
 
@@ -57,11 +57,11 @@ export function KnowledgeBasePage() {
     if (!query.trim()) return
     const resp = await api.knowledge.search(query.trim(), 5)
     if (!resp.success || !resp.data) {
-      setStatusMessage(resp.error || '检索失败')
+      setStatusMessage(resp.error || '妫€绱㈠け璐?)
       return
     }
     setSearchResults(resp.data.results)
-    setStatusMessage(`检索完成，返回 ${resp.data.results.length} 条结果`)
+    setStatusMessage(`妫€绱㈠畬鎴愶紝杩斿洖 ${resp.data.results.length} 鏉＄粨鏋渀)
   }
 
   return (
@@ -69,18 +69,18 @@ export function KnowledgeBasePage() {
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex items-center gap-3">
           <Database className="w-6 h-6 text-primary-600" />
-          <h1 className="text-2xl font-semibold">知识库（MVP）</h1>
+          <h1 className="text-2xl font-semibold">鐭ヨ瘑搴擄紙MVP锛?/h1>
         </div>
 
         <section className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
-          <h2 className="font-medium">上传文档</h2>
+          <h2 className="font-medium">涓婁紶鏂囨。</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               className="px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700"
-              placeholder="文档标题（可选）"
+              placeholder="鏂囨。鏍囬锛堝彲閫夛級"
             />
             <input
               type="file"
@@ -93,20 +93,19 @@ export function KnowledgeBasePage() {
               className="px-4 py-2 rounded bg-primary-500 text-white hover:bg-primary-600 disabled:opacity-60 inline-flex items-center justify-center gap-2"
             >
               <Upload className="w-4 h-4" />
-              上传并处理
-            </button>
+              涓婁紶骞跺鐞?            </button>
           </div>
         </section>
 
         <section className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
-          <h2 className="font-medium">语义检索</h2>
+          <h2 className="font-medium">璇箟妫€绱?/h2>
           <div className="flex gap-2">
             <input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               className="flex-1 px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700"
-              placeholder="输入问题或关键词"
+              placeholder="杈撳叆闂鎴栧叧閿瘝"
             />
             <button
               onClick={() => void onSearch()}
@@ -114,25 +113,24 @@ export function KnowledgeBasePage() {
               className="px-4 py-2 rounded bg-primary-500 text-white hover:bg-primary-600 disabled:opacity-60 inline-flex items-center gap-2"
             >
               <Search className="w-4 h-4" />
-              检索
-            </button>
+              妫€绱?            </button>
           </div>
           <div className="space-y-2">
             {searchResults.map((item, idx) => (
               <div key={`${item.document_id}-${idx}`} className="p-3 rounded border border-gray-200 dark:border-gray-700">
-                <div className="text-sm font-medium">{item.title} · chunk #{item.chunk_index}</div>
+                <div className="text-sm font-medium">{item.title} 路 chunk #{item.chunk_index}</div>
                 <div className="text-xs text-gray-500 mt-1">score: {item.score.toFixed(4)}</div>
                 <p className="text-sm mt-2 whitespace-pre-wrap">{item.content}</p>
               </div>
             ))}
-            {searchResults.length === 0 && <p className="text-sm text-gray-500">暂无检索结果</p>}
+            {searchResults.length === 0 && <p className="text-sm text-gray-500">鏆傛棤妫€绱㈢粨鏋?/p>}
           </div>
         </section>
 
         <section className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
-          <h2 className="font-medium">文档列表</h2>
+          <h2 className="font-medium">鏂囨。鍒楄〃</h2>
           {loading ? (
-            <p className="text-sm text-gray-500">加载中...</p>
+            <p className="text-sm text-gray-500">鍔犺浇涓?..</p>
           ) : (
             <div className="space-y-2">
               {documents.map((doc) => (
@@ -140,7 +138,7 @@ export function KnowledgeBasePage() {
                   <div>
                     <div className="font-medium">{doc.title}</div>
                     <div className="text-sm text-gray-500">
-                      {doc.filename} · {doc.status} · chunks: {doc.chunk_count} · {doc.size_bytes} bytes
+                      {doc.filename} 路 {doc.status} 路 chunks: {doc.chunk_count} 路 {doc.size_bytes} bytes
                     </div>
                     {doc.error_message && <div className="text-sm text-red-500 mt-1">{doc.error_message}</div>}
                   </div>
@@ -149,11 +147,11 @@ export function KnowledgeBasePage() {
                     className="px-2 py-1 rounded border border-red-300 text-red-600 hover:bg-red-50 inline-flex items-center gap-1"
                   >
                     <Trash2 className="w-4 h-4" />
-                    删除
+                    鍒犻櫎
                   </button>
                 </div>
               ))}
-              {documents.length === 0 && <p className="text-sm text-gray-500">暂无文档</p>}
+              {documents.length === 0 && <p className="text-sm text-gray-500">鏆傛棤鏂囨。</p>}
             </div>
           )}
         </section>

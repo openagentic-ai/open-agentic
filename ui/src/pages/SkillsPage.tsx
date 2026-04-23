@@ -1,4 +1,4 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 
 export interface Skill {
   id: string
@@ -15,19 +15,19 @@ export interface Skill {
 export function SkillsPage() {
   const [activeTab, setActiveTab] = useState<'bundled' | 'managed' | 'workspace' | 'clawhub'>('bundled')
   const [skills, setSkills] = useState<Skill[]>([
-    { id: 'builtin.file_ops', name: '文件操作', description: '读取、写入、复制、移动文件和目录', version: '1.0.0', author: 'OpenAgentic', category: 'Productivity', tags: ['文件', 'IO'], enabled: true, source: 'bundled' },
-    { id: 'builtin.web_search', name: '网页搜索', description: '使用搜索引擎查找信息', version: '1.0.0', author: 'OpenAgentic', category: 'Analysis', tags: ['搜索', '网络'], enabled: true, source: 'bundled' },
-    { id: 'builtin.image_gen', name: '图像生成', description: '使用 AI 生成图像', version: '1.0.0', author: 'OpenAgentic', category: 'Media', tags: ['图像', 'AI', '生成'], enabled: true, source: 'bundled' },
-    { id: 'builtin.code_analyze', name: '代码分析', description: '分析代码结构、检测问题、优化建议', version: '1.0.0', author: 'OpenAgentic', category: 'Development', tags: ['代码', '分析', '开发'], enabled: true, source: 'bundled' },
-    { id: 'builtin.data_process', name: '数据处理', description: '处理和分析结构化数据', version: '1.0.0', author: 'OpenAgentic', category: 'Analysis', tags: ['数据', '处理'], enabled: true, source: 'bundled' },
-    { id: 'builtin.automation', name: '自动化任务', description: '创建和执行自动化工作流', version: '1.0.0', author: 'OpenAgentic', category: 'Automation', tags: ['自动化', '工作流'], enabled: true, source: 'bundled' },
-    { id: 'builtin.safe_execute', name: '安全执行', description: '在沙箱环境中安全执行代码', version: '1.0.0', author: 'OpenAgentic', category: 'Security', tags: ['安全', '沙箱'], enabled: true, source: 'bundled' },
+    { id: 'builtin.file_ops', name: '鏂囦欢鎿嶄綔', description: '璇诲彇銆佸啓鍏ャ€佸鍒躲€佺Щ鍔ㄦ枃浠跺拰鐩綍', version: '1.0.0', author: 'OpenAgentic', category: 'Productivity', tags: ['鏂囦欢', 'IO'], enabled: true, source: 'bundled' },
+    { id: 'builtin.web_search', name: '缃戦〉鎼滅储', description: '浣跨敤鎼滅储寮曟搸鏌ユ壘淇℃伅', version: '1.0.0', author: 'OpenAgentic', category: 'Analysis', tags: ['鎼滅储', '缃戠粶'], enabled: true, source: 'bundled' },
+    { id: 'builtin.image_gen', name: '鍥惧儚鐢熸垚', description: '浣跨敤 AI 鐢熸垚鍥惧儚', version: '1.0.0', author: 'OpenAgentic', category: 'Media', tags: ['鍥惧儚', 'AI', '鐢熸垚'], enabled: true, source: 'bundled' },
+    { id: 'builtin.code_analyze', name: '浠ｇ爜鍒嗘瀽', description: '鍒嗘瀽浠ｇ爜缁撴瀯銆佹娴嬮棶棰樸€佷紭鍖栧缓璁?, version: '1.0.0', author: 'OpenAgentic', category: 'Development', tags: ['浠ｇ爜', '鍒嗘瀽', '寮€鍙?], enabled: true, source: 'bundled' },
+    { id: 'builtin.data_process', name: '鏁版嵁澶勭悊', description: '澶勭悊鍜屽垎鏋愮粨鏋勫寲鏁版嵁', version: '1.0.0', author: 'OpenAgentic', category: 'Analysis', tags: ['鏁版嵁', '澶勭悊'], enabled: true, source: 'bundled' },
+    { id: 'builtin.automation', name: '鑷姩鍖栦换鍔?, description: '鍒涘缓鍜屾墽琛岃嚜鍔ㄥ寲宸ヤ綔娴?, version: '1.0.0', author: 'OpenAgentic', category: 'Automation', tags: ['鑷姩鍖?, '宸ヤ綔娴?], enabled: true, source: 'bundled' },
+    { id: 'builtin.safe_execute', name: '瀹夊叏鎵ц', description: '鍦ㄦ矙绠辩幆澧冧腑瀹夊叏鎵ц浠ｇ爜', version: '1.0.0', author: 'OpenAgentic', category: 'Security', tags: ['瀹夊叏', '娌欑'], enabled: true, source: 'bundled' },
   ])
 
   const [clawhubSkills] = useState<Skill[]>([
-    { id: 'clawhub.web_scraper', name: '网页抓取', description: '高效抓取网页内容', version: '1.2.0', author: 'Community', category: 'Utility', tags: ['爬虫', '网页'], enabled: false, source: 'clawhub' },
-    { id: 'clawhub.pdf_tool', name: 'PDF 工具', description: 'PDF 创建、编辑和转换', version: '2.0.1', author: 'Community', category: 'Utility', tags: ['PDF', '文档'], enabled: false, source: 'clawhub' },
-    { id: 'clawhub.ocr', name: 'OCR 文字识别', description: '从图像中提取文字', version: '1.5.0', author: 'Community', category: 'Utility', tags: ['OCR', '文字识别'], enabled: false, source: 'clawhub' },
+    { id: 'clawhub.web_scraper', name: '缃戦〉鎶撳彇', description: '楂樻晥鎶撳彇缃戦〉鍐呭', version: '1.2.0', author: 'Community', category: 'Utility', tags: ['鐖櫕', '缃戦〉'], enabled: false, source: 'clawhub' },
+    { id: 'clawhub.pdf_tool', name: 'PDF 宸ュ叿', description: 'PDF 鍒涘缓銆佺紪杈戝拰杞崲', version: '2.0.1', author: 'Community', category: 'Utility', tags: ['PDF', '鏂囨。'], enabled: false, source: 'clawhub' },
+    { id: 'clawhub.ocr', name: 'OCR 鏂囧瓧璇嗗埆', description: '浠庡浘鍍忎腑鎻愬彇鏂囧瓧', version: '1.5.0', author: 'Community', category: 'Utility', tags: ['OCR', '鏂囧瓧璇嗗埆'], enabled: false, source: 'clawhub' },
   ])
 
   const toggleSkill = (skillId: string) => {
@@ -56,19 +56,19 @@ export function SkillsPage() {
 
   const getSourceIcon = (source: Skill['source']) => {
     switch (source) {
-      case 'bundled': return '✓'
-      case 'managed': return '📦'
-      case 'workspace': return '📁'
-      case 'clawhub': return '🧩'
+      case 'bundled': return '鉁?
+      case 'managed': return '馃摝'
+      case 'workspace': return '馃搧'
+      case 'clawhub': return '馃З'
     }
   }
 
   const filteredSkills = activeTab === 'clawhub' ? clawhubSkills : skills.filter(s => s.source === activeTab)
 
   const tabs = [
-    { id: 'bundled', label: '内置技能', count: skills.filter(s => s.source === 'bundled').length },
-    { id: 'managed', label: '托管技能', count: skills.filter(s => s.source === 'managed').length },
-    { id: 'workspace', label: '工作区', count: skills.filter(s => s.source === 'workspace').length },
+    { id: 'bundled', label: '鍐呯疆鎶€鑳?, count: skills.filter(s => s.source === 'bundled').length },
+    { id: 'managed', label: '鎵樼鎶€鑳?, count: skills.filter(s => s.source === 'managed').length },
+    { id: 'workspace', label: '宸ヤ綔鍖?, count: skills.filter(s => s.source === 'workspace').length },
     { id: 'clawhub', label: 'ClawHub', count: clawhubSkills.length },
   ] as const
 
@@ -129,7 +129,7 @@ export function SkillsPage() {
               
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-500">
-                  {skill.author && `作者: ${skill.author}`}
+                  {skill.author && `浣滆€? ${skill.author}`}
                 </span>
                 
                 {activeTab === 'clawhub' ? (
@@ -137,7 +137,7 @@ export function SkillsPage() {
                     onClick={() => installSkill(skill)}
                     className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
                   >
-                    安装
+                    瀹夎
                   </button>
                 ) : (
                   <label className="relative inline-flex items-center cursor-pointer">
@@ -157,9 +157,9 @@ export function SkillsPage() {
 
         {filteredSkills.length === 0 && (
           <div className="flex items-center justify-center h-64 text-gray-500">
-            {activeTab === 'workspace' ? '工作区技能为空' : 
-             activeTab === 'managed' ? '暂无托管技能' : 
-             '暂无技能'}
+            {activeTab === 'workspace' ? '宸ヤ綔鍖烘妧鑳戒负绌? : 
+             activeTab === 'managed' ? '鏆傛棤鎵樼鎶€鑳? : 
+             '鏆傛棤鎶€鑳?}
           </div>
         )}
       </div>

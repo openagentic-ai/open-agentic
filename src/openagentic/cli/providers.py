@@ -1,4 +1,4 @@
-"""CLI provider aliases, resolution, and interactive provider configuration."""
+﻿"""CLI provider aliases, resolution, and interactive provider configuration."""
 
 from __future__ import annotations
 
@@ -187,7 +187,7 @@ def require_provider_configured(provider: str) -> tuple[str, str | None]:
 
 
 def print_provider_menu(current_provider: str) -> None:
-    print("\n可选模型厂商：")
+    print("\n鍙€夋ā鍨嬪巶鍟嗭細")
     for profile in list_provider_profiles():
         mark = "*" if profile["id"] == current_provider else " "
         status = "enabled" if profile["enabled"] else "disabled"
@@ -208,12 +208,12 @@ def select_provider_interactive(current_provider: str) -> str | None:
 
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         print_provider_menu(current_provider)
-        selected = input(f"请选择 provider（默认 {current_provider}）: ").strip()
+        selected = input(f"璇烽€夋嫨 provider锛堥粯璁?{current_provider}锛? ").strip()
         return normalize_provider(selected) if selected else current_provider
 
     while True:
         CLI_PLATFORM.clear_screen()
-        print("可选模型厂商（↑/↓ 选择，Enter 确认，q 取消）：")
+        print("鍙€夋ā鍨嬪巶鍟嗭紙鈫?鈫?閫夋嫨锛孍nter 纭锛宷 鍙栨秷锛夛細")
         for idx, profile in enumerate(profiles):
             cursor = ">" if idx == selected_idx else " "
             status = "enabled" if profile["enabled"] else "disabled"
@@ -247,10 +247,10 @@ def configure_provider_interactive(provider: str) -> None:
     provider = normalize_provider(provider)
     profile = find_profile(provider)
     if profile is None:
-        print(f"[ERROR] 未找到 provider: {provider}")
+        print(f"[ERROR] 鏈壘鍒?provider: {provider}")
         return
-    print(f"\n--- 配置 {profile['display_name']} ({provider}) ---")
-    print("提示：按回车采用默认项。")
+    print(f"\n--- 閰嶇疆 {profile['display_name']} ({provider}) ---")
+    print("鎻愮ず锛氭寜鍥炶溅閲囩敤榛樿椤广€?)
     current_base = profile["api_base"] or ""
     current_models = ", ".join(profile["models"] or [])
     current_key = profile["api_key"] or ""
@@ -258,13 +258,13 @@ def configure_provider_interactive(provider: str) -> None:
     api_key = ""
     if provider != "ollama":
         while True:
-            hint = "（必填，无默认项）" if not current_key else "（默认：保持不变）"
+            hint = "锛堝繀濉紝鏃犻粯璁ら」锛? if not current_key else "锛堥粯璁わ細淇濇寔涓嶅彉锛?
             api_key = input(f"API Key{hint}: ").strip()
             if api_key:
                 break
             if current_key:
                 break
-            print("[ERROR] 该 provider 需要 API Key，不能为空。")
+            print("[ERROR] 璇?provider 闇€瑕?API Key锛屼笉鑳戒负绌恒€?)
 
     effective_key = api_key if api_key else current_key
     auto_models = profile["models"]
@@ -272,11 +272,11 @@ def configure_provider_interactive(provider: str) -> None:
         discovered = discover_models_openai_compatible(provider, current_base, effective_key)
         if discovered:
             auto_models = discovered
-            print(f"[AUTO] 已探测到 {len(discovered)} 个模型。")
+            print(f"[AUTO] 宸叉帰娴嬪埌 {len(discovered)} 涓ā鍨嬨€?)
         else:
-            print("[AUTO] 未探测到模型列表，使用内置默认模型。")
+            print("[AUTO] 鏈帰娴嬪埌妯″瀷鍒楄〃锛屼娇鐢ㄥ唴缃粯璁ゆā鍨嬨€?)
 
-        quick = input("仅使用自动配置并保存? (Y/n): ").strip().lower()
+        quick = input("浠呬娇鐢ㄨ嚜鍔ㄩ厤缃苟淇濆瓨? (Y/n): ").strip().lower()
         if quick in {"", "y", "yes"}:
             get_provider_store().upsert_profile(
                 provider,
@@ -285,7 +285,7 @@ def configure_provider_interactive(provider: str) -> None:
                 models=auto_models,
                 enabled=True,
             )
-            print(f"[OK] 已保存 {provider} 配置（自动模式）")
+            print(f"[OK] 宸蹭繚瀛?{provider} 閰嶇疆锛堣嚜鍔ㄦā寮忥級")
             return
 
     api_base_input = input(f"API Base [{current_base}]: ").strip()
@@ -295,10 +295,10 @@ def configure_provider_interactive(provider: str) -> None:
         api_key = api_base_input
         effective_key = api_key
         api_base = current_base
-        print("[WARN] 检测到你把 API Key 填到了 API Base，已自动纠正。")
+        print("[WARN] 妫€娴嬪埌浣犳妸 API Key 濉埌浜?API Base锛屽凡鑷姩绾犳銆?)
 
-    models_input = input(f"模型列表(逗号分隔) [{current_models}]: ").strip()
-    enabled_input = input(f"启用? (y/n) [{'y' if profile['enabled'] else 'n'}]: ").strip().lower()
+    models_input = input(f"妯″瀷鍒楄〃(閫楀彿鍒嗛殧) [{current_models}]: ").strip()
+    enabled_input = input(f"鍚敤? (y/n) [{'y' if profile['enabled'] else 'n'}]: ").strip().lower()
     enabled = profile["enabled"] if enabled_input == "" else enabled_input in {"y", "yes", "1"}
     models = (
         [m.strip() for m in models_input.split(",") if m.strip()]
@@ -312,4 +312,4 @@ def configure_provider_interactive(provider: str) -> None:
         models=models,
         enabled=enabled,
     )
-    print(f"[OK] 已保存 {provider} 配置")
+    print(f"[OK] 宸蹭繚瀛?{provider} 閰嶇疆")

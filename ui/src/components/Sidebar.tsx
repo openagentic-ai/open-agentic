@@ -1,4 +1,4 @@
-import { useLocation, useNavigate } from 'react-router-dom'
+﻿import { useLocation, useNavigate } from 'react-router-dom'
 import { 
   MessageSquare, 
   Settings, 
@@ -20,14 +20,14 @@ export function Sidebar() {
   const { sidebarOpen, setSidebarOpen, channels, darkMode, setDarkMode } = useAppStore()
 
   const navItems = [
-    { path: '/', icon: MessageSquare, label: '对话' },
-    { path: '/canvas', icon: Layout, label: '画布' },
-    { path: '/devices', icon: Smartphone, label: '设备' },
-    { path: '/skills', icon: Puzzle, label: '技能' },
-    { path: '/channels', icon: Wifi, label: '通道' },
-    { path: '/sessions', icon: Users, label: '会话' },
-    { path: '/knowledge', icon: Database, label: '知识库' },
-    { path: '/settings', icon: Settings, label: '设置' },
+    { path: '/', icon: MessageSquare, label: '瀵硅瘽' },
+    { path: '/canvas', icon: Layout, label: '鐢诲竷' },
+    { path: '/devices', icon: Smartphone, label: '璁惧' },
+    { path: '/skills', icon: Puzzle, label: '鎶€鑳? },
+    { path: '/channels', icon: Wifi, label: '閫氶亾' },
+    { path: '/sessions', icon: Users, label: '浼氳瘽' },
+    { path: '/knowledge', icon: Database, label: '鐭ヨ瘑搴? },
+    { path: '/settings', icon: Settings, label: '璁剧疆' },
   ]
 
   if (!sidebarOpen) return null
@@ -72,7 +72,7 @@ export function Sidebar() {
       {/* Channels */}
       <div className="p-3 border-t border-gray-200 dark:border-gray-700">
         <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2 px-3">
-          活跃通道
+          娲昏穬閫氶亾
         </h3>
         <div className="space-y-1">
           {channels.slice(0, 5).map((channel) => (
@@ -88,7 +88,7 @@ export function Sidebar() {
             </div>
           ))}
           {channels.length === 0 && (
-            <p className="text-sm text-gray-400 px-3">暂无活跃通道</p>
+            <p className="text-sm text-gray-400 px-3">鏆傛棤娲昏穬閫氶亾</p>
           )}
         </div>
       </div>
@@ -99,7 +99,7 @@ export function Sidebar() {
           onClick={() => setDarkMode(!darkMode)}
           className="w-full flex items-center justify-between px-3 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
         >
-          <span>{darkMode ? '🌙 深色模式' : '☀️ 浅色模式'}</span>
+          <span>{darkMode ? '馃寵 娣辫壊妯″紡' : '鈽€锔?娴呰壊妯″紡'}</span>
         </button>
       </div>
     </aside>

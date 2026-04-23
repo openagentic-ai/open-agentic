@@ -1,4 +1,4 @@
-"""CLI argparse entry (`main`)."""
+﻿"""CLI argparse entry (`main`)."""
 
 from __future__ import annotations
 
@@ -44,12 +44,12 @@ def main() -> None:
         "--api-base",
         default=SETTINGS.OPENAGENTIC_API_BASE or None,
         metavar="URL",
-        help="OpenAgentic 服务根地址（如 http://127.0.0.1:8000）；若设置则启动前必须登录或注册以获取 JWT",
+        help="OpenAgentic 鏈嶅姟鏍瑰湴鍧€锛堝 http://127.0.0.1:8000锛夛紱鑻ヨ缃垯鍚姩鍓嶅繀椤荤櫥褰曟垨娉ㄥ唽浠ヨ幏鍙?JWT",
     )
     parser.add_argument(
         "--require-auth",
         action="store_true",
-        help="启动前必须完成平台登录/注册；未指定 --api-base 时默认 http://127.0.0.1:8000",
+        help="鍚姩鍓嶅繀椤诲畬鎴愬钩鍙扮櫥褰?娉ㄥ唽锛涙湭鎸囧畾 --api-base 鏃堕粯璁?http://127.0.0.1:8000",
     )
     args = parser.parse_args()
 

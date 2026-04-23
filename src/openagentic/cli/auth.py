@@ -1,4 +1,4 @@
-"""CLI session file and HTTP login/register against OpenAgentic API."""
+﻿"""CLI session file and HTTP login/register against OpenAgentic API."""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def platform_authenticate_sync(api_base: str) -> tuple[str, str]:
                     )
                     if me.status_code == 200:
                         email = me.json().get("email", "")
-                        print(f"[平台] 已使用保存的会话登录: {email}")
+                        print(f"[骞冲彴] 宸蹭娇鐢ㄤ繚瀛樼殑浼氳瘽鐧诲綍: {email}")
                         return access, email
                     if refresh and isinstance(refresh, str):
                         ref = client.post(f"{base}/api/auth/refresh", params={"token": refresh})
@@ -77,44 +77,44 @@ def platform_authenticate_sync(api_base: str) -> tuple[str, str]:
                             )
                             if me2.status_code == 200:
                                 email = me2.json().get("email", "")
-                                print(f"[平台] 已刷新令牌并登录: {email}")
+                                print(f"[骞冲彴] 宸插埛鏂颁护鐗屽苟鐧诲綍: {email}")
                                 return access, email
             except httpx.RequestError as e:
-                print(f"[WARN] 读取平台会话失败（将重新登录）: {e}")
+                print(f"[WARN] 璇诲彇骞冲彴浼氳瘽澶辫触锛堝皢閲嶆柊鐧诲綍锛? {e}")
 
-    print(f"\n[平台认证] OpenAgentic 服务: {base}")
-    print("请先登录已有账号，或注册新账号（需服务已启动且数据库可用）。")
+    print(f"\n[骞冲彴璁よ瘉] OpenAgentic 鏈嶅姟: {base}")
+    print("璇峰厛鐧诲綍宸叉湁璐﹀彿锛屾垨娉ㄥ唽鏂拌处鍙凤紙闇€鏈嶅姟宸插惎鍔ㄤ笖鏁版嵁搴撳彲鐢級銆?)
 
     with httpx.Client(timeout=60.0) as client:
         while True:
-            print("\n选择: 1 登录  |  2 注册  |  q 退出")
+            print("\n閫夋嫨: 1 鐧诲綍  |  2 娉ㄥ唽  |  q 閫€鍑?)
             choice = input("> ").strip().lower()
             if choice in {"q", "quit", "exit"}:
-                print("已退出。")
+                print("宸查€€鍑恒€?)
                 raise SystemExit(0)
             if choice not in {"1", "2"}:
-                print("请输入 1、2 或 q")
+                print("璇疯緭鍏?1銆? 鎴?q")
                 continue
-            email = input("邮箱: ").strip()
+            email = input("閭: ").strip()
             if not email:
-                print("邮箱不能为空")
+                print("閭涓嶈兘涓虹┖")
                 continue
-            password = getpass("密码: ")
+            password = getpass("瀵嗙爜: ")
             if len(password) < 6:
-                print("密码至少 6 位")
+                print("瀵嗙爜鑷冲皯 6 浣?)
                 continue
             if choice == "2":
-                display_name = input("显示名（可回车跳过）: ").strip() or None
+                display_name = input("鏄剧ず鍚嶏紙鍙洖杞﹁烦杩囷級: ").strip() or None
                 body: dict = {"email": email, "password": password}
                 if display_name:
                     body["display_name"] = display_name
                 try:
                     r = client.post(f"{base}/api/auth/register", json=body)
                 except httpx.RequestError as e:
-                    print(f"[ERROR] 无法连接 {base}: {e}")
+                    print(f"[ERROR] 鏃犳硶杩炴帴 {base}: {e}")
                     continue
                 if r.status_code == 400 and "already" in (r.text or "").lower():
-                    print("该邮箱已注册，请改用 1 登录。")
+                    print("璇ラ偖绠卞凡娉ㄥ唽锛岃鏀圭敤 1 鐧诲綍銆?)
                     continue
             else:
                 try:
@@ -122,7 +122,7 @@ def platform_authenticate_sync(api_base: str) -> tuple[str, str]:
                         f"{base}/api/auth/login", json={"email": email, "password": password}
                     )
                 except httpx.RequestError as e:
-                    print(f"[ERROR] 无法连接 {base}: {e}")
+                    print(f"[ERROR] 鏃犳硶杩炴帴 {base}: {e}")
                     continue
             if r.status_code not in (200, 201):
                 detail = ""
@@ -140,7 +140,7 @@ def platform_authenticate_sync(api_base: str) -> tuple[str, str]:
                 headers={"Authorization": f"Bearer {access}"},
             )
             if me.status_code != 200:
-                print(f"[ERROR] 登录成功但无法读取用户信息: {me.status_code}")
+                print(f"[ERROR] 鐧诲綍鎴愬姛浣嗘棤娉曡鍙栫敤鎴蜂俊鎭? {me.status_code}")
                 continue
             user_email = me.json().get("email", email)
             save_cli_session(
@@ -150,5 +150,5 @@ def platform_authenticate_sync(api_base: str) -> tuple[str, str]:
                     "refresh_token": refresh,
                 }
             )
-            print(f"[平台] 登录成功: {user_email}")
+            print(f"[骞冲彴] 鐧诲綍鎴愬姛: {user_email}")
             return access, user_email

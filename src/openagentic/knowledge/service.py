@@ -1,4 +1,4 @@
-"""Knowledge base service: ingest, chunk, embedding, and semantic retrieval."""
+﻿"""Knowledge base service: ingest, chunk, embedding, and semantic retrieval."""
 
 from __future__ import annotations
 
@@ -108,7 +108,7 @@ async def ingest_document(
         text = data.decode("utf-8", errors="ignore").strip()
         chunks = split_text_chunks(text)
         if not chunks:
-            raise ValueError("文档内容为空或不可解析")
+            raise ValueError("鏂囨。鍐呭涓虹┖鎴栦笉鍙В鏋?)
 
         chunk_models: list[KnowledgeChunk] = []
         for idx, chunk in enumerate(chunks):
