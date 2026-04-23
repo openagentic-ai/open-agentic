@@ -7,7 +7,7 @@ from typing import Any
 
 from openagentic.cli.llm import litellm_chat
 from openagentic.cli.tools import TOOLS, execute_tool
-from openagentic.config import settings
+from openagentic.config import SETTINGS
 
 
 async def react_loop(
@@ -37,7 +37,7 @@ async def react_loop(
     last_tool_name = ""
     last_result_preview = ""
 
-    max_iter = max(1, settings.cli_react_max_iterations)
+    max_iter = max(1, SETTINGS.CLI_REACT_MAX_ITERATIONS)
 
     for i in range(max_iter):
         if max_iter > 10 and i == max_iter - 6:

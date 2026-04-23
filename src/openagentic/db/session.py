@@ -4,11 +4,11 @@ from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from openagentic.config import settings
+from openagentic.config import SETTINGS
 
 engine = create_async_engine(
-    settings.database_url,
-    echo=settings.app_env == "development",
+    SETTINGS.DATABASE_URL,
+    echo=SETTINGS.APP_ENV == "development",
     pool_size=20,
     max_overflow=10,
 )

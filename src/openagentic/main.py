@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from openagentic import __version__
-from openagentic.config import settings
+from openagentic.config import SETTINGS
 from openagentic.db.base import Base
 from openagentic.db.session import engine
 
@@ -23,10 +23,10 @@ logger = structlog.get_logger()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application startup/shutdown lifecycle."""
-    logger.info("Starting OpenAgentic", version=__version__, env=settings.app_env)
+    logger.info("Starting OpenAgentic", version=__version__, env=SETTINGS.APP_ENV)
 
     # Create tables (dev only; production uses Alembic)
-    if settings.app_env == "development":
+    if SETTINGS.APP_ENV == "development":
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("Database tables created (dev mode)")
@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title=settings.app_name,
+        title=SETTINGS.APP_NAME,
         version=__version__,
         lifespan=lifespan,
         docs_url="/docs",

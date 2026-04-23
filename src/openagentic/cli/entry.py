@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import os
 
 from dotenv import load_dotenv
 
@@ -12,6 +11,7 @@ from openagentic.cli.auth import platform_authenticate_sync
 from openagentic.cli.bootstrap import maybe_auto_install_editable
 from openagentic.cli.providers import DEFAULT_MODEL
 from openagentic.cli.repl import main_loop
+from openagentic.config import SETTINGS
 
 load_dotenv()
 
@@ -40,7 +40,7 @@ def main() -> None:
     parser.add_argument("-s", "--system", default=None, help="Custom system prompt")
     parser.add_argument(
         "--api-base",
-        default=os.environ.get("OPENAGENTIC_API_BASE"),
+        default=SETTINGS.OPENAGENTIC_API_BASE or None,
         metavar="URL",
         help="OpenAgentic 服务根地址（如 http://127.0.0.1:8000）；若设置则启动前必须登录或注册以获取 JWT",
     )

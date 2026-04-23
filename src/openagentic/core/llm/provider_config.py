@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from openagentic.config import settings
+from openagentic.config import SETTINGS
 
 
 @dataclass
@@ -163,13 +163,13 @@ DEFAULT_PROFILES: list[ProviderProfile] = [
     ProviderProfile(
         id="ollama",
         display_name="Ollama (local)",
-        api_base=settings.ollama_api_base,
+        api_base=SETTINGS.OLLAMA_API_BASE,
         models=["ollama/qwen3:14b", "ollama/deepseek-r1:32b"],
     ),
 ]
 
 DEFAULT_CONFIG = ProviderConfig(
-    default_model=settings.litellm_default_model,
+    default_model=SETTINGS.LITELLM_DEFAULT_MODEL,
     profiles=DEFAULT_PROFILES,
 )
 
@@ -237,9 +237,9 @@ def _normalize_model(provider_id: str, model: str) -> str:
 
 
 def _apply_env_bootstrap(config: ProviderConfig) -> tuple[ProviderConfig, bool]:
-    env_api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    env_api_base = os.getenv("OPENAI_BASE_URL", "").strip()
-    env_chat_model = os.getenv("OPENAI_CHAT_MODEL", "").strip()
+    env_api_key = os.getenv("OPENAI_API_KEY", SETTINGS.OPENAI_API_KEY).strip()
+    env_api_base = os.getenv("OPENAI_BASE_URL", SETTINGS.OPENAI_BASE_URL).strip()
+    env_chat_model = os.getenv("OPENAI_CHAT_MODEL", SETTINGS.OPENAI_CHAT_MODEL).strip()
     if not (env_api_key or env_api_base or env_chat_model):
         return config, False
 
@@ -337,7 +337,7 @@ class ProviderConfigStore:
             api_key = profile.api_key or None
             return model_id, api_base, api_key
         if model_id.startswith("ollama/"):
-            return model_id, settings.ollama_api_base, None
+            return model_id, SETTINGS.OLLAMA_API_BASE, None
         return model_id, None, None
 
     def _load(self) -> ProviderConfig:
@@ -357,7 +357,7 @@ class ProviderConfigStore:
             if not profiles:
                 profiles = [ProviderProfile(**asdict(profile)) for profile in DEFAULT_PROFILES]
             cfg = ProviderConfig(
-                default_model=data.get("default_model", settings.litellm_default_model),
+                default_model=data.get("default_model", SETTINGS.LITELLM_DEFAULT_MODEL),
                 profiles=profiles,
             )
             cfg, changed = _apply_env_bootstrap(cfg)
@@ -388,6 +388,6 @@ _store: ProviderConfigStore | None = None
 def get_provider_store() -> ProviderConfigStore:
     global _store
     if _store is None:
-        _store = ProviderConfigStore(settings.model_provider_config_path)
+        _store = ProviderConfigStore(SETTINGS.MODEL_PROVIDER_CONFIG_PATH)
     return _store
 

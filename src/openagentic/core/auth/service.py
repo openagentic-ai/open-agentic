@@ -8,7 +8,7 @@ from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from openagentic.config import settings
+from openagentic.config import SETTINGS
 from openagentic.core.auth.models import User
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -23,7 +23,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def create_access_token(user_id: str) -> tuple[str, int]:
-    expires_delta = timedelta(minutes=settings.jwt_access_token_expire_minutes)
+    expires_delta = timedelta(minutes=SETTINGS.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
     expire = datetime.now(timezone.utc) + expires_delta
     payload = {
         "sub": user_id,
@@ -31,12 +31,12 @@ def create_access_token(user_id: str) -> tuple[str, int]:
         "iat": datetime.now(timezone.utc),
         "jti": str(uuid.uuid4()),
     }
-    token = jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+    token = jwt.encode(payload, SETTINGS.JWT_SECRET_KEY, algorithm=SETTINGS.JWT_ALGORITHM)
     return token, int(expires_delta.total_seconds())
 
 
 def create_refresh_token(user_id: str) -> str:
-    expires_delta = timedelta(days=settings.jwt_refresh_token_expire_days)
+    expires_delta = timedelta(days=SETTINGS.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
     expire = datetime.now(timezone.utc) + expires_delta
     payload = {
         "sub": user_id,
@@ -44,12 +44,12 @@ def create_refresh_token(user_id: str) -> str:
         "type": "refresh",
         "jti": str(uuid.uuid4()),
     }
-    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+    return jwt.encode(payload, SETTINGS.JWT_SECRET_KEY, algorithm=SETTINGS.JWT_ALGORITHM)
 
 
 def decode_token(token: str) -> dict | None:
     try:
-        return jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+        return jwt.decode(token, SETTINGS.JWT_SECRET_KEY, algorithms=[SETTINGS.JWT_ALGORITHM])
     except JWTError:
         return None
 

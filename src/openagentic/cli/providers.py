@@ -8,9 +8,10 @@ import sys
 
 import httpx
 
+from openagentic.config import SETTINGS
 from openagentic.core.llm.provider_config import get_provider_store
 
-DEFAULT_MODEL = "qwen3:14b"
+DEFAULT_MODEL = SETTINGS.CLI_DEFAULT_MODEL
 
 PROVIDER_ALIASES = {
     "claude": "anthropic",
@@ -261,7 +262,8 @@ def select_provider_interactive(current_provider: str) -> str | None:
         if os.name == "nt":
             os.system("cls")
         else:
-            print("\033[2J\033[H", end="")
+            sys.stdout.write("\033[2J\033[H")
+            sys.stdout.flush()
         print("可选模型厂商（↑/↓ 选择，Enter 确认，q 取消）：")
         for idx, profile in enumerate(profiles):
             cursor = ">" if idx == selected_idx else " "
