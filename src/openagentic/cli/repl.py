@@ -10,6 +10,7 @@ from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.patch_stdout import patch_stdout
 
 from openagentic.cli.auth import clear_cli_session_file, platform_authenticate_sync
+from openagentic.cli.model_router import automodel_status, route_model
 from openagentic.cli.platform_adapter import CLI_PLATFORM
 from openagentic.cli.prompt import (
     build_identity_answer,
@@ -33,12 +34,13 @@ def print_help() -> None:
     print(
         "Commands: "
         "/help /clear /model <name> /providers /provider [/provider <id>] /provider-config [id] "
-        "/login-platform /logout-platform /quit"
+        "/automodel [on|off] /login-platform /logout-platform /quit"
     )
     print("Tools: write_file（新建与覆盖）/ delete_file 执行前均需在终端输入 y/yes 确认。")
     print(
         "Tips: /provider 切换厂商（已有 Key 则不再弹配置）；"
-        "/provider-config 修改 Key 或 API Base；/help 查看全部命令。"
+        "/provider-config 修改 Key 或 API Base；"
+        "/automodel 开启/关闭 DeepSeek Pro/Flash 智能自动切换；/help 查看全部命令。"
     )
     print(
         "平台账号: 启动时 `--require-auth` / `--api-base URL` 会要求登录或注册（JWT）；"
@@ -72,16 +74,19 @@ async def main_loop(
         else:
             print(f"\033[2m{'─' * w}\033[0m")
 
-    async def _read_line(prompt_text: str) -> str:
+    async def _read_line(prompt_text, *, use_html: bool = False) -> str:
         CLI_PLATFORM.ensure_line_input_mode()
         CLI_PLATFORM.drain_stdin_buffer(settle_ms=80)
+        plain = prompt_text if isinstance(prompt_text, str) else ""
         if not (sys.stdin.isatty() and sys.stdout.isatty()):
-            return input(prompt_text)
+            return input(plain)
         try:
             with patch_stdout():
+                if use_html:
+                    return await session.prompt_async(HTML(prompt_text))
                 return await session.prompt_async(prompt_text)
         except Exception:
-            return input(prompt_text)
+            return input(plain)
 
     requested_provider = provider
     provider = resolve_provider(provider, model)
@@ -108,6 +113,9 @@ async def main_loop(
     if env_auth_token:
         api_key = env_auth_token
     endpoint = api_base or "(provider default)"
+
+    # ── DeepSeek Pro/Flash 自动切换状态 ──
+    automodel_enabled = True
 
     plat: dict[str, str | None] = {
         "base": platform_api_base,
@@ -143,7 +151,7 @@ async def main_loop(
         try:
             print()
             _print_separator()
-            user_input = (await _read_line("\033[1m❯\033[0m ")).strip()
+            user_input = (await _read_line("<b>❯</b> ", use_html=True)).strip()
             _print_separator()
         except (EOFError, KeyboardInterrupt):
             print("\nBye!")
@@ -202,7 +210,8 @@ async def main_loop(
                 api_base, api_key = require_provider_configured(provider)
                 endpoint = api_base or "(provider default)"
             model = selected_model
-            print(f"[model → {model}] [provider → {provider}]")
+            automodel_enabled = False
+            print(f"[model → {model}] [provider → {provider}] (/automodel off)")
             rebuild_system_message()
             continue
         if user_input.startswith("/model "):
@@ -214,7 +223,8 @@ async def main_loop(
                 print(f"  可用模型: {', '.join(available)}")
                 continue
             model = candidate
-            print(f"[model → {model}]")
+            automodel_enabled = False
+            print(f"[model → {model}] (/automodel off)")
             rebuild_system_message()
             continue
         if user_input == "/providers":
@@ -229,8 +239,9 @@ async def main_loop(
             api_base, api_key = require_provider_configured(provider)
             model = resolve_model_for_provider(provider, model)
             endpoint = api_base or "(provider default)"
+            automodel_enabled = False
             rebuild_system_message()
-            print(f"[provider → {provider}] [model → {model}]")
+            print(f"[provider → {provider}] [model → {model}] (/automodel off)")
             continue
         if user_input.startswith("/provider "):
             selected = normalize_provider(user_input[10:].strip())
@@ -241,8 +252,9 @@ async def main_loop(
             api_base, api_key = require_provider_configured(provider)
             model = resolve_model_for_provider(provider, model)
             endpoint = api_base or "(provider default)"
+            automodel_enabled = False
             rebuild_system_message()
-            print(f"[provider → {provider}] [model → {model}]")
+            print(f"[provider → {provider}] [model → {model}] (/automodel off)")
             continue
         if user_input == "/logout-platform":
             clear_cli_session_file()
@@ -276,12 +288,46 @@ async def main_loop(
                 endpoint = api_base or "(provider default)"
                 rebuild_system_message()
             continue
+
+        # ── /automodel 命令 ──
+        if user_input == "/automodel":
+            print(automodel_status(provider, automodel_enabled))
+            continue
+        if user_input.startswith("/automodel "):
+            arg = user_input[11:].strip().lower()
+            if arg in ("on", "enable", "1", "true", "yes"):
+                automodel_enabled = True
+                print("/automodel: ON — 高级任务 → deepseek-v4-pro，普通任务 → deepseek-v4-flash")
+                continue
+            elif arg in ("off", "disable", "0", "false", "no"):
+                automodel_enabled = False
+                print(f"/automodel: OFF — 锁定当前模型 {model}")
+                continue
+            else:
+                print(f"[ERROR] /automodel 用法: /automodel on | /automodel off | /automodel")
+                continue
+
         if is_identity_question(user_input):
             identity_answer = build_identity_answer(provider, model, endpoint)
             print(f"\n{identity_answer}")
             messages.append({"role": "user", "content": user_input})
             messages.append({"role": "assistant", "content": identity_answer})
             continue
+
+        # ── DeepSeek Pro/Flash 智能路由 ──
+        current_model = model
+        routed_model, hint = route_model(
+            user_input,
+            provider,
+            current_model,
+            automodel_enabled=automodel_enabled,
+        )
+        if hint:
+            print(f"  \033[2m{hint}\033[0m")
+        # 更新 model 用于本轮 react_loop 和 system message
+        if routed_model != current_model:
+            model = routed_model
+            rebuild_system_message()
 
         try:
             await react_loop(
@@ -295,3 +341,6 @@ async def main_loop(
             )
         except Exception as e:
             print(f"[ERROR] {type(e).__name__}: {e}")
+
+        # 本轮结束后恢复为 auto 路由基准（保持 automodel 开启时可继续动态切换）
+        # 如果 automodel 关闭，model 已在手动切换时固定，保持不变

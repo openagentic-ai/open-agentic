@@ -964,15 +964,17 @@ CLI 内置命令：
 | `/provider-config [id]` | 配置厂商 API Key / API Base |
 | `/login-platform` / `/logout-platform` | 平台账号登录/登出（JWT） |
 | `/quit` | 退出 |
+| `/automodel [on/off]` | 开启/关闭 DeepSeek V4 Pro/Flash 智能自动切换 |
 
 DeepSeek（OpenAI 兼容）示例：
 
 | 场景 | 建议模型 |
 |------|------|
-| 默认对话（V3.2 非思考） | `deepseek/deepseek-chat` |
-| 推理优先（V3.2 思考模式） | `deepseek/deepseek-reasoner` |
+| 默认对话（V4 Flash） | `deepseek/deepseek-v4-flash` |
+| 复杂任务（V4 Pro） | `deepseek/deepseek-v4-pro` |
+| 旧版推理优先 | `deepseek/deepseek-reasoner` |
 
-说明：当前内置 DeepSeek profile 的模型顺序为 `deepseek-reasoner` 优先于 `deepseek-chat`。
+说明：内置 DeepSeek profile 支持 V4 Flash/Pro 自动路由（`/automodel`），也兼容旧版 `deepseek-reasoner` 和 `deepseek-chat`。
 
 可用模型（Ollama 本地）：
 
