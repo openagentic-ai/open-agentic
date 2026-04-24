@@ -12,21 +12,17 @@ from openagentic.cli.platform_adapter import CLI_PLATFORM
 
 
 def _build_source_fingerprint(pyproject: Path, src_dir: Path) -> str:
+    """Only track pyproject.toml — editable install means .py changes take effect
+    immediately without reinstall.  Reinstall is only needed when dependencies or
+    package metadata change."""
     h = hashlib.sha256()
-
-    def _feed(path: Path) -> None:
-        rel = path.as_posix().encode("utf-8", errors="replace")
-        try:
-            stat = path.stat()
-        except OSError:
-            return
-        h.update(rel)
-        h.update(str(stat.st_size).encode("ascii"))
-        h.update(str(stat.st_mtime_ns).encode("ascii"))
-
-    _feed(pyproject)
-    for path in sorted(src_dir.rglob("*.py")):
-        _feed(path)
+    try:
+        stat = pyproject.stat()
+    except OSError:
+        return ""
+    h.update(pyproject.as_posix().encode("utf-8"))
+    h.update(str(stat.st_size).encode("ascii"))
+    h.update(str(stat.st_mtime_ns).encode("ascii"))
     return h.hexdigest()
 
 
@@ -69,6 +65,7 @@ def maybe_auto_install_editable() -> None:
         cwd=str(project_root),
         text=True,
         capture_output=True,
+        encoding="utf-8",
     )
     if result.returncode != 0:
         print("[WARN] 自动安装失败，请手动执行: pip install -e .")

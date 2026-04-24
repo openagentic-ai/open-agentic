@@ -122,7 +122,7 @@ async def _run_command(args: dict[str, Any]) -> str:
             stderr=asyncio.subprocess.STDOUT,
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        output = stdout.decode(errors="replace")
+        output = stdout.decode("utf-8", errors="replace")
         if len(output) > 4000:
             output = output[:4000] + "\n... (truncated)"
         return f"Exit code: {proc.returncode}\n{output}"
@@ -137,7 +137,7 @@ async def _read_file(args: dict[str, Any]) -> str:
     path = args.get("path", "")
     try:
         loop = asyncio.get_event_loop()
-        content = await loop.run_in_executor(None, lambda: open(path, "r").read())
+        content = await loop.run_in_executor(None, lambda: open(path, "r", encoding="utf-8").read())
         if len(content) > 4000:
             content = content[:4000] + "\n... (truncated)"
         return content
@@ -150,7 +150,7 @@ async def _write_file(args: dict[str, Any]) -> str:
     content = args.get("content", "")
     try:
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, lambda: open(path, "w").write(content))
+        await loop.run_in_executor(None, lambda: open(path, "w", encoding="utf-8").write(content))
         return f"Successfully wrote {len(content)} characters to {path}"
     except Exception as e:
         return f"Error: {e}"
@@ -181,7 +181,7 @@ async def _python_exec(args: dict[str, Any]) -> str:
             stderr=asyncio.subprocess.STDOUT,
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
-        output = stdout.decode(errors="replace")
+        output = stdout.decode("utf-8", errors="replace")
         if len(output) > 4000:
             output = output[:4000] + "\n... (truncated)"
         return f"Exit code: {proc.returncode}\n{output}"

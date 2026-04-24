@@ -20,6 +20,20 @@ def _is_deepseek_reasoning_model(model: str) -> bool:
     return "deepseek" in lower and ("v4" in lower or "reasoner" in lower)
 
 
+def _ensure_reasoning_content(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Ensure all assistant messages have reasoning_content for DeepSeek thinking mode.
+
+    DeepSeek API requires reasoning_content on every assistant message when
+    thinking mode is enabled, even if the original response had no thinking.
+    """
+    patched = []
+    for msg in messages:
+        if msg.get("role") == "assistant" and "reasoning_content" not in msg:
+            msg = {**msg, "reasoning_content": ""}
+        patched.append(msg)
+    return patched
+
+
 async def litellm_chat(
     messages: list[dict[str, Any]],
     model: str,
@@ -28,14 +42,16 @@ async def litellm_chat(
     tools: list[dict] | None = None,
 ) -> dict:
     """Call model via LiteLLM with optional tool calling."""
+    is_reasoning = _is_deepseek_reasoning_model(model)
+    send_messages = _ensure_reasoning_content(messages) if is_reasoning else messages
     kwargs: dict = {
         "model": model,
-        "messages": messages,
+        "messages": send_messages,
         "temperature": 0.3,
         "api_base": api_base or None,
         "api_key": api_key or None,
     }
-    if _is_deepseek_reasoning_model(model):
+    if is_reasoning:
         kwargs["thinking"] = {"type": "enabled"}
     if tools:
         kwargs["tools"] = tools

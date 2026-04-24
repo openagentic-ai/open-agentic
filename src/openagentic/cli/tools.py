@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any, Callable, Coroutine
+
+from rich.console import Console
+
+_tools_console = Console()
 
 MAX_OUTPUT = 4000  # truncate long outputs
 
@@ -111,11 +117,16 @@ TOOLS = [
 ]
 
 
-def confirm_user_action(title: str, detail: str) -> bool:
-    """Interactive yes/no; non-TTY or cancel → False (Claude-style gate)."""
+# Type alias for async confirm callback used by the concurrent input queue.
+# Signature: async (title, detail) -> bool
+ConfirmFn = Callable[[str, str], Coroutine[Any, Any, bool]]
+
+
+def _default_confirm_sync(title: str, detail: str) -> bool:
+    """Fallback interactive yes/no when no async confirm_fn is provided."""
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         return False
-    print(f"\n\033[33m[需要确认] {title}\033[0m")
+    _tools_console.print(f"\n[yellow]确认: {title}[/yellow]")
     print(detail)
     try:
         ans = input("确认继续? (Y/N): ").strip().lower()
@@ -124,35 +135,47 @@ def confirm_user_action(title: str, detail: str) -> bool:
     return ans in ("y", "yes")
 
 
-def execute_tool(name: str, args: dict) -> str:
-    """Execute a tool and return result string."""
+def _run_command_sync(cmd: str) -> str:
+    """Run a shell command synchronously (called via asyncio.to_thread)."""
+    result = subprocess.run(
+        cmd, shell=True, capture_output=True, text=True, timeout=60,
+        encoding="utf-8",
+    )
+    output = result.stdout
+    if result.stderr:
+        output += ("\n" if output else "") + result.stderr
+    output = output.strip()
+    if not output:
+        output = "(no output)"
+    if len(output) > MAX_OUTPUT:
+        output = output[:MAX_OUTPUT] + f"\n... (truncated, {len(output)} chars total)"
+    if result.returncode != 0:
+        output = f"[exit code {result.returncode}]\n{output}"
+    return output
+
+
+async def execute_tool(
+    name: str,
+    args: dict,
+    confirm_fn: ConfirmFn | None = None,
+) -> str:
+    """Execute a tool and return result string.
+
+    Args:
+        confirm_fn: Optional async callable for user confirmation.
+                    If None, falls back to synchronous stdin prompt.
+    """
     try:
         if name == "run_command":
             cmd = args.get("command", "")
-            print(f"  \033[33m$ {cmd}\033[0m")
-            result = subprocess.run(
-                cmd, shell=True, capture_output=True, text=True, timeout=60
-            )
-            output = result.stdout
-            if result.stderr:
-                output += ("\n" if output else "") + result.stderr
-            output = output.strip()
-            if not output:
-                output = "(no output)"
-            if len(output) > MAX_OUTPUT:
-                output = output[:MAX_OUTPUT] + f"\n... (truncated, {len(output)} chars total)"
-            if result.returncode != 0:
-                output = f"[exit code {result.returncode}]\n{output}"
-            return output
+            _tools_console.print(f"  [bold yellow]$[/bold yellow] [dim]{cmd}[/dim]")
+            return await asyncio.to_thread(_run_command_sync, cmd)
 
         elif name == "read_file":
             path = args.get("path", "")
-            print(f"  \033[33m[read] {path}\033[0m")
-            with open(path) as f:
-                content = f.read()
-            if len(content) > MAX_OUTPUT:
-                content = content[:MAX_OUTPUT] + f"\n... (truncated, {len(content)} chars total)"
-            return content or "(empty file)"
+            _tools_console.print(f"  [dim]→ read[/dim] {path}")
+            content = await asyncio.to_thread(_read_file_sync, path)
+            return content
 
         elif name == "write_file":
             path = args.get("path", "").strip()
@@ -166,9 +189,13 @@ def execute_tool(name: str, args: dict) -> str:
             op_label = "覆盖已有文件" if exists else "新建文件（增加文件）"
             title = "覆盖写入文件" if exists else "新建文件"
             preview = f"路径: {p}\n字节数: {len(content.encode('utf-8'))}\n操作: {op_label}"
-            if not confirm_user_action(title, preview):
+            if confirm_fn:
+                confirmed = await confirm_fn(title, preview)
+            else:
+                confirmed = _default_confirm_sync(title, preview)
+            if not confirmed:
                 return "[REFUSED] 用户未确认写入，已取消（可用自然语言说明如何手动修改）"
-            print(f"  \033[33m[write] {p} ({len(content)} chars)\033[0m")
+            _tools_console.print(f"  [dim]→ write[/dim] {p} [dim]({len(content)} chars)[/dim]")
             os.makedirs(str(p.parent), exist_ok=True)
             with open(p, "w", encoding="utf-8") as f:
                 f.write(content)
@@ -181,9 +208,15 @@ def execute_tool(name: str, args: dict) -> str:
             p = Path(raw).resolve()
             if not p.is_file():
                 return f"[ERROR] delete_file: 不是普通文件或不存在: {p}"
-            if not confirm_user_action("删除文件", f"路径: {p}\n此操作不可撤销"):
+            title = "删除文件"
+            detail = f"路径: {p}\n此操作不可撤销"
+            if confirm_fn:
+                confirmed = await confirm_fn(title, detail)
+            else:
+                confirmed = _default_confirm_sync(title, detail)
+            if not confirmed:
                 return "[REFUSED] 用户未确认删除，已取消"
-            print(f"  \033[33m[delete] {p}\033[0m")
+            _tools_console.print(f"  [dim]→ delete[/dim] {p}")
             p.unlink()
             return f"OK: deleted file {p}"
 
@@ -194,3 +227,12 @@ def execute_tool(name: str, args: dict) -> str:
 
     except Exception as e:
         return f"[ERROR] {type(e).__name__}: {e}"
+
+
+def _read_file_sync(path: str) -> str:
+    """Read file synchronously (for asyncio.to_thread)."""
+    with open(path, encoding="utf-8") as f:
+        content = f.read()
+    if len(content) > MAX_OUTPUT:
+        content = content[:MAX_OUTPUT] + f"\n... (truncated, {len(content)} chars total)"
+    return content or "(empty file)"

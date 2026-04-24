@@ -2,20 +2,47 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import sys
 from typing import Any
 
 from rich.console import Console
-from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.spinner import Spinner
 
 from openagentic.cli.llm import litellm_chat
-from openagentic.cli.tools import TOOLS, execute_tool
+from openagentic.cli.tools import TOOLS, ConfirmFn, execute_tool
 from openagentic.config import SETTINGS
 
 _console = Console()
+
+_SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+
+async def _spin_while(coro, text: str = "thinking..."):
+    """Await *coro* while animating a braille spinner on the terminal."""
+    done = False
+
+    async def _spin() -> None:
+        i = 0
+        while not done:
+            frame = _SPINNER[i % len(_SPINNER)]
+            sys.stdout.write(f"\r  {frame} {text}")
+            sys.stdout.flush()
+            await asyncio.sleep(0.08)
+            i += 1
+        # erase spinner line, move to fresh line
+        sys.stdout.write("\r" + " " * (len(text) + 30) + "\r")
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+
+    task = asyncio.create_task(_spin())
+    try:
+        return await coro
+    finally:
+        done = True
+        await task
 
 
 async def react_loop(
@@ -27,6 +54,7 @@ async def react_loop(
     *,
     platform_api_base: str | None = None,
     platform_user_email: str | None = None,
+    confirm_fn: ConfirmFn | None = None,
 ) -> str:
     """Run the ReAct loop: Thought → Action → Observation → ... → done."""
     base = (platform_api_base or "").strip()
@@ -35,7 +63,7 @@ async def react_loop(
             "[平台] 已配置 OpenAgentic 服务地址，但未登录，ReAct 代理不会调用大模型。"
             "请先执行 `/login-platform` 完成注册或登录（与 LLM 厂商 Key 无关），再发任务。"
         )
-        print(f"\n\033[33m{msg}\033[0m")
+        _console.print(f"\n[yellow]{msg}[/yellow]")
         messages.append({"role": "user", "content": user_input})
         messages.append({"role": "assistant", "content": msg})
         return msg
@@ -50,12 +78,14 @@ async def react_loop(
     for i in range(max_iter):
         if max_iter > 10 and i == max_iter - 6:
             _console.print(
-                f"\n[yellow][提示] 已接近单轮工具循环上限（{max_iter}），"
+                f"[yellow]已接近单轮工具循环上限（{max_iter}），"
                 "若仍无终答将自动停止并给出明确说明。[/yellow]"
             )
 
-        with Live(Spinner("dots", text="[dim]thinking...[/dim]"), console=_console, transient=True):
-            resp = await litellm_chat(messages, model, api_base=api_base, api_key=api_key, tools=TOOLS)
+        resp = await _spin_while(
+            litellm_chat(messages, model, api_base=api_base, api_key=api_key, tools=TOOLS),
+            text="思考中...",
+        )
         msg = resp.get("message", {})
         content = msg.get("content", "")
         tool_calls = msg.get("tool_calls", [])
@@ -64,10 +94,10 @@ async def react_loop(
         if thinking:
             lines = thinking.strip().split("\n")
             if len(lines) > 3:
-                _console.print(f"  [dim][thinking] {lines[0]}... ({len(lines)} lines)[/dim]")
+                _console.print(f"  [dim]⏺ {lines[0]}...[/dim]")
             else:
                 for line in lines:
-                    _console.print(f"  [dim][thinking] {line}[/dim]")
+                    _console.print(f"  [dim]⏺ {line}[/dim]")
 
         if not tool_calls:
             if content:
@@ -95,7 +125,7 @@ async def react_loop(
             if isinstance(args, str):
                 args = json.loads(args)
 
-            _console.print(f"\n  [cyan][tool: {name}][/cyan]")
+            _console.print(f"  [cyan]✦ {name}[/cyan]")
 
             if name == "done":
                 summary = args.get("summary", content or "Done.")
@@ -107,7 +137,7 @@ async def react_loop(
                 messages.append({"role": "tool", "tool_call_id": tid_done, "content": summary})
                 return summary
 
-            result = execute_tool(name, args)
+            result = await execute_tool(name, args, confirm_fn=confirm_fn)
             last_tool_name = name
             last_result_preview = (result or "")[:400].replace("\n", " ")
             _console.print(f"  [dim]{result[:500]}[/dim]")
@@ -132,6 +162,6 @@ async def react_loop(
         "③ 下一条消息要求模型「先用一段话总结当前进度与缺口，不要继续调工具」。"
     )
     _console.print()
-    _console.print(Panel(Markdown(conclusion), title="[red]已达 ReAct 循环上限[/red]", border_style="yellow"))
+    _console.print(Panel(Markdown(conclusion), title="ReAct 循环上限", border_style="yellow"))
     messages.append({"role": "assistant", "content": conclusion})
     return conclusion

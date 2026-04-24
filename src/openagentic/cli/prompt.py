@@ -5,8 +5,10 @@ from __future__ import annotations
 import platform
 import re
 
+# Only trigger on explicit slash-command or very specific standalone questions.
+# DO NOT match general conversation that merely mentions "模型" / "大模型".
 IDENTITY_QUESTION_RE = re.compile(
-    r"(你背后|你用的|什么模型|哪个模型|provider|底层模型|大模型|what model|which model|model provider)",
+    r"^(你是什么模型|你用的什么模型|当前是什么模型|当前用的什么模型)$",
     re.IGNORECASE,
 )
 
