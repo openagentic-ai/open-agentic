@@ -47,6 +47,7 @@
 | **Phase 2** | **基础版已完成** | 新增 `agent/` 与 `mcp/` 实现：Agent CRUD、最小 ReAct 执行器、工具注册表、MCP HTTP JSON-RPC 客户端、执行历史落库与 API。 |
 | **Phase 3** | **已完成** | `workflow/` 已实现：Workflow CRUD、Run 执行与取消、DAG 校验与拓扑执行、节点重试/超时、变量模板渲染、运行轨迹与状态查询。 |
 | **Phase 4** | **已完成** | `knowledge/` 已落地：知识库 CRUD、文档上传/批量处理、多模态文档摘要入库、向量检索 + 重排序、向量索引优化、`knowledge_search` 工具集成。 |
+| **测试覆盖（Phase 0–4）** | **已增强** | 新增 `tests/core/auth`、`tests/core/chat`、`tests/core/llm`、`tests/agent`、`tests/mcp`、`tests/smoke`，补充单元+集成+异常边界；`tests/smoke/test_phase0_ops_smoke.py` 提供真实 Alembic 迁移与 Compose `/health` 烟雾测试（无 Docker 环境会 skip）。 |
 | **Phase 4.5** | **规划中** | 四层记忆系统：Working Memory（滑动窗口+摘要）、Core Memory（用户画像/项目事实）、Episodic Memory（跨会话语义检索）、Procedural Memory（技能提炼与自优化）。参考 Claude Code / Hermes Agent / MemGPT 架构。 |
 | **Phase 5** | **未实现（仅部分基建）** | 无完整多租户计费闭环、无 Prometheus **`/metrics`** 等；**`structlog` 已接入** 不等于「可观测性全套」。`tenant/`、`observability/` 多为占位。 |
 | **Phase 6** | **部分** | **`ui/`** 已有多页面（Sessions、Settings、Skills、Channels、Devices 等）；Skills 页面已实现前端 UI 与静态数据，后端 API 待完善；工作流编辑器、知识库管理 UI 等 **与 Phase 4/5 后端能力逐步形成闭环** |
@@ -545,6 +546,24 @@ python -c "import json; s=json.load(open('openapi.json')); keep={'/health','/api
 schemathesis run --url http://127.0.0.1:8000 --include-method GET --max-examples 20 ./openapi.public.json
 ```
 
+### 测试执行（与当前仓库一致）
+
+```bash
+# 全量测试（当前约 80+ 用例）
+pytest -q
+
+# CLI 与交互边界
+pytest -q tests/cli
+
+# Phase 0 运维烟雾（需本机可用 Docker）
+pytest -q tests/smoke/test_phase0_ops_smoke.py
+```
+
+- `tests/smoke/test_phase0_ops_smoke.py` 包含：
+  - 真实 PostgreSQL + `alembic upgrade head` smoke（非迁移脚本文本断言）
+  - Docker Compose `app + postgres` 启停与 `/health` smoke
+- 若当前环境无 Docker，这两项 smoke 会被自动 `skip`，不影响其余测试。
+
 ---
 
 ## 难点与取舍
@@ -912,7 +931,7 @@ cd /opt/open-agentic && source .venv/bin/activate
 python -m openagentic.cli
 
 # 使用 OpenAI 兼容网关（如 DeepSeek）
-python -m openagentic.cli --provider openai -m deepseek-chat
+python -m openagentic.cli --provider deepseek -m deepseek/deepseek-chat
 
 # 指定模型
 python -m openagentic.cli -m ollama/deepseek-r1:32b
@@ -941,7 +960,9 @@ CLI 内置命令：
 |------|------|
 | `/clear` | 清除对话历史 |
 | `/model ollama/qwen3:4b` | 切换模型 |
-| `/system <prompt>` | 设置系统提示 |
+| `/providers` / `/provider` / `/provider <id>` | 查看并切换厂商（TTY 下支持 ↑/↓ 选择） |
+| `/provider-config [id]` | 配置厂商 API Key / API Base |
+| `/login-platform` / `/logout-platform` | 平台账号登录/登出（JWT） |
 | `/quit` | 退出 |
 
 DeepSeek（OpenAI 兼容）示例：
@@ -986,7 +1007,7 @@ DeepSeek（OpenAI 兼容）示例：
 - `GET /api/models`
 - `GET /api/llm/providers`、`PUT /api/llm/providers/{provider_id}`、`PUT /api/llm/default-model`
 - `GET/POST /api/agents`、`GET/PATCH/DELETE /api/agents/{agent_id}`、`POST /api/agents/{agent_id}/execute`
-- `GET /api/agents/{agent_id}/executions`、`POST /api/agent/message`
+- `GET /api/agents/{agent_id}/executions`
 - `GET /api/sessions`、`GET /api/channels`、`GET /api/presence` 仍为简化桩响应（兼容旧前端）。
 
 ---
