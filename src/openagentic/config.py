@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     CLI_DEFAULT_MODEL: str = "qwen3:14b"
     OPENAGENTIC_API_BASE: str = ""
 
+    # CLI env-var override (like Claude Code's ANTHROPIC_* vars)
+    OPENAGENTIC_BASE_URL: str = ""
+    OPENAGENTIC_AUTH_TOKEN: str = ""
+    OPENAGENTIC_MODEL: str = ""
+
     # File storage
     UPLOAD_DIR: str = "/data/uploads"
 

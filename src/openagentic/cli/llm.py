@@ -3,9 +3,21 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 from typing import Any
 
 import litellm
+
+# OPENAGENTIC_DEBUG=1 enables litellm debug logging
+if os.environ.get("OPENAGENTIC_DEBUG"):
+    litellm._turn_on_debug()
+
+
+def _is_deepseek_reasoning_model(model: str) -> bool:
+    """Check if model is a DeepSeek reasoning/thinking model."""
+    lower = model.lower()
+    return "deepseek" in lower and ("v4" in lower or "reasoner" in lower)
 
 
 async def litellm_chat(
@@ -23,10 +35,18 @@ async def litellm_chat(
         "api_base": api_base or None,
         "api_key": api_key or None,
     }
+    if _is_deepseek_reasoning_model(model):
+        kwargs["thinking"] = {"type": "enabled"}
     if tools:
         kwargs["tools"] = tools
         kwargs["tool_choice"] = "auto"
-    response = await litellm.acompletion(**kwargs)
+    kwargs["timeout"] = kwargs.get("timeout", 120)  # 2 min timeout, prevent hanging
+    try:
+        response = await litellm.acompletion(**kwargs)
+    except Exception as e:
+        # Print full error details to stderr so user can see what happened
+        print(f"\n[LLM ERROR] {type(e).__name__}: {e}", file=sys.stderr)
+        raise
     choice = response.choices[0]
     msg = choice.message
     tool_calls = []

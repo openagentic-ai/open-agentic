@@ -54,6 +54,22 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # OPENAGENTIC_* env-var overrides (like Claude Code's ANTHROPIC_* vars)
+    env_base_url = SETTINGS.OPENAGENTIC_BASE_URL.strip()
+    env_auth_token = SETTINGS.OPENAGENTIC_AUTH_TOKEN.strip()
+    env_model = SETTINGS.OPENAGENTIC_MODEL.strip()
+
+    model = env_model or args.model
+    provider = args.provider
+
+    # If env vars set, auto-detect provider from model name or base_url
+    if env_base_url or env_auth_token:
+        if not env_model:
+            print("[WARN] OPENAGENTIC_BASE_URL/AUTH_TOKEN set but OPENAGENTIC_MODEL missing, using default model")
+        # Inject as a runtime override — provider will be resolved from model prefix
+        if provider == "auto" and "/" in model:
+            provider = model.split("/")[0]
+
     api_base = (args.api_base or "").strip() or None
     if args.require_auth and not api_base:
         api_base = "http://127.0.0.1:8000"
@@ -66,12 +82,14 @@ def main() -> None:
     try:
         asyncio.run(
             main_loop(
-                args.model,
-                args.provider,
+                model,
+                provider,
                 args.system,
                 platform_api_base=api_base,
                 platform_user_email=platform_email,
                 platform_access_token=platform_token,
+                env_base_url=env_base_url or None,
+                env_auth_token=env_auth_token or None,
             )
         )
     except KeyboardInterrupt:

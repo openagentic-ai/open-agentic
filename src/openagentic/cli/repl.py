@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import sys
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.patch_stdout import patch_stdout
 
 from openagentic.cli.auth import clear_cli_session_file, platform_authenticate_sync
@@ -52,8 +54,23 @@ async def main_loop(
     platform_api_base: str | None = None,
     platform_user_email: str | None = None,
     platform_access_token: str | None = None,
+    env_base_url: str | None = None,
+    env_auth_token: str | None = None,
 ):
     session = PromptSession()
+
+    def _term_width() -> int:
+        try:
+            return os.get_terminal_size().columns
+        except OSError:
+            return 80
+
+    def _print_separator(style: str = "dim") -> None:
+        w = _term_width()
+        if style == "bold":
+            print(f"\033[1m{'─' * w}\033[0m")
+        else:
+            print(f"\033[2m{'─' * w}\033[0m")
 
     async def _read_line(prompt_text: str) -> str:
         CLI_PLATFORM.ensure_line_input_mode()
@@ -84,6 +101,12 @@ async def main_loop(
                     print(f"[WARN] 未识别 provider: {selected}，继续使用 {provider}")
 
     api_base, api_key = require_provider_configured(provider)
+
+    # OPENAGENTIC_* env-var overrides take priority
+    if env_base_url:
+        api_base = env_base_url
+    if env_auth_token:
+        api_key = env_auth_token
     endpoint = api_base or "(provider default)"
 
     plat: dict[str, str | None] = {
@@ -105,16 +128,23 @@ async def main_loop(
 
     rebuild_system_message()
 
-    print(f"OpenAgentic Agent  |  provider: {provider}  |  model: {model}")
+    env_hint = " (via OPENAGENTIC_* env)" if env_base_url or env_auth_token else ""
+    print()
+    _print_separator("bold")
+    print(f"  \033[1mOpenAgentic Agent\033[0m  \033[2m│\033[0m  {provider}  \033[2m│\033[0m  {model}{env_hint}")
+    if env_base_url:
+        print(f"  \033[2mendpoint: {env_base_url}\033[0m")
     if plat["email"] and plat["base"]:
-        print(f"  platform: {plat['email']} @ {plat['base'].rstrip('/')}")
-    print("Tools: run_command, read_file, write_file（新建/覆盖均需确认）, delete_file（需确认）")
+        print(f"  \033[2mplatform: {plat['email']} @ {plat['base'].rstrip('/')}\033[0m")
+    _print_separator("bold")
     print_help()
-    print("-" * 60)
 
     while True:
         try:
-            user_input = (await _read_line("\n> ")).strip()
+            print()
+            _print_separator()
+            user_input = (await _read_line("\033[1m❯\033[0m ")).strip()
+            _print_separator()
         except (EOFError, KeyboardInterrupt):
             print("\nBye!")
             break
@@ -128,7 +158,7 @@ async def main_loop(
             messages.clear()
             messages.append({"role": "system", "content": ""})
             rebuild_system_message()
-            print("[history cleared]")
+            print("\n  \033[2m✓ history cleared\033[0m")
             continue
         if user_input == "/help":
             print_help()

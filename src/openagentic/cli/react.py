@@ -6,8 +6,10 @@ import json
 from typing import Any
 
 from rich.console import Console
+from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
+from rich.spinner import Spinner
 
 from openagentic.cli.llm import litellm_chat
 from openagentic.cli.tools import TOOLS, execute_tool
@@ -52,7 +54,8 @@ async def react_loop(
                 "若仍无终答将自动停止并给出明确说明。[/yellow]"
             )
 
-        resp = await litellm_chat(messages, model, api_base=api_base, api_key=api_key, tools=TOOLS)
+        with Live(Spinner("dots", text="[dim]thinking...[/dim]"), console=_console, transient=True):
+            resp = await litellm_chat(messages, model, api_base=api_base, api_key=api_key, tools=TOOLS)
         msg = resp.get("message", {})
         content = msg.get("content", "")
         tool_calls = msg.get("tool_calls", [])
