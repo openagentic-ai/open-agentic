@@ -1,4 +1,4 @@
-"""Workflow business logic and execution engine."""
+"""模块说明（中文）：`src/openagentic/workflow/service.py`。\n\n该文件承载核心业务逻辑，供路由层复用。\n"""
 
 from __future__ import annotations
 
@@ -37,6 +37,15 @@ async def get_workflow(db: AsyncSession, workflow_id: uuid.UUID, user_id: uuid.U
 
 
 def validate_definition(definition: dict[str, Any]) -> None:
+    """校验工作流定义是否合法。
+
+    重点检查：
+    - nodes/edges 结构；
+    - 节点 ID 唯一性；
+    - 节点类型是否支持；
+    - edge 引用是否存在；
+    - 图是否有环（通过拓扑排序检测）。
+    """
     nodes = definition.get("nodes")
     edges = definition.get("edges", [])
     if not isinstance(nodes, list) or not nodes:
@@ -70,6 +79,7 @@ def validate_definition(definition: dict[str, Any]) -> None:
 
 
 async def create_workflow(db: AsyncSession, user_id: uuid.UUID, body: WorkflowCreate) -> Workflow:
+    """创建工作流前先做定义校验。"""
     validate_definition(body.definition)
     workflow = Workflow(
         user_id=user_id,
@@ -84,6 +94,7 @@ async def create_workflow(db: AsyncSession, user_id: uuid.UUID, body: WorkflowCr
 
 
 async def update_workflow(db: AsyncSession, workflow: Workflow, body: WorkflowUpdate) -> Workflow:
+    """更新工作流；若 definition 被修改，会再次校验。"""
     patch = body.model_dump(exclude_unset=True)
     if "definition" in patch and patch["definition"] is not None:
         validate_definition(patch["definition"])
@@ -102,6 +113,7 @@ async def create_run(
     workflow: Workflow,
     input_data: dict[str, Any] | None,
 ) -> WorkflowExecution:
+    """创建一次运行记录（初始状态 pending）。"""
     run = WorkflowExecution(
         workflow_id=workflow.id,
         user_id=workflow.user_id,
@@ -140,12 +152,14 @@ async def get_run(
 
 
 async def request_cancel(db: AsyncSession, run: WorkflowExecution) -> WorkflowExecution:
+    """标记取消请求（软取消标记，执行循环会主动感知）。"""
     run.node_states = {**(run.node_states or {}), CANCEL_KEY: True}
     await db.flush()
     return run
 
 
 def _is_cancel_requested(run: WorkflowExecution) -> bool:
+    """统一判断 run 是否已被请求取消。"""
     node_states = getattr(run, "node_states", None) or {}
     if bool(node_states.get(CANCEL_KEY)):
         return True
@@ -153,6 +167,11 @@ def _is_cancel_requested(run: WorkflowExecution) -> bool:
 
 
 async def execute_run(db: AsyncSession, run: WorkflowExecution, workflow: Workflow) -> WorkflowExecution:
+    """执行单次 Run。
+
+    状态流转：
+    pending -> running -> completed/failed/cancelled
+    """
     run.status = ExecutionStatus.running
     run.started_at = datetime.now(timezone.utc)
     run.completed_at = None
@@ -174,6 +193,7 @@ async def execute_run(db: AsyncSession, run: WorkflowExecution, workflow: Workfl
         run.output_data = {"result": output}
         run.node_states = {**(run.node_states or {}), TRACE_KEY: trace}
     except asyncio.CancelledError:
+        # 外部协程取消（如任务终止）统一映射为 cancelled。
         run.status = ExecutionStatus.cancelled
         run.node_states = {**(run.node_states or {}), "error": "Run cancelled"}
     except Exception as exc:
@@ -186,6 +206,7 @@ async def execute_run(db: AsyncSession, run: WorkflowExecution, workflow: Workfl
 
 
 async def execute_run_by_id(run_id: uuid.UUID, workflow_id: uuid.UUID, user_id: uuid.UUID) -> None:
+    """后台任务入口：按 ID 拉取 run/workflow 并执行。"""
     async with async_session() as db:
         run = await get_run(db, run_id, user_id)
         workflow = await get_workflow(db, workflow_id, user_id)
@@ -196,6 +217,7 @@ async def execute_run_by_id(run_id: uuid.UUID, workflow_id: uuid.UUID, user_id: 
 
 
 def _topological_order(definition: dict[str, Any]) -> list[str]:
+    """返回 DAG 拓扑序；若有环则抛 ValueError。"""
     nodes = definition.get("nodes", [])
     edges = definition.get("edges", [])
     ids = [n["id"] for n in nodes]
@@ -228,6 +250,7 @@ async def _execute_definition(
     definition: dict[str, Any],
     input_payload: dict[str, Any],
 ) -> tuple[Any, list[dict[str, Any]]]:
+    """按拓扑序执行整个定义并生成 trace。"""
     nodes = {n["id"]: n for n in definition.get("nodes", [])}
     order = _topological_order(definition)
     outputs: dict[str, Any] = {}
@@ -269,6 +292,7 @@ async def _execute_definition(
                 )
                 break
             except Exception as exc:  # noqa: PERF203
+                # 失败后根据 retries 决定重试或失败终止，并记录结构化 trace。
                 last_err = str(exc)
                 if attempts > retries:
                     trace.append(
@@ -296,6 +320,7 @@ async def _execute_definition(
 
 
 async def _execute_node(node_type: str, config: dict[str, Any]) -> Any:
+    """执行单个节点（value/tool/llm）。"""
     if node_type == "value":
         return config.get("value")
 
@@ -328,6 +353,7 @@ async def _execute_node(node_type: str, config: dict[str, Any]) -> Any:
 
 
 def _render_value(value: Any, context: dict[str, Any]) -> Any:
+    """递归渲染模板变量，支持 dict/list/str。"""
     if isinstance(value, dict):
         return {k: _render_value(v, context) for k, v in value.items()}
     if isinstance(value, list):
@@ -338,6 +364,7 @@ def _render_value(value: Any, context: dict[str, Any]) -> Any:
 
 
 def _render_template(template: str, context: dict[str, Any]) -> str:
+    """渲染形如 {{input.xxx}} / {{nodes.n1}} 的模板字符串。"""
     def _replace(match: re.Match[str]) -> str:
         expr = match.group(1).strip()
         resolved = _resolve_expr(context, expr)

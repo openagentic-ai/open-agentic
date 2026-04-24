@@ -1,8 +1,4 @@
-"""A lightweight MCP JSON-RPC client.
-
-This client intentionally keeps a minimal HTTP transport so the Phase 2
-integration point exists without forcing a specific MCP server runtime.
-"""
+"""模块说明（中文）：`src/openagentic/mcp/client.py`。\n\n该文件属于 MCP 集成模块，处理协议调用与工具桥接。\n"""
 
 from __future__ import annotations
 

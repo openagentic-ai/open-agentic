@@ -1,4 +1,4 @@
-"""SQLAlchemy declarative base and common model mixins."""
+"""模块说明（中文）：`src/openagentic/db/base.py`。\n\n该文件定义 ORM 基类与通用模型混入。\n"""
 
 import uuid
 from datetime import datetime

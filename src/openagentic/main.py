@@ -1,4 +1,4 @@
-"""FastAPI application factory."""
+"""模块说明（中文）：`src/openagentic/main.py`。\n\n该文件负责 FastAPI 应用创建、生命周期管理与路由装配。\n"""
 
 from contextlib import asynccontextmanager
 
@@ -11,7 +11,7 @@ from openagentic.config import SETTINGS
 from openagentic.db.base import Base
 from openagentic.db.session import engine
 
-# Import all models so Alembic can detect them
+# 导入全部模型，让 Alembic autogenerate 能完整感知 metadata。
 from openagentic.core.auth.models import User, ApiKey  # noqa: F401
 from openagentic.core.chat.models import Conversation, Message  # noqa: F401
 from openagentic.agent.models import Agent, AgentExecution  # noqa: F401
@@ -23,10 +23,16 @@ logger = structlog.get_logger()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application startup/shutdown lifecycle."""
+    """应用启动/关闭生命周期。
+
+    说明：
+    - 开发环境会调用 create_all 兜底建表，便于本地快速跑通；
+    - 生产环境应使用 Alembic 迁移，不依赖 create_all；
+    - 关闭时显式释放数据库引擎，避免连接残留。
+    """
     logger.info("Starting OpenAgentic", version=__version__, env=SETTINGS.APP_ENV)
 
-    # Create tables (dev only; production uses Alembic)
+    # 仅开发环境自动建表：生产请使用 `alembic upgrade head`。
     if SETTINGS.APP_ENV == "development":
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
@@ -39,6 +45,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    """创建并配置 FastAPI 应用实例。"""
     app = FastAPI(
         title=SETTINGS.APP_NAME,
         version=__version__,
@@ -47,7 +54,8 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
     )
 
-    # CORS
+    # CORS 当前配置为全放开，便于开发联调。
+    # 生产环境建议按域名白名单收敛。
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -56,12 +64,12 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Health check (matches Rust backend's /health)
+    # 健康检查接口：用于容器编排探活与外部监控。
     @app.get("/health")
     async def health_check():
         return {"status": "ok", "version": __version__}
 
-    # Register routers
+    # 注册核心业务路由。
     from openagentic.core.auth.router import router as auth_router
     from openagentic.core.chat.router import router as chat_router
     from openagentic.core.llm.router import router as llm_router
@@ -76,7 +84,7 @@ def create_app() -> FastAPI:
     app.include_router(workflow_router)
     app.include_router(knowledge_router)
 
-    # Backward-compatible endpoints matching Rust backend
+    # 向后兼容的历史接口占位（旧前端依赖），后续可逐步替换为真实实现。
     @app.get("/api/sessions")
     async def list_sessions_compat():
         """Stub for frontend compatibility — will be replaced in Phase 2."""

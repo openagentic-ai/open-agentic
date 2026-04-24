@@ -1,4 +1,4 @@
-"""Text chunking with recursive character splitting."""
+"""模块说明（中文）：`src/openagentic/knowledge/chunker.py`。\n\n该文件属于知识库模块，处理文档、向量与检索能力。\n"""
 
 
 def chunk_text(text: str, chunk_size: int = 500, chunk_overlap: int = 50) -> list[str]:

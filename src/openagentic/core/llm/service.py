@@ -1,4 +1,4 @@
-"""LLM service wrapping LiteLLM for chat completions and streaming."""
+"""模块说明（中文）：`src/openagentic/core/llm/service.py`。\n\n该文件承载核心业务逻辑，供路由层复用。\n"""
 
 import json
 from collections.abc import AsyncGenerator

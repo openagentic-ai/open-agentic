@@ -1,4 +1,4 @@
-"""Minimal ReAct-style executor for Phase 2."""
+"""模块说明（中文）：`src/openagentic/agent/react.py`。\n\n该文件属于 Agent 模块，处理智能体定义、执行与工具调用。\n"""
 
 from __future__ import annotations
 

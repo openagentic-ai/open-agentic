@@ -1,4 +1,4 @@
-"""Knowledge module Pydantic schemas."""
+"""模块说明（中文）：`src/openagentic/knowledge/schemas.py`。\n\n该文件定义请求/响应数据结构与校验规则。\n"""
 
 import uuid
 from datetime import datetime

@@ -1,4 +1,4 @@
-"""Knowledge base service layer."""
+"""模块说明（中文）：`src/openagentic/knowledge/service.py`。\n\n该文件承载核心业务逻辑，供路由层复用。\n"""
 
 import uuid
 import logging
@@ -25,7 +25,7 @@ async def create_knowledge_base(
     chunk_size: int = 500,
     chunk_overlap: int = 50,
 ) -> KnowledgeBase:
-    """Create a new knowledge base."""
+    """创建知识库配置（包含 embedding 模型和切块参数）。"""
     kb = KnowledgeBase(
         user_id=user_id,
         name=name,
@@ -40,7 +40,7 @@ async def create_knowledge_base(
 
 
 async def list_knowledge_bases(db: AsyncSession, user_id: uuid.UUID) -> list[KnowledgeBase]:
-    """List all knowledge bases for a user."""
+    """列出用户的知识库，按创建时间倒序。"""
     result = await db.execute(
         select(KnowledgeBase)
         .where(KnowledgeBase.user_id == user_id)
@@ -52,7 +52,7 @@ async def list_knowledge_bases(db: AsyncSession, user_id: uuid.UUID) -> list[Kno
 async def get_knowledge_base(
     db: AsyncSession, kb_id: uuid.UUID, user_id: uuid.UUID
 ) -> KnowledgeBase | None:
-    """Get a knowledge base by ID, verifying ownership."""
+    """按 ID 查询知识库，并校验归属用户。"""
     result = await db.execute(
         select(KnowledgeBase).where(
             KnowledgeBase.id == kb_id,
@@ -65,7 +65,7 @@ async def get_knowledge_base(
 async def delete_knowledge_base(
     db: AsyncSession, kb_id: uuid.UUID, user_id: uuid.UUID
 ) -> bool:
-    """Delete a knowledge base and all its documents/chunks (via CASCADE)."""
+    """删除知识库（文档与分块通过级联一起删除）。"""
     kb = await get_knowledge_base(db, kb_id, user_id)
     if not kb:
         return False
@@ -84,7 +84,12 @@ async def add_document(
     parts: list[dict[str, Any]] | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> Document:
-    """Add a document to a knowledge base: chunk, embed, and store."""
+    """添加文档并完成“切块->向量化->入库”。
+
+    若中间任一步骤异常：
+    - 文档状态会标记为 failed；
+    - 异常继续向上抛出，交给路由层转换为 HTTP 错误。
+    """
     kb = await get_knowledge_base(db, kb_id, user_id)
     if not kb:
         raise ValueError("Knowledge base not found or access denied")
@@ -109,6 +114,7 @@ async def add_document(
             await db.flush()
             return doc
 
+        # 与配置的 embedding_model 对齐，确保检索向量空间一致。
         embeddings = await embed_texts(chunks, model=kb.embedding_model)
 
         for i, (chunk_content, embedding) in enumerate(zip(chunks, embeddings)):
@@ -132,6 +138,7 @@ async def add_document(
         await db.flush()
 
     except Exception:
+        # 任何处理异常都标记 failed，避免“处理中”状态悬挂。
         doc.status = "failed"
         await db.flush()
         logger.exception("Failed to process document %s", doc.id)
@@ -141,6 +148,7 @@ async def add_document(
 
 
 def _part_to_dict(part: Any) -> dict[str, Any]:
+    """把多模态 part 统一转成 dict 结构，兼容 pydantic 模型输入。"""
     if isinstance(part, dict):
         return part
     if hasattr(part, "model_dump"):
@@ -149,6 +157,7 @@ def _part_to_dict(part: Any) -> dict[str, Any]:
 
 
 def _merge_multimodal_content(content: str, parts: list[Any] | None) -> str:
+    """把文本和多模态部分合并为可索引的统一字符串。"""
     sections: list[str] = []
     if content and content.strip():
         sections.append(content.strip())
@@ -182,6 +191,11 @@ async def add_documents_batch(
     documents: list[dict[str, Any]],
     stop_on_error: bool = False,
 ) -> list[BatchDocumentUploadItem]:
+    """批量导入文档。
+
+    - 默认尽量继续处理后续条目；
+    - `stop_on_error=True` 时遇错即停。
+    """
     items: list[BatchDocumentUploadItem] = []
     for idx, payload in enumerate(documents):
         filename = str(payload.get("filename", f"document-{idx + 1}.txt"))
@@ -221,7 +235,7 @@ async def add_documents_batch(
 async def list_documents(
     db: AsyncSession, kb_id: uuid.UUID, user_id: uuid.UUID
 ) -> list[Document]:
-    """List all documents in a knowledge base."""
+    """列出知识库下所有文档。"""
     kb = await get_knowledge_base(db, kb_id, user_id)
     if not kb:
         raise ValueError("Knowledge base not found or access denied")
@@ -237,7 +251,7 @@ async def list_documents(
 async def delete_document(
     db: AsyncSession, doc_id: uuid.UUID, user_id: uuid.UUID
 ) -> bool:
-    """Delete a document and its chunks, update knowledge base count."""
+    """删除文档并同步更新知识库文档计数。"""
     result = await db.execute(
         select(Document)
         .join(KnowledgeBase, Document.knowledge_base_id == KnowledgeBase.id)
@@ -268,7 +282,7 @@ async def search(
     rerank: bool = True,
     rerank_top_n: int = 20,
 ) -> list[dict]:
-    """Search a knowledge base, verifying user ownership first."""
+    """执行知识库检索（先鉴权，再向量召回，可选重排序）。"""
     kb = await get_knowledge_base(db, kb_id, user_id)
     if not kb:
         raise ValueError("Knowledge base not found or access denied")
@@ -289,6 +303,7 @@ async def optimize_index(
     kb_id: uuid.UUID,
     user_id: uuid.UUID,
 ) -> list[str]:
+    """触发向量索引优化（如 ivfflat/hnsw，取决于底层实现与数据库能力）。"""
     kb = await get_knowledge_base(db, kb_id, user_id)
     if not kb:
         raise ValueError("Knowledge base not found or access denied")

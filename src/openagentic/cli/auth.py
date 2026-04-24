@@ -1,4 +1,4 @@
-"""CLI session file and HTTP login/register against OpenAgentic API."""
+"""模块说明（中文）：`src/openagentic/cli/auth.py`。\n\n该文件属于 CLI 子系统，处理终端交互、命令解析或平台适配。\n"""
 
 from __future__ import annotations
 

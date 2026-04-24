@@ -1,4 +1,4 @@
-"""Agent database models."""
+"""模块说明（中文）：`src/openagentic/agent/models.py`。\n\n该文件定义数据库模型与持久化结构。\n"""
 
 import enum
 import uuid

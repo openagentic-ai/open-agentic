@@ -1,4 +1,4 @@
-"""Async database session management."""
+"""模块说明（中文）：`src/openagentic/db/session.py`。\n\n该文件负责数据库连接与会话工厂。\n"""
 
 from collections.abc import AsyncGenerator
 

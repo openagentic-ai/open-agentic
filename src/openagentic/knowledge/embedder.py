@@ -1,4 +1,4 @@
-"""Generate embeddings via Ollama."""
+"""模块说明（中文）：`src/openagentic/knowledge/embedder.py`。\n\n该文件属于知识库模块，处理文档、向量与检索能力。\n"""
 
 import httpx
 

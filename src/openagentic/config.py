@@ -1,4 +1,4 @@
-"""Application configuration using Pydantic Settings."""
+"""模块说明（中文）：`src/openagentic/config.py`。\n\n该文件集中管理运行时配置与环境变量读取。\n"""
 
 from pydantic_settings import BaseSettings
 

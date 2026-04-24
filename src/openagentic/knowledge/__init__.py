@@ -1,2 +1,2 @@
-"""Knowledge base and RAG module (Phase 4 MVP)."""
+"""模块说明（中文）：`src/openagentic/knowledge/__init__.py`。\n\n该文件用于包初始化与公共导出。\n"""
 

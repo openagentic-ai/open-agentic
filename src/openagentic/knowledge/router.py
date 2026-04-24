@@ -1,4 +1,4 @@
-"""Knowledge base API routes."""
+"""模块说明（中文）：`src/openagentic/knowledge/router.py`。\n\n该文件定义 HTTP 路由与请求入口，负责参数校验与服务层调用。\n"""
 
 import uuid
 

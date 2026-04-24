@@ -1,4 +1,4 @@
-"""Abstract base for OS-specific CLI platform adapters."""
+"""模块说明（中文）：`src/openagentic/cli/_platform_base.py`。\n\n该文件定义 ORM 基类与通用模型混入。\n"""
 
 from __future__ import annotations
 

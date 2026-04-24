@@ -1,4 +1,4 @@
-"""Chat database models: conversations and messages."""
+"""模块说明（中文）：`src/openagentic/core/chat/models.py`。\n\n该文件定义数据库模型与持久化结构。\n"""
 
 import uuid
 from datetime import datetime

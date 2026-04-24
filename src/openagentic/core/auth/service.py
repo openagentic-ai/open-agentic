@@ -1,4 +1,4 @@
-"""Auth business logic: password hashing, JWT token management."""
+"""模块说明（中文）：`src/openagentic/core/auth/service.py`。\n\n该文件承载核心业务逻辑，供路由层复用。\n"""
 
 import uuid
 from datetime import datetime, timedelta, timezone

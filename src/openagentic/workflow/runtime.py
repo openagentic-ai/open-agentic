@@ -1,4 +1,4 @@
-"""In-memory runtime registry for background workflow runs."""
+"""模块说明（中文）：`src/openagentic/workflow/runtime.py`。\n\n该文件属于工作流模块，处理定义、执行与状态管理。\n"""
 
 from __future__ import annotations
 
