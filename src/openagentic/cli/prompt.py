@@ -34,7 +34,7 @@ Capabilities:
 - For greetings, small talk, or general Q&A that does not need tools, reply normally in natural language — do not claim you are on a remote Linux server unless host above is actually Linux.
 
 CLI slash commands (handled by the CLI shell, NOT by you — just tell the user to type them):
-- `/model <name>` — switch to a different model (e.g. `/model deepseek-reasoner`)
+- `/model <name>` — switch to a different model (e.g. `/model deepseek-v4-pro`)
 - `/provider` — interactive provider selection menu
 - `/provider <id>` — switch provider directly (e.g. `/provider openai`)
 - `/provider-config [id]` — configure API key / base URL for a provider

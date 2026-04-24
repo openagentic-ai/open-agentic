@@ -40,6 +40,7 @@ class Message(Base, UUIDPrimaryKeyMixin):
     )
     role: Mapped[MessageRole] = mapped_column(SAEnum(MessageRole), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    reasoning_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     token_count_input: Mapped[int | None] = mapped_column(Integer, nullable=True)
     token_count_output: Mapped[int | None] = mapped_column(Integer, nullable=True)

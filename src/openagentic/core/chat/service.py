@@ -71,7 +71,10 @@ def _build_llm_messages(conversation: Conversation, messages: list[Message], use
     if conversation.system_prompt:
         llm_messages.append({"role": "system", "content": conversation.system_prompt})
     for msg in messages:
-        llm_messages.append({"role": msg.role.value, "content": msg.content})
+        entry: dict = {"role": msg.role.value, "content": msg.content}
+        if msg.reasoning_content:
+            entry["reasoning_content"] = msg.reasoning_content
+        llm_messages.append(entry)
     llm_messages.append({"role": "user", "content": user_message})
     return llm_messages
 
@@ -109,6 +112,7 @@ async def send_message(
         conversation_id=conversation.id,
         role=MessageRole.assistant,
         content=result["content"],
+        reasoning_content=result.get("reasoning_content"),
         model=result["model"],
         token_count_input=result["usage"]["prompt_tokens"],
         token_count_output=result["usage"]["completion_tokens"],

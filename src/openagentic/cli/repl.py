@@ -133,8 +133,57 @@ async def main_loop(
         if user_input == "/help":
             print_help()
             continue
+        if user_input == "/model":
+            from openagentic.core.llm.provider_config import get_provider_store
+            all_profiles = get_provider_store().get().profiles
+            all_models = []
+            for p in all_profiles:
+                if p.enabled:
+                    all_models.extend(p.models)
+            if not all_models:
+                print("[WARN] 没有可用模型。")
+                continue
+            print(f"\n当前模型: {model}")
+            print(f"当前 provider: {provider}\n")
+            print("可用模型:")
+            for idx, m in enumerate(all_models, 1):
+                marker = " ←" if m == model else ""
+                print(f"  {idx}. {m}{marker}")
+            print(f"\n输入序号或模型名切换，直接回车取消。")
+            try:
+                choice = (await _read_line("选择: ")).strip()
+            except (EOFError, KeyboardInterrupt):
+                continue
+            if not choice:
+                print("[model unchanged]")
+                continue
+            if choice.isdigit() and 1 <= int(choice) <= len(all_models):
+                selected_model = all_models[int(choice) - 1]
+            else:
+                selected_model = resolve_model_for_provider(provider, choice)
+            # 找到新模型对应的 provider
+            new_provider = provider
+            for p in all_profiles:
+                if p.enabled and selected_model in p.models:
+                    new_provider = p.id
+                    break
+            if new_provider != provider:
+                provider = new_provider
+                api_base, api_key = require_provider_configured(provider)
+                endpoint = api_base or "(provider default)"
+            model = selected_model
+            print(f"[model → {model}] [provider → {provider}]")
+            rebuild_system_message()
+            continue
         if user_input.startswith("/model "):
-            model = resolve_model_for_provider(provider, user_input[7:].strip())
+            candidate = resolve_model_for_provider(provider, user_input[7:].strip())
+            profile = find_profile(provider)
+            available = profile["models"] if profile else []
+            if available and candidate not in available:
+                print(f"[ERROR] 模型 '{candidate}' 不在当前 provider ({provider}) 的可用列表中。")
+                print(f"  可用模型: {', '.join(available)}")
+                continue
+            model = candidate
             print(f"[model → {model}]")
             rebuild_system_message()
             continue

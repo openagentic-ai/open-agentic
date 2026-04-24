@@ -29,7 +29,8 @@ async def chat_completion(
     )
     choice = response.choices[0]
     usage = response.usage
-    return {
+    reasoning = getattr(choice.message, "reasoning_content", None) or getattr(choice.message, "thinking", None)
+    result = {
         "content": choice.message.content or "",
         "model": response.model,
         "finish_reason": choice.finish_reason,
@@ -39,6 +40,9 @@ async def chat_completion(
             "total_tokens": usage.total_tokens if usage else 0,
         },
     }
+    if reasoning:
+        result["reasoning_content"] = reasoning
+    return result
 
 
 async def chat_completion_stream(

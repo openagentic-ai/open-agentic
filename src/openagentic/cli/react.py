@@ -5,9 +5,15 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from rich.console import Console
+from rich.markdown import Markdown
+from rich.panel import Panel
+
 from openagentic.cli.llm import litellm_chat
 from openagentic.cli.tools import TOOLS, execute_tool
 from openagentic.config import SETTINGS
+
+_console = Console()
 
 
 async def react_loop(
@@ -41,9 +47,9 @@ async def react_loop(
 
     for i in range(max_iter):
         if max_iter > 10 and i == max_iter - 6:
-            print(
-                f"\n\033[33m[提示] 已接近单轮工具循环上限（{max_iter}），"
-                "若仍无终答将自动停止并给出明确说明。\033[0m"
+            _console.print(
+                f"\n[yellow][提示] 已接近单轮工具循环上限（{max_iter}），"
+                "若仍无终答将自动停止并给出明确说明。[/yellow]"
             )
 
         resp = await litellm_chat(messages, model, api_base=api_base, api_key=api_key, tools=TOOLS)
@@ -55,22 +61,28 @@ async def react_loop(
         if thinking:
             lines = thinking.strip().split("\n")
             if len(lines) > 3:
-                print(f"  \033[2m[thinking] {lines[0]}... ({len(lines)} lines)\033[0m")
+                _console.print(f"  [dim][thinking] {lines[0]}... ({len(lines)} lines)[/dim]")
             else:
                 for line in lines:
-                    print(f"  \033[2m[thinking] {line}\033[0m")
+                    _console.print(f"  [dim][thinking] {line}[/dim]")
 
         if not tool_calls:
             if content:
-                print(f"\n\033[32m{content}\033[0m")
-            messages.append({"role": "assistant", "content": content})
+                _console.print()
+                _console.print(Markdown(content))
+            final_msg: dict[str, Any] = {"role": "assistant", "content": content}
+            if thinking:
+                final_msg["reasoning_content"] = thinking
+            messages.append(final_msg)
             return content
 
-        assistant_msg = {
+        assistant_msg: dict[str, Any] = {
             "role": msg["role"],
             "content": msg.get("content"),
             "tool_calls": msg["tool_calls"],
         }
+        if thinking:
+            assistant_msg["reasoning_content"] = thinking
         messages.append(assistant_msg)
 
         for tc in tool_calls:
@@ -80,11 +92,12 @@ async def react_loop(
             if isinstance(args, str):
                 args = json.loads(args)
 
-            print(f"\n  \033[36m[tool: {name}]\033[0m")
+            _console.print(f"\n  [cyan][tool: {name}][/cyan]")
 
             if name == "done":
                 summary = args.get("summary", content or "Done.")
-                print(f"\n\033[32m{summary}\033[0m")
+                _console.print()
+                _console.print(Markdown(summary))
                 tid_done = tc.get("id")
                 if not tid_done:
                     raise RuntimeError("模型返回的 tool_call 缺少 id，无法对接 DeepSeek/OpenAI 兼容 API")
@@ -94,7 +107,7 @@ async def react_loop(
             result = execute_tool(name, args)
             last_tool_name = name
             last_result_preview = (result or "")[:400].replace("\n", " ")
-            print(f"  \033[2m{result[:500]}\033[0m")
+            _console.print(f"  [dim]{result[:500]}[/dim]")
 
             tool_msg: dict = {"role": "tool", "content": result}
             tid = tc.get("id")
@@ -115,6 +128,7 @@ async def react_loop(
         "\n**建议你**：① 查看上方各步工具输出自行判断进度；② 把需求拆小后重试；"
         "③ 下一条消息要求模型「先用一段话总结当前进度与缺口，不要继续调工具」。"
     )
-    print(f"\n\033[31m[已达 ReAct 循环上限]\033[0m\n\033[33m{conclusion}\033[0m")
+    _console.print()
+    _console.print(Panel(Markdown(conclusion), title="[red]已达 ReAct 循环上限[/red]", border_style="yellow"))
     messages.append({"role": "assistant", "content": conclusion})
     return conclusion
