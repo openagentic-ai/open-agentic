@@ -74,7 +74,7 @@ async def main_loop(
         else:
             print(f"\033[2m{'─' * w}\033[0m")
 
-    async def _read_line(prompt_text, *, use_html: bool = False) -> str:
+    async def _read_line(prompt_text, *, use_html: bool = False, bottom_toolbar=None) -> str:
         CLI_PLATFORM.ensure_line_input_mode()
         CLI_PLATFORM.drain_stdin_buffer(settle_ms=80)
         plain = prompt_text if isinstance(prompt_text, str) else ""
@@ -83,8 +83,8 @@ async def main_loop(
         try:
             with patch_stdout():
                 if use_html:
-                    return await session.prompt_async(HTML(prompt_text))
-                return await session.prompt_async(prompt_text)
+                    return await session.prompt_async(HTML(prompt_text), bottom_toolbar=bottom_toolbar)
+                return await session.prompt_async(prompt_text, bottom_toolbar=bottom_toolbar)
         except Exception:
             return input(plain)
 
@@ -151,7 +151,9 @@ async def main_loop(
         try:
             print()
             _print_separator()
-            user_input = (await _read_line("<b>❯</b> ", use_html=True)).strip()
+            w = _term_width()
+            bottom_bar = HTML(f"<style fg='#666666'>{'─' * w}</style>")
+            user_input = (await _read_line("<b>❯</b> ", use_html=True, bottom_toolbar=bottom_bar)).strip()
             _print_separator()
         except (EOFError, KeyboardInterrupt):
             print("\nBye!")
