@@ -14,6 +14,11 @@ from rich.panel import Panel
 from openagentic.cli.llm import litellm_chat
 from openagentic.cli.tools import TOOLS, ConfirmFn, execute_tool
 from openagentic.config import SETTINGS
+from openagentic.memory.manager import (
+    MemoryManager,
+    working_memory_compressible,
+    compress_working_memory,
+)
 
 _console = Console()
 
@@ -69,6 +74,29 @@ async def react_loop(
         return msg
 
     messages.append({"role": "user", "content": user_input})
+
+    # ── Episodic memory injection: search past episodes relevant to user_input ──
+    try:
+        eps = MemoryManager().search_episodes(user_input, top_k=3)
+        if eps:
+            ctx = "## Relevant Past Experiences\n\n"
+            for i, ep in enumerate(eps, 1):
+                ctx += f"{i}. {ep['title']}\n   {ep['summary'][:300]}\n\n"
+            messages.insert(1, {"role": "system", "content": ctx})
+    except Exception:
+        pass
+
+    # ── Working memory compression: compress if over token budget ──
+    if working_memory_compressible(messages):
+        try:
+            messages[:] = await compress_working_memory(
+                messages,
+                model=model,
+                api_base=api_base,
+                api_key=api_key,
+            )
+        except Exception:
+            pass
 
     last_tool_name = ""
     last_result_preview = ""

@@ -11,9 +11,20 @@ from typing import Any, Callable, Coroutine
 
 from rich.console import Console
 
+from openagentic.memory.manager import MemoryManager
+
 _tools_console = Console()
 
+_memory_manager: MemoryManager | None = None
+
 MAX_OUTPUT = 4000  # truncate long outputs
+
+
+def _get_memory_manager() -> MemoryManager:
+    global _memory_manager
+    if _memory_manager is None:
+        _memory_manager = MemoryManager()
+    return _memory_manager
 
 TOOLS = [
     {
@@ -111,6 +122,181 @@ TOOLS = [
                     }
                 },
                 "required": ["summary"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "core_memory_save",
+            "description": (
+                "Save a fact, preference, or piece of information about the user or project "
+                "into persistent core memory. Category must be: user_profile, project_fact, "
+                "preference, or reference. Importance 0.0-1.0 helps rank entries. "
+                "Use this whenever you learn something worth remembering across sessions."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key": {
+                        "type": "string",
+                        "description": "Short unique key (e.g. 'preferred_language', 'project_path')",
+                    },
+                    "value": {
+                        "type": "string",
+                        "description": "The information to remember",
+                    },
+                    "category": {
+                        "type": "string",
+                        "enum": ["user_profile", "project_fact", "preference", "reference"],
+                        "description": "Memory category",
+                    },
+                    "importance": {
+                        "type": "number",
+                        "description": "Importance 0.0-1.0, default 0.5. Higher = more likely to be injected into future prompts.",
+                    },
+                },
+                "required": ["key", "value", "category"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "core_memory_delete",
+            "description": "Delete a core memory entry by its key name.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key": {
+                        "type": "string",
+                        "description": "Key name of the memory to delete",
+                    },
+                },
+                "required": ["key"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "core_memory_search",
+            "description": "Search the user's persistent core memories by keyword. Returns matching entries that may help personalize responses.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search term to match against keys and values",
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": "Optional filter: user_profile, project_fact, preference, or reference",
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Number of results, default 5",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "episodic_search",
+            "description": "Search past conversation episodes and task summaries. Returns relevant past experiences to help with the current task.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query describing what past experience to recall",
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Number of past episodes to recall, default 3",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "episodic_save",
+            "description": "Save a summary of the current conversation or task as an episodic memory for future recall.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Short title for this episode",
+                    },
+                    "summary": {
+                        "type": "string",
+                        "description": "3-5 sentence summary of what was accomplished and key outcomes",
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Keywords for future search (e.g. ['debug', 'deployment'])",
+                    },
+                },
+                "required": ["title", "summary"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "procedural_save",
+            "description": "Save a reusable procedure or workflow learned from a successful task.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Short name for this procedure",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "What this procedure accomplishes",
+                    },
+                    "trigger_pattern": {
+                        "type": "string",
+                        "description": "When to suggest this procedure (natural language description)",
+                    },
+                    "steps": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Ordered list of steps to execute this procedure",
+                    },
+                },
+                "required": ["name", "description", "trigger_pattern", "steps"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "procedural_search",
+            "description": "Search for previously saved procedures that match the current task.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Description of the current task to match procedures against",
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Number of matching procedures, default 3",
+                    },
+                },
+                "required": ["query"],
             },
         },
     },
@@ -222,6 +408,82 @@ async def execute_tool(
 
         elif name == "done":
             return args.get("summary", "")
+
+        # ── Memory tools ──
+        elif name == "core_memory_save":
+            mgr = _get_memory_manager()
+            fp = mgr.save_core_memory(
+                args["key"],
+                args["value"],
+                args.get("category", "reference"),
+                float(args.get("importance", 0.5)),
+            )
+            return f"OK: core memory '{args['key']}' saved → {fp}"
+
+        elif name == "core_memory_delete":
+            mgr = _get_memory_manager()
+            found = mgr.delete_core_memory(args["key"])
+            return f"OK: deleted '{args['key']}'" if found else f"NOT FOUND: '{args['key']}'"
+
+        elif name == "core_memory_search":
+            mgr = _get_memory_manager()
+            results = mgr.search_core(
+                args["query"],
+                args.get("category"),
+                int(args.get("top_k", 5)),
+            )
+            if not results:
+                return "No matching core memories found."
+            lines = ["Core memory search results:"]
+            for e in results:
+                lines.append(f"- [{e.category}] {e.key}: {e.value[:200]}")
+            return "\n".join(lines)
+
+        elif name == "episodic_search":
+            mgr = _get_memory_manager()
+            results = mgr.search_episodes(
+                args["query"],
+                int(args.get("top_k", 3)),
+            )
+            if not results:
+                return "No matching past episodes found."
+            lines = ["Past episode results:"]
+            for ep in results:
+                lines.append(f"- {ep['title']}: {ep['summary'][:250]}")
+            return "\n".join(lines)
+
+        elif name == "episodic_save":
+            mgr = _get_memory_manager()
+            tags = args.get("tags", [])
+            if isinstance(tags, str):
+                import json as _json
+                tags = _json.loads(tags) if tags.startswith("[") else [tags]
+            fp = mgr.save_episode(args["title"], args["summary"], tags)
+            return f"OK: episode saved → {fp}"
+
+        elif name == "procedural_save":
+            mgr = _get_memory_manager()
+            steps = args.get("steps", [])
+            if isinstance(steps, str):
+                import json as _json
+                steps = _json.loads(steps) if steps.startswith("[") else [steps]
+            fp = mgr.save_procedure(
+                args["name"], args["description"], args["trigger_pattern"], steps,
+            )
+            return f"OK: procedure '{args['name']}' saved → {fp}"
+
+        elif name == "procedural_search":
+            mgr = _get_memory_manager()
+            results = mgr.search_procedures(
+                args["query"],
+                int(args.get("top_k", 3)),
+            )
+            if not results:
+                return "No matching procedures found."
+            lines = ["Procedure search results:"]
+            for p in results:
+                lines.append(f"- {p['name']}: {p['content'][:250]}")
+            return "\n".join(lines)
 
         return f"Unknown tool: {name}"
 

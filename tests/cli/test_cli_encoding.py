@@ -256,9 +256,10 @@ def test_input_prompt_has_bottom_separator():
 def test_bottom_toolbar_has_hints():
     """The bottom_toolbar must include hint text below the separator."""
     src = _read_src("openagentic", "cli", "repl.py")
-    assert "HINT" in src, "must have hint text constant"
-    assert "/help" in src, "hint must mention /help"
-    assert "/quit" in src, "hint must mention /quit"
+    assert "SLASH_COMMANDS" in src, "must have slash command list"
+    assert "/help" in src, "slash commands must include /help"
+    assert "/quit" in src, "slash commands must include /quit"
+    assert "get_app" in src, "must access current buffer for live filtering"
 
 
 # ============================================================================

@@ -7,6 +7,7 @@ import shutil
 import sys
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.application.current import get_app
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.patch_stdout import patch_stdout
 from rich.console import Console
@@ -15,6 +16,7 @@ from openagentic.cli.auth import clear_cli_session_file, platform_authenticate_s
 from openagentic.cli.model_router import automodel_status, route_model
 from openagentic.cli.platform_adapter import CLI_PLATFORM
 from openagentic.cli.prompt import (
+    build_core_memory_section,
     build_identity_answer,
     compose_cli_system_message,
     is_identity_question,
@@ -102,7 +104,7 @@ async def main_loop(
     messages: list[dict] = [{"role": "system", "content": ""}]
 
     def rebuild_system_message() -> None:
-        messages[0]["content"] = compose_cli_system_message(
+        base = compose_cli_system_message(
             provider,
             model,
             endpoint,
@@ -110,6 +112,10 @@ async def main_loop(
             platform_api_base=plat["base"],
             platform_user_email=plat["email"],
         )
+        core = build_core_memory_section(limit=20)
+        if core:
+            base += "\n" + core
+        messages[0]["content"] = base
 
     rebuild_system_message()
 
@@ -143,23 +149,44 @@ async def main_loop(
         # Show prompt and wait for input (no raw mode during execution)
         try:
             with patch_stdout():
-                HINT = "  /help  |  /config  |  /model  |  /quit"
+                SLASH_COMMANDS = [
+                    "/help", "/config", "/model", "/provider", "/providers",
+                    "/provider-config", "/automodel", "/clear",
+                    "/login-platform", "/logout-platform", "/quit",
+                ]
 
                 def _get_toolbar():
                     w = shutil.get_terminal_size().columns
                     bar = '─' * max(0, w - 2)
+                    try:
+                        app = get_app()
+                        text = app.current_buffer.text
+                    except Exception:
+                        text = ""
+                    if text.startswith("/"):
+                        # Filter matching slash commands
+                        matching = [c for c in SLASH_COMMANDS if c.startswith(text)]
+                        if matching:
+                            hint = "  ".join(matching)
+                        else:
+                            hint = f"  未知命令：{text}"
+                        return HTML(
+                            f'<style fg="#666666">╰{bar}╯</style>\n'
+                            f'<style fg="#aaaaaa">  {hint}</style>'
+                        )
                     return HTML(
                         f'<style fg="#666666">╰{bar}╯</style>\n'
-                        f'<style fg="#555555">  {HINT}</style>'
+                        f'<style fg="#555555">  /help 按 / 查看命令</style>'
                     )
 
+                # Print top border via Rich (not embedded in prompt_toolkit message)
+                # to prevent duplication on terminal resize.
                 w = shutil.get_terminal_size().columns
                 top_bar = '─' * max(0, w - 2)
+                _console.print(f'[dim]╭{top_bar}╮[/dim]')
+
                 user_input = await session.prompt_async(
-                    HTML(
-                        f'<style fg="#666666">╭{top_bar}╮</style>\n'
-                        '<b>&gt;</b> '
-                    ),
+                    HTML('<b>&gt;</b> '),
                     bottom_toolbar=_get_toolbar,
                 )
         except EOFError:
@@ -176,6 +203,23 @@ async def main_loop(
             _console.print("[dim]Bye![/dim]")
             break
         if user_input == "/clear":
+            # Auto-save episode before clearing
+            if len(messages) > 3:
+                try:
+                    from openagentic.memory.manager import MemoryManager
+                    from datetime import datetime, timezone
+                    mgr = MemoryManager()
+                    title = f"会话 {datetime.now(timezone.utc).strftime('%m-%d %H:%M')}"
+                    summary_lines = []
+                    for m in messages[-20:]:
+                        role = m.get("role", "?")
+                        content = (m.get("content") or "")[:200]
+                        if content:
+                            summary_lines.append(f"[{role}] {content}")
+                    if summary_lines:
+                        mgr.save_episode(title, "\n".join(summary_lines[-10:]), ["conversation"])
+                except Exception:
+                    pass
             messages.clear()
             messages.append({"role": "system", "content": ""})
             rebuild_system_message()

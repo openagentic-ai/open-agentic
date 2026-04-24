@@ -84,6 +84,31 @@ def compose_cli_system_message(
     return sp
 
 
+def build_core_memory_section(limit: int = 20) -> str:
+    """Load top core memory entries from file storage and format them
+    for injection into the system prompt."""
+    try:
+        from openagentic.memory.manager import MemoryManager
+        mgr = MemoryManager()
+        entries = mgr.list_core(limit=limit)
+    except Exception:
+        return ""
+
+    if not entries:
+        return ""
+
+    lines = [
+        "",
+        "## Persistent Core Memory",
+        "The following was saved from previous interactions. Use these facts to personalize responses.",
+        "",
+    ]
+    for e in entries:
+        cat = e.category.replace("_", " ").title()
+        lines.append(f"- [{cat}] {e.key}: {e.value}")
+    return "\n".join(lines)
+
+
 def is_identity_question(text: str) -> bool:
     return bool(IDENTITY_QUESTION_RE.search(text))
 

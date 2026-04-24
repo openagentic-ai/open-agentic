@@ -48,7 +48,7 @@
 | **Phase 3** | **已完成** | `workflow/` 已实现：Workflow CRUD、Run 执行与取消、DAG 校验与拓扑执行、节点重试/超时、变量模板渲染、运行轨迹与状态查询。 |
 | **Phase 4** | **已完成** | `knowledge/` 已落地：知识库 CRUD、文档上传/批量处理、多模态文档摘要入库、向量检索 + 重排序、向量索引优化、`knowledge_search` 工具集成。 |
 | **测试覆盖（Phase 0–4）** | **已增强** | 新增 `tests/core/auth`、`tests/core/chat`、`tests/core/llm`、`tests/agent`、`tests/mcp`、`tests/smoke`，补充单元+集成+异常边界；`tests/smoke/test_phase0_ops_smoke.py` 提供真实 Alembic 迁移与 Compose `/health` 烟雾测试（无 Docker 环境会 skip）。 |
-| **Phase 4.5** | **规划中** | 四层记忆系统：Working Memory（滑动窗口+摘要）、Core Memory（用户画像/项目事实）、Episodic Memory（跨会话语义检索）、Procedural Memory（技能提炼与自优化）。参考 Claude Code / Hermes Agent / MemGPT 架构。 |
+| **Phase 4.5** | **已完成（文件版）** | 四层记忆系统：Working Memory（滑动窗口+LLM摘要压缩）、Core Memory（用户画像/项目事实/偏好/参考，文件存储于 `~/.openagentic/memory/core/`）、Episodic Memory（跨会话存档+关键词检索，`~/.openagentic/memory/episodes/`）、Procedural Memory（可复用操作步骤，`~/.openagentic/memory/procedures/`）。CLI 新增 7 个 memory tool，启动时自动注入 core memory 到 system prompt。未来演进方向：PostgreSQL + pgvector 语义检索（见 Phase 4.5 章节）。 |
 | **Phase 5** | **未实现（仅部分基建）** | 无完整多租户计费闭环、无 Prometheus **`/metrics`** 等；**`structlog` 已接入** 不等于「可观测性全套」。`tenant/`、`observability/` 多为占位。 |
 | **Phase 6** | **部分** | **`ui/`** 已有多页面（Sessions、Settings、Skills、Channels、Devices 等）；Skills 页面已实现前端 UI 与静态数据，后端 API 待完善；工作流编辑器、知识库管理 UI 等 **与 Phase 4/5 后端能力逐步形成闭环** |
 
@@ -475,6 +475,7 @@ src/
     ├── mcp/                 # Phase 2 已实现（基础版）
     ├── workflow/            # Phase 3 已实现
     ├── knowledge/           # Phase 4 已完成（RAG）
+    ├── memory/              # Phase 4.5 已完成（四层文件记忆系统）
     ├── tenant/              # Phase 5 占位
     ├── observability/       # Phase 5 占位
     └── db/                  # session、Base
@@ -661,10 +662,13 @@ pytest -q tests/smoke/test_phase0_ops_smoke.py
 - [x] 多模态文档支持
 - [x] 检索结果重排序
 
-### Phase 4.5：四层记忆系统（规划中）
+### Phase 4.5：四层记忆系统（已完成 — 文件版）
 
-> 参考架构：Claude Code file-based memory、Hermes Agent 四层记忆、MemGPT/Letta 分页式记忆、CoALA 认知架构。
+> 参考架构：Claude Code file-based memory、Hermes Agent 四层记忆、MemGPT/Letta 分页式记忆。
 > 目标：让 Agent 在跨会话、跨任务场景中保持上下文连贯，具备"记住用户"和"自我进化"的能力。
+>
+> **当前形态**：纯文件存储（`~/.openagentic/memory/`），与 Claude Code MEMORY.md 格式一致。
+> **未来演进**：PostgreSQL + pgvector 语义检索（Server 模式），见下方"DB 版路线图"。
 
 #### 架构总览
 
@@ -679,61 +683,63 @@ pytest -q tests/smoke/test_phase0_ops_smoke.py
 └──────┬──────────────┬──────────────┬──────────────┬─────────┘
        │              │              │              │
   ┌────▼────┐   ┌─────▼─────┐  ┌────▼────┐   ┌────▼────┐
-  │ messages │   │ user_memory│  │ episodes │   │ skills  │
-  │ (PG)    │   │ (PG+Vec)  │  │ (PG+FTS) │   │ (PG)    │
+  │ In-Memory│  │ File .md  │  │ File .md │  │ File .md│
+  │ (压缩)   │  │ (~/memory)│  │ (~/memory│  │ (~/mem) │
   └─────────┘   └───────────┘  └──────────┘   └─────────┘
 ```
 
-#### Layer 1：Working Memory（工作记忆）— 已有基础
+#### Layer 1：Working Memory（工作记忆）— ✅ 已完成
 
-当前对话的消息历史，直接在 context window 中。
+- [x] 会话消息持久化（Phase 1）
+- [x] **滑动窗口 + LLM 摘要压缩**（`memory/manager.py:compress_working_memory()`）
+- [x] **上下文预算管理**（token 估算，超阈值自动触发压缩，保留最近 8 条消息）
+- 实现：`src/openagentic/memory/manager.py` — `estimate_tokens()`, `working_memory_compressible()`, `compress_working_memory()`
 
-- [x] 会话消息持久化（`core/chat/models.py`，Phase 1 已完成）
-- [ ] **滑动窗口 + 摘要压缩**：当消息超过 token 上限时，旧消息自动摘要后替换，防止截断丢失关键信息
-- [ ] **上下文预算管理**：为四层记忆分配 token 预算（如 Working 60% / Core 15% / Episodic 15% / Procedural 10%）
+#### Layer 2：Core Memory（核心记忆）— ✅ 已完成
 
-#### Layer 2：Core Memory（核心记忆）— 用户画像 + 项目事实
+- [x] **文件存储**：`~/.openagentic/memory/core/{user_profile,project_fact,preference,reference}/*.md`
+- [x] **Agent 自主写入**：`core_memory_save`, `core_memory_delete` tool
+- [x] **自动注入**：每次 `rebuild_system_message()` 从文件加载 top-20 条注入 system prompt
+- [x] **冲突检测**：同 key 覆盖更新（保留 `created` 时间戳）
+- [x] **MEMORY.md 索引**：自动维护，与 Claude Code 格式一致
+- 实现：`src/openagentic/memory/manager.py` — `MemoryManager.save_core_memory()`, `delete_core_memory()`, `search_core()`, `list_core()`, `_update_index()`
 
-始终注入 system prompt 的压缩事实，类似 Claude Code 的 `MEMORY.md`。
+#### Layer 3：Episodic Memory（情节记忆）— ✅ 已完成
 
-- [ ] **DB 模型**：`CoreMemory(user_id, agent_id, category, key, value, embedding, updated_at)`
-  - category 枚举：`user_profile` / `project_fact` / `preference` / `reference`
-- [ ] **Agent 自主写入**：通过 tool call（`core_memory_save`, `core_memory_delete`）让 Agent 自行决定保存什么
-- [ ] **自动注入**：每次对话开始时，将该用户的 core memory 压缩注入 system prompt
-- [ ] **冲突检测**：同 key 更新时保留时间戳，新事实覆盖旧事实
-- [ ] **容量上限**：每用户每 agent 限制条目数（如 100 条），超限时按 LRU 或重要性淘汰
+- [x] **文件存储**：`~/.openagentic/memory/episodes/*.md`（frontmatter + markdown）
+- [x] **自动存档**：`/clear` 时自动将当前对话摘要存为 episode
+- [x] **关键词检索**：`episodic_search` tool，按关键词匹配 + 时间排序
+- [x] **自动注入**：每次 `react_loop` 开始时用 user input 检索相关历史，注入 context
+- 实现：`src/openagentic/memory/manager.py` — `MemoryManager.save_episode()`, `search_episodes()`
 
-#### Layer 3：Episodic Memory（情节记忆）— 可检索的历史经验
+#### Layer 4：Procedural Memory（程序性记忆）— ✅ 已完成
 
-跨会话的对话历史和任务执行记录，按需检索召回。
+- [x] **文件存储**：`~/.openagentic/memory/procedures/*.md`
+- [x] **Agent 保存**：`procedural_save` tool（name, description, trigger_pattern, steps）
+- [x] **模式匹配**：`procedural_search` tool（关键词匹配 trigger_pattern + name + description）
+- 实现：`src/openagentic/memory/manager.py` — `MemoryManager.save_procedure()`, `search_procedures()`
 
-- [ ] **DB 模型**：`Episode(user_id, agent_id, summary, embedding, tags, source_type, source_id, created_at)`
-  - source_type：`conversation` / `agent_execution` / `workflow_run`
-- [ ] **自动生成**：会话结束 / Agent 执行完成时，自动摘要生成 episode
-- [ ] **语义检索**：用户新消息 → embedding → pgvector 相似度搜索 → top-K episode 注入 context
-- [ ] **全文检索**：PostgreSQL FTS 作为语义检索的补充（精确关键词匹配）
-- [ ] **衰减机制**：旧 episode 权重随时间衰减，避免远古记忆污染当前上下文
-- [ ] **预压缩存盘**（参考 Hermes）：context 被压缩前，先触发一次 memory flush，让 Agent 保存重要信息到 Core/Episodic，防止静默丢失
+#### CLI Memory Tools（共 7 个）
 
-#### Layer 4：Procedural Memory（程序性记忆）— 学到的技能和行为模式
+| Tool | 功能 |
+|------|------|
+| `core_memory_save` | 保存核心记忆（key/value/category/importance） |
+| `core_memory_delete` | 按 key 删除 |
+| `core_memory_search` | 关键词搜索核心记忆 |
+| `episodic_save` | 保存情节记忆（title/summary/tags） |
+| `episodic_search` | 关键词搜索历史片段 |
+| `procedural_save` | 保存可复用步骤 |
+| `procedural_search` | 搜索匹配的步骤 |
 
-Agent 从成功经验中提炼的可复用操作序列，类似 Hermes 的 Skills。
+#### DB 版路线图（未来，Server 模式）
 
-- [ ] **DB 模型**：`Procedure(user_id, agent_id, name, description, trigger_pattern, steps_json, success_count, updated_at)`
-- [ ] **自动提炼**：Agent 成功完成任务后，提炼操作步骤为可复用 procedure
-- [ ] **模式匹配触发**：新任务到来时，用 trigger_pattern 或 embedding 匹配已有 procedure，注入 context 作为参考
-- [ ] **自我优化**：每次使用后根据结果反馈更新 steps，失败则降权，成功则强化
-- [ ] **用户可编辑**：提供 API 让用户查看、编辑、删除 procedures
+当项目进入 Server/多租户阶段，将迁移到 PostgreSQL + pgvector：
 
-#### 实现优先级
-
-| 阶段 | 内容 | 依赖 |
-|------|------|------|
-| **4.5.1** | Working Memory 滑动窗口 + 摘要压缩 | LiteLLM |
-| **4.5.2** | Core Memory CRUD + Agent tool + 自动注入 | Phase 2 Agent 系统 |
-| **4.5.3** | Episodic Memory 自动摘要 + 语义检索 | Phase 4 pgvector |
-| **4.5.4** | Procedural Memory 提炼 + 匹配 + 自优化 | 4.5.2 + 4.5.3 |
-| **4.5.5** | 预压缩存盘 + token 预算管理 + 衰减策略 | 4.5.1 ~ 4.5.4 |
+- [ ] CoreMemory / Episode / Procedure 表（复用现有 `UUIDPrimaryKeyMixin` + `TimestampMixin`）
+- [ ] pgvector 语义检索（768-dim，IVFFlat cosine 索引）
+- [ ] 时间衰减 + 重要性加权排序
+- [ ] 自动提炼 procedure（从 tool trace 中 LLM 提取可复用步骤）
+- [ ] `/api/memory/` REST API（`src/openagentic/memory/router.py`）
 
 ### Phase 5：多租户 + 计费 + 可观测性（未完成）
 
@@ -958,13 +964,21 @@ CLI 内置命令：
 
 | 命令 | 说明 |
 |------|------|
-| `/clear` | 清除对话历史 |
-| `/model ollama/qwen3:4b` | 切换模型 |
-| `/providers` / `/provider` / `/provider <id>` | 查看并切换厂商（TTY 下支持 ↑/↓ 选择） |
+| `/help` | 显示帮助 |
+| `/config` | 显示当前 provider/model/endpoint 配置 |
+| `/clear` | 清除对话历史（自动存档 episode） |
+| `/model` / `/model <name>` | 查看/切换模型 |
+| `/providers` / `/provider` / `/provider <id>` | 查看并切换厂商 |
 | `/provider-config [id]` | 配置厂商 API Key / API Base |
 | `/login-platform` / `/logout-platform` | 平台账号登录/登出（JWT） |
+| `/automodel [on/off]` | DeepSeek V4 Pro/Flash 智能自动切换 |
 | `/quit` | 退出 |
-| `/automodel [on/off]` | 开启/关闭 DeepSeek V4 Pro/Flash 智能自动切换 |
+| `core_memory_save` | (tool) 保存核心记忆 |
+| `core_memory_search` | (tool) 搜索记忆 |
+| `episodic_search` | (tool) 搜索历史对话 |
+| `procedural_save` | (tool) 保存可复用步骤 |
+
+> 输入 `/` 时底部自动显示可用命令提示（实时过滤）。
 
 DeepSeek（OpenAI 兼容）示例：
 
