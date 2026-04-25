@@ -230,12 +230,13 @@ def test_repl_sequential_loop_has_no_input_producer():
 
 
 def test_repl_has_sequential_main_loop():
-    """main_loop must use a sequential while True: prompt → process pattern."""
+    """main_loop must keep its prompt → process backbone wired up."""
     src = _read_src("openagentic", "cli", "repl.py")
     assert "while True:" in src
     assert "session.prompt_async" in src
-    # react_loop is called directly, not via concurrent tasks
-    assert "await react_loop(" in src
+    # react_loop 必须仍由 repl.py 触发；包成 asyncio.create_task 是允许的
+    # （用于把 Ctrl+C 路由到当轮 react 任务，不退 CLI）。
+    assert "react_loop(" in src
 
 
 def test_input_prompt_has_top_separator():

@@ -230,6 +230,9 @@ async def main_loop(
     input_gate = asyncio.Event()
     input_gate.set()  # start open
 
+    # ── 进行中的 react 任务引用：用于 Ctrl+C 中断当前轮而不退 CLI ──
+    react_task_ref: dict[str, asyncio.Task | None] = {"task": None}
+
     async def _confirm_fn(title: str, detail: str) -> bool:
         if not sys.stdin.isatty() or not sys.stdout.isatty():
             return False
@@ -275,6 +278,13 @@ async def main_loop(
                     await queue.put(_SENTINEL_QUIT)
                     return
                 except KeyboardInterrupt:
+                    # 若当前有进行中的 react 任务：取消它，回到 prompt，CLI 不退
+                    in_flight = react_task_ref["task"]
+                    if in_flight is not None and not in_flight.done():
+                        in_flight.cancel()
+                        # consumer 那边 await 会拿到 CancelledError，自己打印 "Cancelled."
+                        continue
+                    # 空闲态 Ctrl+C 仍然退出（保留原行为，符合用户对终端的直觉）
                     await queue.put(_SENTINEL_QUIT)
                     return
 
@@ -493,9 +503,9 @@ async def main_loop(
                 model = routed_model
                 rebuild_system_message()
 
-            # ── Execute react loop ──
-            try:
-                await react_loop(
+            # ── Execute react loop（包成 task，让 producer 的 Ctrl+C 能取消）──
+            react_task = asyncio.create_task(
+                react_loop(
                     user_input,
                     messages,
                     model,
@@ -505,10 +515,18 @@ async def main_loop(
                     platform_user_email=plat["email"],
                     confirm_fn=_confirm_fn,
                 )
+            )
+            react_task_ref["task"] = react_task
+            try:
+                await react_task
             except asyncio.CancelledError:
-                _console.print("\n  [yellow]Cancelled.[/yellow]")
+                _console.print(
+                    "\n  [yellow]已中断本轮（Ctrl+C）。会话保留，可继续输入；再按一次 Ctrl+C 退出。[/yellow]"
+                )
             except Exception as e:
                 _console.print(f"\n  [red bold]Error:[/red bold] {type(e).__name__}: {e}")
+            finally:
+                react_task_ref["task"] = None
 
             # After execution, reset model back to simple_model for next triage
             if routed_model != current_model and automodel_enabled:
