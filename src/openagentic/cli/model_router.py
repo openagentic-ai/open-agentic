@@ -1,334 +1,105 @@
-"""DeepSeek Pro / Flash 智能自动切换模块。
+"""两级模型自动路由模块 — LLM triage 模式。
 
-根据用户任务复杂度，自动在 DeepSeek V4 Pro 和 V4 Flash 之间切换：
-- 高级任务 → deepseek/deepseek-v4-pro
-- 普通任务 → deepseek/deepseek-v4-flash
+所有请求先发给 simple_model（便宜/快），由它判断任务复杂度：
+- 简单任务 → simple_model 直接回答
+- 复杂任务 → 切换到 complex_model 回答，完成后下一轮自动切回 simple_model
 
-分类方式：关键词 + 模式匹配（纯本地，零延迟，不调 LLM）
+配置保存在 `.openagentic/model_providers.json` 的 `automodel` 字段：
+
+    {
+      "id": "deepseek",
+      "automodel": {
+        "complex_model": "deepseek/deepseek-v4-pro",
+        "simple_model": "deepseek/deepseek-v4-flash"
+      }
+    }
 """
 
 from __future__ import annotations
 
-# 高级任务关键词（命中任一 → Pro）
-ADVANCED_KEYWORDS: list[str] = [
-    "写代码",
-    "写个代码",
-    "实现",
-    "重构",
-    "修复bug",
-    "修复 bug",
-    "修复",
-    "架构",
-    "优化性能",
-    "性能优化",
-    "算法",
-    "安全",
-    "框架",
-    "设计模式",
-    "review",
-    "refactor",
-    "debug",
-    "debugging",
-    "optimize",
-    "optimization",
-    "architecture",
-    "implement",
-    "implementation",
-    "编写",
-    "修改框架",
-    "性能瓶颈",
-    "漏洞",
-    "加密",
-    "并发",
-    "分布式",
-    "微服务",
-    "单元测试",
-    "集成测试",
-    "代码审查",
-    "code review",
-    "性能调优",
-    "内存泄漏",
-    "死锁",
-    "多线程",
-    "异步",
-    "SQL 优化",
-    "索引优化",
-    "系统设计",
-    "system design",
-    "接口设计",
-    "API 设计",
-    "数据库设计",
-    "缓存策略",
-    "负载均衡",
-    "高可用",
-    "容灾",
-    "降级",
-    "限流",
-    "熔断",
-    "幂等",
-    "一致性",
-    "CAP",
-    "分布式锁",
-    "分布式事务",
-    "消息队列",
-    "事件驱动",
-    "领域驱动",
-    "DDD",
-    "CQRS",
-    "事件溯源",
-    "重构代码",
-    "clean code",
-    "SOLID",
-    "KISS",
-    "DRY",
-    "YAGNI",
-    "代码规范",
-    "lint",
-    "linting",
-    "静态分析",
-    "漏洞扫描",
-    "渗透测试",
-    "XSS",
-    "CSRF",
-    "SQL 注入",
-    "认证",
-    "授权",
-    "OAuth",
-    "OAuth2",
-    "JWT",
-    "SSO",
-    "RBAC",
-    "ABAC",
-    "零信任",
-    "安全审计",
-    "威胁建模",
-    "加密算法",
-    "AES",
-    "RSA",
-    "TLS",
-    "SSL",
-    "HTTPS",
-    "密钥管理",
-    "密钥",
-    "哈希",
-    "哈希算法",
-    "SHA",
-    "bcrypt",
-    "PBKDF2",
-    "Argon2",
-    # ── 文档与编辑 ──
-    "更新",
-    "修改",
-    "编辑",
-    "补充",
-    "完善",
-    "重写",
-    "改写",
-    "删除",
-    "移除",
-    "添加",
-    "新增",
-    "创建",
-    "新建",
-    "复制",
-    "移动",
-    "重命名",
-    # ── 版本控制 ──
-    "提交",
-    "推送",
-    "拉取",
-    "合并",
-    "分支",
-    "git",
-    "github",
-    "commit",
-    "push",
-    "pull",
-    "merge",
-    "branch",
-    "仓库",
-    "版本控制",
-    # ── 构建部署 ──
-    "安装",
-    "打包",
-    "构建",
-    "编译",
-    "部署",
-    "发布",
-    "上线",
-    "回滚",
-    # ── 问题排查 ──
-    "乱码",
-    "编码",
-    "报错",
-    "错误",
-    "异常",
-    "崩溃",
-    "卡顿",
-    "慢",
-    "排查",
-    "定位",
-    "修复",
-    # ── 配置与调整 ──
-    "配置",
-    "设置",
-    "调整",
-    "迁移",
-    "升级",
-    "降级",
-    # ── 开发相关 ──
-    "文档",
-    "readme",
-    "README",
-    "注释",
-    "代码",
-    "源码",
-    "源文件",
-    "脚本",
-    "函数",
-    "类",
-    "模块",
-    "接口",
-    "组件",
-    "页面",
-    "路由",
-    # ── 英语技术动词 ──
-    "update",
-    "modify",
-    "change",
-    "edit",
-    "add",
-    "remove",
-    "delete",
-    "create",
-    "write",
-    "fix",
-    "improve",
-    "upgrade",
-    "migrate",
-    "deploy",
-    "release",
-    "build",
-    "compile",
-    "install",
-    "config",
-    "configure",
-    "setup",
-    "test",
-    "testing",
-    "document",
-    "documentation",
-]
+from typing import Any
 
-# 简单明确的高级任务判断前缀
-ADVANCED_PREFIXES: list[str] = [
-    "帮我写",
-    "帮我改",
-    "帮我实现",
-    "帮我重构",
-    "帮我优化",
-    "帮我修复",
-    "帮我设计",
-    "帮我排查",
-    "请写",
-    "请实现",
-    "请重构",
-    "请优化",
-    "请修复",
-    "请设计",
-    "请排查",
-    "写一个",
-    "写个",
-    "实现一个",
-    "实现个",
-    "重构一下",
-    "优化一下",
-    "修复一下",
-    "设计一个",
-    "排查一下",
-]
+import litellm
 
-# 普通任务关键词（明确命中 → Flash，优先级高于高级关键词）
-SIMPLE_KEYWORDS: list[str] = [
-    "你好",
-    "hello",
-    "hi",
-    "谢谢",
-    "thank",
-    "再见",
-    "bye",
-    "解释",
-    "什么是",
-    "介绍一下",
-    "什么是",
-    "告诉我",
-    "怎么用",
-    "如何使用",
-    "什么是",
-    "区别",
-    "对比",
-    "比较",
-    "有哪些",
-    "列表",
-    "列举",
-    "推荐",
-    "建议",
-    "帮我查",
-    "查一下",
-    "搜索",
-    "翻译",
-    "总结",
-    "概括",
-    "摘要",
-]
+from rich.console import Console
+
+from openagentic.cli._patchable_stdout import _patchable_stdout
+
+_console = Console(file=_patchable_stdout)
+
+# ── Triage prompt: ask the cheap model to classify ──
+
+_TRIAGE_SYSTEM = (
+    "You are a task complexity classifier. "
+    "Given the user's message, decide if this is a SIMPLE or COMPLEX task.\n\n"
+    "SIMPLE: greetings, chitchat, factual Q&A, explanations, translations, summaries, "
+    "short lookups, simple file reads.\n"
+    "COMPLEX: writing/modifying code, debugging, architecture design, multi-step operations, "
+    "refactoring, performance optimization, security analysis, system design, "
+    "any task requiring deep reasoning or multiple tool calls.\n\n"
+    "Respond with EXACTLY one word: SIMPLE or COMPLEX. Nothing else."
+)
 
 
-def classify_task(user_input: str) -> str:
-    """对用户输入进行任务复杂度分类。
+def _get_automodel_config(provider: str) -> dict[str, Any] | None:
+    """Read automodel config for a provider from model_providers.json."""
+    try:
+        from openagentic.core.llm.provider_config import get_provider_store
+        store = get_provider_store().get()
+        for profile in store.profiles:
+            if profile.id == provider and profile.enabled:
+                raw = getattr(profile, "automodel", None)
+                if raw and isinstance(raw, dict):
+                    return raw
+        return None
+    except Exception:
+        return None
 
-    Returns:
-        "pro"  — 高级任务，使用 DeepSeek V4 Pro
-        "flash" — 普通任务，使用 DeepSeek V4 Flash
+
+async def triage_classify(
+    user_input: str,
+    simple_model: str,
+    api_base: str | None,
+    api_key: str | None,
+) -> str:
+    """Ask the simple model to classify task complexity.
+
+    Returns 'complex' or 'simple'. Defaults to 'simple' on any error.
     """
-    text = user_input.strip()
-    if not text:
-        return "flash"
-
-    text_lower = text.lower()
-
-    # 1) 先检查简单任务关键词（明确闲聊/查资料类）
-    for kw in SIMPLE_KEYWORDS:
-        if kw.lower() in text_lower:
-            return "flash"
-
-    # 2) 检查高级关键词
-    for kw in ADVANCED_KEYWORDS:
-        if kw.lower() in text_lower:
-            return "pro"
-
-    # 3) 检查高级前缀
-    for prefix in ADVANCED_PREFIXES:
-        if text.startswith(prefix):
-            return "pro"
-
-    # 4) 默认 → 普通任务
-    return "flash"
+    try:
+        resp = await litellm.acompletion(
+            model=simple_model,
+            messages=[
+                {"role": "system", "content": _TRIAGE_SYSTEM},
+                {"role": "user", "content": user_input},
+            ],
+            temperature=0,
+            max_tokens=10,
+            api_base=api_base or None,
+            api_key=api_key or None,
+            timeout=15,
+        )
+        answer = (resp.choices[0].message.content or "").strip().upper()
+        if "COMPLEX" in answer:
+            return "complex"
+        return "simple"
+    except Exception:
+        return "simple"
 
 
-def route_model(
+async def route_model(
     user_input: str,
     provider: str,
     current_model: str,
+    api_base: str | None,
+    api_key: str | None,
     *,
     automodel_enabled: bool = True,
 ) -> tuple[str, str | None]:
-    """根据任务复杂度路由到合适的模型。
+    """Route to appropriate model using LLM triage.
 
-    Args:
-        user_input: 用户原始输入
-        provider: 当前厂商
-        current_model: 当前模型名
-        automodel_enabled: 是否启用自动切换
+    Sends user input to the simple model for classification.
+    If complex, returns the complex model. Otherwise returns simple model.
 
     Returns:
         (model_to_use, hint_message_or_None)
@@ -336,25 +107,159 @@ def route_model(
     if not automodel_enabled:
         return current_model, None
 
-    # 仅对 deepseek provider 生效
-    if provider != "deepseek":
+    config = _get_automodel_config(provider)
+    if not config:
         return current_model, None
 
-    classification = classify_task(user_input)
-    target_model = "deepseek/deepseek-v4-pro" if classification == "pro" else "deepseek/deepseek-v4-flash"
+    complex_model = config.get("complex_model", "")
+    simple_model = config.get("simple_model", "")
+    if not complex_model or not simple_model:
+        return current_model, None
 
-    # 如果目标模型和当前模型相同，不提示
+    classification = await triage_classify(user_input, simple_model, api_base, api_key)
+    target_model = complex_model if classification == "complex" else simple_model
+
     if target_model == current_model:
         return current_model, None
 
-    short_name = "deepseek-v4-pro" if classification == "pro" else "deepseek-v4-flash"
-    hint = f"[auto → {short_name}]"
+    short = target_model.split("/")[-1] if "/" in target_model else target_model
+    hint = f"[auto -> {short}]"
     return target_model, hint
 
 
 def automodel_status(provider: str, automodel_enabled: bool) -> str:
-    """返回 /automodel 状态描述。"""
+    """Return /automodel status description."""
     state = "ON" if automodel_enabled else "OFF"
-    if provider != "deepseek":
-        return f"/automodel: {state} (当前 provider 为 {provider}，自动切换仅对 deepseek 生效)"
-    return f"/automodel: {state} — 高级任务 → deepseek-v4-pro，普通任务 → deepseek-v4-flash"
+    config = _get_automodel_config(provider)
+    if not config:
+        return f"/automodel: {state} (not configured for '{provider}' — run /automodel setup)"
+
+    complex_m = config.get("complex_model", "?").split("/")[-1]
+    simple_m = config.get("simple_model", "?").split("/")[-1]
+    return (
+        f"/automodel: {state}\n"
+        f"  triage: {simple_m} classifies -> simple stays on {simple_m}, complex escalates to {complex_m}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Interactive setup
+# ---------------------------------------------------------------------------
+
+def _get_configured_providers() -> list[dict[str, Any]]:
+    """Get all providers that have API keys configured."""
+    try:
+        from openagentic.core.llm.provider_config import get_provider_store
+        store = get_provider_store().get()
+        result = []
+        for p in store.profiles:
+            if p.enabled and p.api_key:
+                result.append({
+                    "id": p.id,
+                    "display_name": p.display_name,
+                    "models": list(p.models),
+                    "has_automodel": p.automodel is not None,
+                })
+        return result
+    except Exception:
+        return []
+
+
+def setup_automodel_interactive(current_provider: str) -> bool:
+    """Interactive automodel setup. Returns True if config was saved."""
+    providers = _get_configured_providers()
+
+    if not providers:
+        _console.print("  [yellow]No providers with API keys configured.[/yellow]")
+        _console.print("  [dim]Use /provider-config to add an API key first.[/dim]")
+        return False
+
+    # Select provider
+    current_in_list = [p for p in providers if p["id"] == current_provider]
+
+    if len(providers) == 1:
+        target = providers[0]
+        _console.print(f"\n  Provider: [bold]{target['display_name']}[/bold]")
+    else:
+        _console.print(f"\n  [bold]Providers with API keys:[/bold]")
+        for i, p in enumerate(providers, 1):
+            mark = " [green]<-[/green]" if p["id"] == current_provider else ""
+            configured = " [dim](automodel configured)[/dim]" if p["has_automodel"] else ""
+            _console.print(f"    {i}. {p['display_name']} ({p['id']}){mark}{configured}")
+
+        _console.print()
+        try:
+            choice = input("  Select provider (number or Enter for current): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return False
+
+        if not choice:
+            target = current_in_list[0] if current_in_list else providers[0]
+        elif choice.isdigit() and 1 <= int(choice) <= len(providers):
+            target = providers[int(choice) - 1]
+        else:
+            _console.print(f"  [red]Invalid choice.[/red]")
+            return False
+
+    models = target["models"]
+    if len(models) < 2:
+        _console.print(f"  [yellow]{target['display_name']} only has {len(models)} model(s).[/yellow]")
+        _console.print("  [dim]Need at least 2 models. Add more via /provider-config.[/dim]")
+        return False
+
+    # Show models
+    _console.print(f"\n  [bold]{target['display_name']}[/bold] models:")
+    for i, m in enumerate(models, 1):
+        short = m.split("/")[-1] if "/" in m else m
+        _console.print(f"    {i}. {short}")
+
+    _console.print()
+    _console.print("  [bold]How it works:[/bold]")
+    _console.print("  All requests go to the [cyan]simple[/cyan] (cheap) model first.")
+    _console.print("  It classifies the task. Complex tasks escalate to the [cyan]complex[/cyan] (powerful) model.")
+    _console.print()
+
+    try:
+        c_input = input(f"  complex (powerful/expensive) model (1-{len(models)}): ").strip()
+        if not c_input.isdigit() or not (1 <= int(c_input) <= len(models)):
+            _console.print("  [red]Cancelled.[/red]")
+            return False
+        complex_model = models[int(c_input) - 1]
+
+        s_input = input(f"  simple (cheap/fast) model (1-{len(models)}): ").strip()
+        if not s_input.isdigit() or not (1 <= int(s_input) <= len(models)):
+            _console.print("  [red]Cancelled.[/red]")
+            return False
+        simple_model = models[int(s_input) - 1]
+    except (EOFError, KeyboardInterrupt):
+        return False
+
+    if complex_model == simple_model:
+        _console.print("  [yellow]Same model for both roles — automodel won't route.[/yellow]")
+
+    # Save
+    automodel_cfg = {
+        "complex_model": complex_model,
+        "simple_model": simple_model,
+    }
+
+    try:
+        from openagentic.core.llm.provider_config import get_provider_store
+        store = get_provider_store()
+        config = store.get()
+        for profile in config.profiles:
+            if profile.id == target["id"]:
+                profile.automodel = automodel_cfg
+                break
+        store.save()
+    except Exception as e:
+        _console.print(f"  [red]Failed to save: {e}[/red]")
+        return False
+
+    c_short = complex_model.split("/")[-1] if "/" in complex_model else complex_model
+    s_short = simple_model.split("/")[-1] if "/" in simple_model else simple_model
+    _console.print()
+    _console.print(f"  [green]Saved![/green]")
+    _console.print(f"  {s_short} [dim](triage + simple tasks)[/dim]")
+    _console.print(f"  {c_short} [dim](complex tasks)[/dim]")
+    return True

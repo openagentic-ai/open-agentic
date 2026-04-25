@@ -20,6 +20,7 @@ class ProviderProfile:
     api_key: str = ""
     models: list[str] = field(default_factory=list)
     enabled: bool = True
+    automodel: dict[str, Any] | None = None
 
     def to_public_dict(self) -> dict[str, Any]:
         return {
@@ -372,6 +373,11 @@ class ProviderConfigStore:
             cfg = _clone_config(DEFAULT_CONFIG)
             cfg, _ = _apply_env_bootstrap(cfg)
             return cfg
+
+    def save(self) -> None:
+        """Public save — acquires lock and persists current config to disk."""
+        with self._lock:
+            self._save_unlocked()
 
     def _save_unlocked(self) -> None:
         data = {

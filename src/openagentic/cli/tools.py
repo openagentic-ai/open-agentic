@@ -11,9 +11,10 @@ from typing import Any, Callable, Coroutine
 
 from rich.console import Console
 
+from openagentic.cli._patchable_stdout import _patchable_stdout
 from openagentic.memory.manager import MemoryManager
 
-_tools_console = Console()
+_tools_console = Console(file=_patchable_stdout)
 
 _memory_manager: MemoryManager | None = None
 

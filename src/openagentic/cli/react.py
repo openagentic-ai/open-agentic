@@ -11,6 +11,8 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 
+from openagentic.cli._patchable_stdout import _patchable_stdout
+
 from openagentic.cli.llm import litellm_chat
 from openagentic.cli.tools import TOOLS, ConfirmFn, execute_tool
 from openagentic.config import SETTINGS
@@ -20,27 +22,40 @@ from openagentic.memory.manager import (
     compress_working_memory,
 )
 
-_console = Console()
+_console = Console(file=_patchable_stdout)
 
 _SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
 
-async def _spin_while(coro, text: str = "thinking..."):
-    """Await *coro* while animating a braille spinner on the terminal."""
+async def _spin_while(coro, text: str = "思考中..."):
+    """Await *coro* while animating a braille spinner.
+
+    Uses ``\\033[F`` (cursor-up) to overwrite the previous frame in-place
+    instead of adding a new line on every frame.  This keeps the prompt at
+    the bottom of the terminal even under ``patch_stdout()``.
+    """
     done = False
+    first_frame = True
 
     async def _spin() -> None:
+        nonlocal first_frame
         i = 0
         while not done:
             frame = _SPINNER[i % len(_SPINNER)]
-            sys.stdout.write(f"\r  {frame} {text}")
+            if first_frame:
+                sys.stdout.write(f"  {frame} {text}\n")
+                first_frame = False
+            else:
+                # Move cursor up one line, clear to end of line, re-write
+                sys.stdout.write(f"\033[F\033[K  {frame} {text}\n")
             sys.stdout.flush()
             await asyncio.sleep(0.08)
             i += 1
-        # erase spinner line, move to fresh line
-        sys.stdout.write("\r" + " " * (len(text) + 30) + "\r")
-        sys.stdout.write("\n")
-        sys.stdout.flush()
+        # Erase the spinner line.  No trailing newline so the first
+        # _console.print() after _spin_while reuses the now-empty line.
+        if not first_frame:
+            sys.stdout.write("\033[F\033[K")
+            sys.stdout.flush()
 
     task = asyncio.create_task(_spin())
     try:
