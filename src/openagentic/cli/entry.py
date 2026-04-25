@@ -52,7 +52,14 @@ def main() -> None:
         action="store_true",
         help="启动前必须完成平台登录/注册；未指定 --api-base 时默认 http://127.0.0.1:8000",
     )
+    parser.add_argument(
+        "--no-provider-check",
+        action="store_true",
+        help="跳过缺 API key 时的强制配置向导（CI/批量测试可用，等价于 OPENAGENTIC_SKIP_PROVIDER_CHECK=1）",
+    )
     args = parser.parse_args()
+    if args.no_provider_check:
+        SETTINGS.OPENAGENTIC_SKIP_PROVIDER_CHECK = True
 
     # OPENAGENTIC_* env-var overrides (like Claude Code's ANTHROPIC_* vars)
     env_base_url = SETTINGS.OPENAGENTIC_BASE_URL.strip()

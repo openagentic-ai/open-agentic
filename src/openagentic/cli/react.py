@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import sys
+import uuid
 from typing import Any
 
 from rich.console import Console
@@ -22,9 +24,26 @@ from openagentic.memory.manager import (
     compress_working_memory,
 )
 
+logger = logging.getLogger(__name__)
 _console = Console(file=_patchable_stdout)
 
 _SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+
+def _ensure_tool_call_id(tc: dict[str, Any], assistant_msg: dict[str, Any]) -> str:
+    """生成并回填 tool_call.id，兼容某些模型（如部分 DeepSeek/OpenAI 兼容端点）
+    在 tool_call 中不返回 id 的情况。同步更新 assistant_msg.tool_calls 中
+    对应条目的 id，确保后续消息的 tool_call_id 与 assistant 消息匹配。"""
+    new_id = f"call_{uuid.uuid4().hex[:24]}"
+    tc["id"] = new_id
+    for entry in assistant_msg.get("tool_calls", []) or []:
+        if entry is tc or (
+            entry.get("function", {}).get("name") == tc.get("function", {}).get("name")
+            and not entry.get("id")
+        ):
+            entry["id"] = new_id
+    logger.warning("tool_call missing id, generated fallback %s", new_id)
+    return new_id
 
 
 async def _spin_while(coro, text: str = "思考中..."):
@@ -98,8 +117,8 @@ async def react_loop(
             for i, ep in enumerate(eps, 1):
                 ctx += f"{i}. {ep['title']}\n   {ep['summary'][:300]}\n\n"
             messages.insert(1, {"role": "system", "content": ctx})
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("episodic memory injection failed: %s", exc, exc_info=True)
 
     # ── Working memory compression: compress if over token budget ──
     if working_memory_compressible(messages):
@@ -110,8 +129,8 @@ async def react_loop(
                 api_base=api_base,
                 api_key=api_key,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("working memory compression failed: %s", exc, exc_info=True)
 
     last_tool_name = ""
     last_result_preview = ""
@@ -174,9 +193,7 @@ async def react_loop(
                 summary = args.get("summary", content or "Done.")
                 _console.print()
                 _console.print(Markdown(summary))
-                tid_done = tc.get("id")
-                if not tid_done:
-                    raise RuntimeError("模型返回的 tool_call 缺少 id，无法对接 DeepSeek/OpenAI 兼容 API")
+                tid_done = tc.get("id") or _ensure_tool_call_id(tc, assistant_msg)
                 messages.append({"role": "tool", "tool_call_id": tid_done, "content": summary})
                 return summary
 
@@ -185,11 +202,8 @@ async def react_loop(
             last_result_preview = (result or "")[:400].replace("\n", " ")
             _console.print(f"  [dim]{result[:500]}[/dim]")
 
-            tool_msg: dict = {"role": "tool", "content": result}
-            tid = tc.get("id")
-            if not tid:
-                raise RuntimeError("模型返回的 tool_call 缺少 id，无法对接 DeepSeek/OpenAI 兼容 API")
-            tool_msg["tool_call_id"] = tid
+            tid = tc.get("id") or _ensure_tool_call_id(tc, assistant_msg)
+            tool_msg: dict = {"role": "tool", "content": result, "tool_call_id": tid}
             messages.append(tool_msg)
 
     conclusion = (

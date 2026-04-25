@@ -175,12 +175,19 @@ def discover_models_openai_compatible(provider: str, api_base: str, api_key: str
 
 
 def require_provider_configured(provider: str) -> tuple[str, str | None]:
+    from openagentic.config import SETTINGS
+
     profile = find_profile(provider)
     if not profile:
         raise RuntimeError(f"Unknown provider: {provider}")
     if not profile["enabled"]:
         raise RuntimeError(f"Provider {provider} is disabled. Please enable it in config.")
     if provider != "ollama" and not profile["api_key"]:
+        if SETTINGS.OPENAGENTIC_SKIP_PROVIDER_CHECK:
+            raise RuntimeError(
+                f"Provider {provider} 未配置 API key，且已设置 OPENAGENTIC_SKIP_PROVIDER_CHECK=1，"
+                "跳过交互式向导。请通过 `/provider-config` 或环境变量补齐凭据后重试。"
+            )
         configure_provider_interactive(provider)
         profile = find_profile(provider)
         if not profile:

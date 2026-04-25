@@ -931,7 +931,7 @@ PYTHONPATH=src uvicorn openagentic.main:app --host 0.0.0.0 --port 8000
 无需启动 Web 服务，直接在终端与模型对话（支持本地 Ollama 或 OpenAI 兼容网关）：
 
 ```bash
-cd /opt/open-agentic && source .venv/bin/activate
+cd ~/open-agentic && source .venv/bin/activate
 
 # 默认使用 qwen3:14b
 python -m openagentic.cli
@@ -945,6 +945,11 @@ python -m openagentic.cli -m ollama/deepseek-r1:32b
 # 带系统提示
 python -m openagentic.cli -s "你是一个Python专家，用中文回答"
 
+# 跳过缺 API key 时的强制配置向导（CI/批量测试 / demo）
+python -m openagentic.cli --no-provider-check
+# 或环境变量等价：
+OPENAGENTIC_SKIP_PROVIDER_CHECK=1 python -m openagentic.cli
+
 # 也可以用注册的命令（需已 pip install -e .）
 openagentic
 ```
@@ -956,7 +961,7 @@ CLI Provider 说明：
 - `--provider auto`（默认）：按模型前缀或默认配置自动选择 provider。
 - `--provider <id>`：可指定 `openai`、`anthropic`、`xai`、`gemini`、`deepseek`、`qwen`、`ollama` 等。
 - CLI 内可用 `/providers` 查看厂商列表，`/provider <id>` 切换并进入该厂商配置向导，`/provider-config [id]` 单独编辑配置。
-- 未配置必需的 API Key 时，CLI 会在进入会话前强制进入配置向导，配置完成后才允许继续使用。
+- 未配置必需的 API Key 时，CLI 会在进入会话前强制进入配置向导，配置完成后才允许继续使用。如需跳过（CI/批量/demo 场景），加 `--no-provider-check` 或 `OPENAGENTIC_SKIP_PROVIDER_CHECK=1`，缺 key 时会抛出清晰错误而非进入交互。
 - 模型始终由显式配置决定（`-m`、`/model`、`default_model`、`OPENAI_CHAT_MODEL`）；API Key 仅用于鉴权，不负责“指定模型”。
 - Provider 配置文件默认位于 `.openagentic/model_providers.json`（可通过 `MODEL_PROVIDER_CONFIG_PATH` 调整）。
 

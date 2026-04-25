@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     OPENAGENTIC_BASE_URL: str = ""
     OPENAGENTIC_AUTH_TOKEN: str = ""
     OPENAGENTIC_MODEL: str = ""
+    # 跳过启动时强制 provider 配置向导（用于 CI/demo/批量测试）
+    OPENAGENTIC_SKIP_PROVIDER_CHECK: bool = False
 
     # File storage
     UPLOAD_DIR: str = "/data/uploads"

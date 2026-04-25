@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import shutil
 import sys
 
@@ -34,6 +35,7 @@ from openagentic.cli.providers import (
 )
 from openagentic.cli.react import react_loop
 
+logger = logging.getLogger(__name__)
 _console = Console(file=_patchable_stdout)
 
 SLASH_COMMANDS = [
@@ -192,8 +194,11 @@ async def main_loop(
                     store.save()
                     model = cheap
                     am_cfg = auto_cfg
-                except Exception:
-                    pass  # non-fatal — just use the current model
+                except Exception as exc:
+                    logger.warning(
+                        "automodel auto-config persist failed (provider=%s): %s",
+                        provider, exc, exc_info=True,
+                    )
 
     endpoint = api_base or "(provider default)"
 
@@ -308,8 +313,8 @@ async def main_loop(
                                 summary_lines.append(f"[{role}] {content}")
                         if summary_lines:
                             mgr.save_episode(title, "\n".join(summary_lines[-10:]), ["conversation"])
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.warning("auto-save episode on /clear failed: %s", exc, exc_info=True)
                 messages.clear()
                 messages.append({"role": "system", "content": ""})
                 rebuild_system_message()
