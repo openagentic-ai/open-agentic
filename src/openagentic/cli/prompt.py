@@ -109,6 +109,35 @@ def build_core_memory_section(limit: int = 20) -> str:
     return "\n".join(lines)
 
 
+def build_skills_section() -> str:
+    """List discovered skills as one-line metadata for the LLM.
+
+    只塞 name+description+path（每个 skill ~50 token），全文按需 read_file。
+    跳过解析失败的 skill（loader 已记录错误，但不污染 prompt）。
+    """
+    try:
+        from openagentic.skills import SkillsManager
+        skills = SkillsManager().list_skills()
+    except Exception:
+        return ""
+
+    if not skills:
+        return ""
+
+    lines = [
+        "",
+        "## Available Skills",
+        "你可以使用以下 skill。需要时用 `read_file` 读取其 SKILL.md 全文获取详细操作指南，",
+        "然后按指南的步骤执行。skill 不是工具——它是给你的领域 SOP。",
+        "",
+    ]
+    for s in skills:
+        lines.append(f"- **{s.slug}** (`{s.path}`): {s.description}")
+    lines.append("")
+    lines.append("调用模式：判断当前任务匹配某 skill → read_file 该 SKILL.md → 按其指南执行。")
+    return "\n".join(lines)
+
+
 def is_identity_question(text: str) -> bool:
     return bool(IDENTITY_QUESTION_RE.search(text))
 

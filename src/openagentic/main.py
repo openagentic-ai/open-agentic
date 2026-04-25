@@ -10,6 +10,17 @@ from openagentic import __version__
 from openagentic.config import SETTINGS
 from openagentic.db.base import Base
 from openagentic.db.session import engine
+from openagentic.observability import (
+    RequestContextMiddleware,
+    configure_logging,
+    setup_metrics,
+)
+
+# 进程启动即配置日志（在 logger 实例化之前）
+configure_logging(
+    json_logs=SETTINGS.APP_ENV != "development",
+    level=SETTINGS.APP_LOG_LEVEL,
+)
 
 # 导入全部模型，让 Alembic autogenerate 能完整感知 metadata。
 from openagentic.core.auth.models import User, ApiKey  # noqa: F401
@@ -54,6 +65,11 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
     )
 
+    # 注意中间件顺序：add_middleware 是 LIFO，后加的在外层。
+    # 期望调用栈：CORS(外) → RequestContext(内) → app，
+    # 所以先 add RequestContext，再 add CORS。
+    app.add_middleware(RequestContextMiddleware)
+
     # CORS 当前配置为全放开，便于开发联调。
     # 生产环境建议按域名白名单收敛。
     app.add_middleware(
@@ -63,6 +79,9 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Prometheus /metrics 端点（必须在路由注册前 instrument）
+    setup_metrics(app)
 
     # 健康检查接口：用于容器编排探活与外部监控。
     @app.get("/health")

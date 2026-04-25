@@ -19,6 +19,7 @@ from openagentic.cli.auth import clear_cli_session_file, platform_authenticate_s
 from openagentic.cli.model_router import automodel_status, route_model, setup_automodel_interactive
 from openagentic.cli.prompt import (
     build_core_memory_section,
+    build_skills_section,
     compose_cli_system_message,
 )
 from openagentic.cli.providers import (
@@ -39,6 +40,7 @@ _console = Console(file=_patchable_stdout)
 SLASH_COMMANDS = [
     "/help", "/config", "/model", "/provider", "/providers",
     "/provider-config", "/automodel", "/clear",
+    "/skills",
     "/login-platform", "/logout-platform", "/quit",
 ]
 
@@ -66,6 +68,9 @@ def print_help() -> None:
     )
     _console.print(
         "  /automodel [on|off]  /login-platform  /logout-platform  /quit"
+    )
+    _console.print(
+        "  /skills [name]  /skills new <name>  /skills reload"
     )
     _console.print()
     _console.print("[bold]Tips[/bold]")
@@ -204,6 +209,17 @@ async def main_loop(
     }
     messages: list[dict] = [{"role": "system", "content": ""}]
 
+    # 首次启动播种内置 skill 到 ~/.openagentic/skills/（不覆盖用户已有同名）
+    try:
+        from openagentic.skills import SkillsManager
+        seeded = SkillsManager().ensure_seeded()
+        if seeded:
+            _console.print(
+                f"  [dim]seeded {len(seeded)} builtin skill(s): {', '.join(seeded)}[/dim]"
+            )
+    except Exception as exc:  # 播种失败不该阻断 CLI 启动
+        logger.warning("skills seeding failed: %s", exc, exc_info=True)
+
     def rebuild_system_message() -> None:
         base = compose_cli_system_message(
             provider,
@@ -216,6 +232,9 @@ async def main_loop(
         core = build_core_memory_section(limit=20)
         if core:
             base += "\n" + core
+        skills_section = build_skills_section()
+        if skills_section:
+            base += "\n" + skills_section
         messages[0]["content"] = base
 
     rebuild_system_message()
@@ -470,6 +489,65 @@ async def main_loop(
                 else:
                     _console.print("  [red]Usage: /automodel on|off|setup[/red]")
                     continue
+
+            if user_input == "/skills" or user_input.startswith("/skills "):
+                from openagentic.skills import SkillsManager, SkillNotFound, SkillError
+                mgr = SkillsManager()
+                args = user_input[len("/skills"):].strip()
+
+                if not args:
+                    skills, errors = mgr.list_with_errors()
+                    _console.print()
+                    if not skills and not errors:
+                        _console.print("  [dim]还没有 skill。`/skills new <name>` 创建一个。[/dim]")
+                    for s in skills:
+                        _console.print(f"  [bold cyan]{s.slug}[/bold cyan]  {s.description}")
+                    for path, err in errors:
+                        _console.print(f"  [red]✗ {path}: {err}[/red]")
+                    _console.print()
+                    continue
+
+                parts = args.split(maxsplit=1)
+                sub = parts[0]
+
+                if sub == "reload":
+                    # 解析在 list_with_errors 内每次都重扫，无需缓存——这里只是给用户反馈
+                    skills, errors = mgr.list_with_errors()
+                    _console.print(f"\n  [green]reloaded:[/green] {len(skills)} skill(s), {len(errors)} error(s)")
+                    rebuild_system_message()
+                    _console.print()
+                    continue
+
+                if sub == "new":
+                    if len(parts) < 2 or not parts[1].strip():
+                        _console.print("  [red]Usage: /skills new <slug>[/red]")
+                        continue
+                    new_slug = parts[1].strip()
+                    try:
+                        path = mgr.create_template(new_slug)
+                    except SkillError as exc:
+                        _console.print(f"  [red]{exc}[/red]")
+                        continue
+                    _console.print(f"\n  [green]created:[/green] {path}")
+                    _console.print("  [dim]编辑后用 /skills reload 重新加载。[/dim]\n")
+                    continue
+
+                # 视为 /skills <slug> —— 显示该 skill 详情
+                target_slug = sub
+                try:
+                    skill = mgr.get(target_slug)
+                except SkillNotFound as exc:
+                    _console.print(f"  [red]{exc}[/red]")
+                    continue
+                _console.print()
+                _console.print(f"  [bold cyan]{skill.slug}[/bold cyan]  {skill.path}")
+                _console.print(f"  [dim]{skill.description}[/dim]")
+                if skill.allowed_tools:
+                    _console.print(f"  [dim]allowed-tools:[/dim] {', '.join(skill.allowed_tools)}")
+                _console.print()
+                _console.print(skill.body.rstrip())
+                _console.print()
+                continue
 
             if user_input == "/config":
                 _console.print()

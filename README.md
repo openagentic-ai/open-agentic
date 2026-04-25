@@ -29,7 +29,8 @@
 | **3 Workflow** | ✅ | DAG 校验+拓扑执行、节点重试/超时、`{{var}}` 模板渲染 |
 | **4 Knowledge/RAG** | ✅ | KB CRUD、文档分块+向量检索+重排、`knowledge_search` 工具 |
 | **4.5 四层记忆** | ✅ 文件版 | Working/Core/Episodic/Procedural，`~/.openagentic/memory/` |
-| **5 多租户+可观测** | 🟡 | 行级 user_id 隔离 ✓；计费/Prometheus 未实现 |
+| **5 多租户+可观测** | ✅ 单租户级 | 行级 user_id 隔离 ✓；tenant/request_id contextvar ✓；Prometheus `/metrics` ✓；structlog 注入 request_id+tenant_id ✓。组织(Org)级隔离与跨服务 correlation 留作未来扩展，**计费/配额已撤回（属上游 LLM 网关职责）** |
+| **5.5 CLI 对标 Claude Code** | 🔲 计划中 | 12 任务分 D1/D2/D3，从 P0 六件套 (`/compact` `/cost` `/context` `/copy` `/plan` `/btw`) 起步，详见路线图章节 |
 | **6 前后端闭环** | 🟡 | UI 8 页面完成；Skills/Devices 后端缺失；**CLI 优先，Web 暂缓** |
 
 > **当前优先级：只做 CLI**（对标 Claude Code），Web/App/小程序全部暂缓。
@@ -45,7 +46,8 @@
 
 - **17 个 LLM provider**：OpenAI / Anthropic / DeepSeek / XAI / Gemini / Mistral / Cohere / Groq / OpenRouter / Moonshot / Zhipu / MiniMax / Volcengine / Baidu / Tencent / Nvidia / Together / Fireworks / Qwen / Ollama
 - **12 个工具**：`run_command` `read_file` `write_file` `delete_file` `done` + 7 个 memory 工具
-- **11 个 slash 命令**：`/model` `/providers` `/automodel` `/clear` `/login-platform` 等
+- **12 个 slash 命令**：`/model` `/providers` `/automodel` `/clear` `/login-platform` `/skills` 等
+- **Skills 系统**（Claude Code 风格）：`~/.openagentic/skills/<slug>/SKILL.md`，frontmatter+markdown，启动时 metadata 注入 system prompt（每条 ~50 token），全文按需 `read_file` 加载。内置 3 个：`git-commit` / `code-review` / `debug-trace`。`/skills` 列表，`/skills <name>` 看详情，`/skills new <name>` 建模板，`/skills reload` 热加载
 - **写/删文件确认门**：异步确认，REFUSED 由模型重规划
 - **REPL 并发输入队列**：输入不阻塞推理
 - **四层记忆接入 ReAct loop**：Working 自动压缩 + Core 启动注入 + Episodic 每轮检索
@@ -228,8 +230,9 @@ src/openagentic/
 ├── workflow/            # DAG 工作流引擎
 ├── knowledge/           # RAG：知识库 + 向量检索 + 重排序
 ├── memory/              # 四层记忆系统（文件版）
-├── tenant/              # Phase 5 占位
-├── observability/       # Phase 5 占位
+├── skills/              # CLI skills（Claude Code 风格 SKILL.md，含 builtin/）
+├── tenant/              # 请求级 tenant_id / request_id contextvar
+├── observability/       # structlog 配置 + Prometheus + RequestContextMiddleware
 └── db/                  # session、Base
 ui/                      # React 前端
 ```
@@ -272,26 +275,68 @@ ui/                      # React 前端
 | **Episodic** | `~/.openagentic/memory/episodes/` | 每轮 ReAct 自动检索 top-3，`/clear` 自动存档 |
 | **Procedural** | `~/.openagentic/memory/procedures/` | 模型显式调用 `procedural_save`/`procedural_search`，未自动注入 |
 
-### P1/P2 待办（差距 Claude Code）
+### P1/P2 待办（已合并入 Phase 5.5）
 
-- 🔲 长推理无法中断单次任务 → **已修复**（Ctrl+C 取消当轮 react，P1-1）
-- 🔲 `write_file` 前无 diff 预览
-- 🔲 无 `/plan` 模式
-- 🔲 无 `/task` todo list
-- 🔲 无子 agent 委派
-- 🔲 Procedural memory 不会自动注入
+→ 见下方 [Phase 5.5：CLI 对标 Claude Code](#phase-55cli-对标-claude-code)
 
-### Phase 5：多租户 + 可观测（未完成）
-- [ ] 多租户与组织隔离
-- [ ] 用量统计 / 计费 / 配额
-- [ ] Prometheus 指标 + correlation ID 全链路追踪
+### Phase 5：多租户 + 可观测
+
+- [x] 行级 `user_id` 隔离（已存在于 db schema）
+- [x] 请求级 tenant context（`tenant/` contextvar，`tenant_id == user_id`）
+- [x] Prometheus `/metrics`（method/path_template/status 三维标签，`/health` `/metrics` 自身排除）
+- [x] structlog 自动注入 `request_id` 与 `tenant_id`，`X-Request-ID` 中间件透传/生成
+- [ ] 组织(Org)级隔离（需新表 `organizations`、`user_organizations`，全路由 scope 改造，大改动，按需启动）
+- [ ] 跨服务 correlation（LiteLLM 调用、DB query 注入 request_id；目前仅 HTTP 入站层）
+- ~~用量统计 / 计费 / 配额~~（已撤回——属上游 LLM 网关 / LiteLLM Proxy 职责，agent 应用层不重复造）
+
+### Phase 5.5：CLI 对标 Claude Code
+
+> **背景**：Claude Code 内置 70+ slash 命令；OpenAgentic CLI 当前 12 个。差距分析后筛出真正值得移植的 CLI 框架级能力（其余如 `/batch` `/simplify` `/security-review` 等行为类，**走 SKILL.md 路线**而非硬编码 slash）。
+
+#### 待办清单（按 D1/D2/D3 排程）
+
+| # | 任务 | 状态 | 估时 | 备注 |
+|---|------|------|------|------|
+| **D1：立竿见影** |
+| 1 | `/compact` `/cost` `/context` `/copy` `/plan` `/btw` 六件套 | 🔲 | 2.5h | P0；litellm response 已带 usage；`/btw` 仅追加 user message 不触发推理（用户日常高频） |
+| 2 | `write_file` diff 预览（覆盖时显示 unified diff） | 🔲 | 1h | 原 P1-1 |
+| 3 | Procedural memory 自动注入（react loop 每轮 top-3） | 🔲 | 30min | 原 P1-2，对齐 episodic |
+| 4 | 3 个内置 SKILL：`security-review` / `simplify` / `batch` | 🔲 | 1.5h | 写 SKILL.md，下次启动自动播种 |
+| **D2：补齐易做项** |
+| 5 | `/memory` `/export` `/debug` 三件套 | 🔲 | 1h | 编辑器、导出、日志级 |
+| 6 | `/diff`（包 `git diff`，rich 染色） | 🔲 | 30min | |
+| 7 | `/review`（喂 git diff 给 LLM + code-review skill） | 🔲 | 1h | |
+| 8 | `/agents`（CLI 接通已有 agent HTTP 模块） | 🔲 | 半天 | |
+| 9 | `/mcp`（CLI 接通已有 mcp 模块） | 🔲 | 半天 | |
+| **D3：深度改造** |
+| 10 | `/permissions`（替代硬编码 confirm，allow/ask/deny + 路径白名单） | 🔲 | 半天 | |
+| 11 | `/resume` + `/rename` + `/branch`（会话持久化三件套，需 SQLite 表） | 🔲 | 一天 | |
+| 12 | 全套烟测：所有新命令 + 3 SKILL 通过 LLM 触发验证 | 🔲 | 2h | 收尾 |
+
+#### 不做清单（避免散弹枪）
+
+- `/desktop` `/mobile` `/chrome` `/teleport` `/remote-control` — 跨端联动，先不要
+- `/upgrade` `/passes` `/extra-usage` `/stickers` — 商业化
+- `/install-github-app` `/install-slack-app` `/web-setup` — 第三方集成
+- `/sandbox` — 容器化大工程
+- `/heapdump` `/doctor` — 诊断（不适用）
+- `/loop` `/rewind` — 依赖任务系统/checkpoint 系统
+- `/voice` — 语音输入
+- **Claude Code 的 [Skill] 类命令**（`/batch` `/simplify` `/security-review` `/debug` 等）→ **走 SKILL.md，不做 slash**
+
+#### 已完成
+
+- [x] `/skills` 命令 + Skills 系统（Claude Code 风格 SKILL.md，3 个内置）
+- [x] Ctrl+C 中断单轮 react（保留会话）
+- [x] `--no-provider-check` 跳过 API key 强制配置向导
 
 ### Phase 6：前后端闭环（部分）
 - [x] `ui/` 8 页面框架（Sessions、Settings、Skills、Channels、Devices 等）
-- [ ] Skills 后端 CRUD（前端 UI 已就绪）
+- [x] **CLI Skills 系统**（文件式 Claude Code 风格，先打通 CLI 端；前端 SkillsPage 暂未对接）
 - [ ] Devices/Sessions/Channels 后端（当前为 stub）
 - [ ] 知识库上传 API 前后端对齐
 - [ ] 工作流可视化编辑器（React Flow）
+- [ ] 前端 SkillsPage 接入 CLI Skills（需把后端 skills 系统也暴露 HTTP API，但优先级不高）
 
 ### 四层记忆 → DB 版（未来）
 - [ ] CoreMemory / Episode / Procedure 迁移到 PostgreSQL + pgvector
