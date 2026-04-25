@@ -17,10 +17,8 @@ from rich.console import Console
 from openagentic.cli._patchable_stdout import _patchable_stdout
 from openagentic.cli.auth import clear_cli_session_file, platform_authenticate_sync
 from openagentic.cli.model_router import automodel_status, route_model, setup_automodel_interactive
-from openagentic.cli.platform_adapter import CLI_PLATFORM
 from openagentic.cli.prompt import (
     build_core_memory_section,
-    build_identity_answer,
     compose_cli_system_message,
 )
 from openagentic.cli.providers import (
@@ -77,9 +75,10 @@ def print_help() -> None:
 
 def _make_prompt_msg() -> HTML:
     w = shutil.get_terminal_size().columns
-    top_bar = '─' * w
+    inner = w - 2 if w >= 2 else w
+    top_bar = '─' * inner
     return HTML(
-        f'<style fg="#666666">{top_bar}</style>\n'
+        f'<style fg="#666666">╭{top_bar}╮</style>\n'
         f'<b>❯</b> '
     )
 
@@ -87,7 +86,8 @@ def _make_prompt_msg() -> HTML:
 def _make_toolbar(pending: int = 0):
     def _get_toolbar():
         w = shutil.get_terminal_size().columns
-        bar = '─' * w
+        inner = w - 2 if w >= 2 else w
+        bar = '─' * inner
         try:
             app = get_app()
             text = app.current_buffer.text
@@ -103,11 +103,11 @@ def _make_toolbar(pending: int = 0):
             else:
                 hint = f"  未知命令：{text}"
             return HTML(
-                f'<style fg="#666666">{bar}</style>\n'
+                f'<style fg="#666666">╰{bar}╯</style>\n'
                 f'<style fg="#aaaaaa">  {hint}{pending_hint}</style>'
             )
         return HTML(
-            f'<style fg="#666666">{bar}</style>\n'
+            f'<style fg="#666666">╰{bar}╯</style>\n'
             f'<style fg="#555555">  /help · 按 / 查看命令{pending_hint}</style>'
         )
     return _get_toolbar
@@ -186,12 +186,7 @@ async def main_loop(
                 try:
                     from openagentic.core.llm.provider_config import get_provider_store
                     store = get_provider_store()
-                    config = store.get()
-                    for p in config.profiles:
-                        if p.id == provider:
-                            p.automodel = auto_cfg
-                            break
-                    store.save()
+                    store.set_automodel(provider, auto_cfg)
                     model = cheap
                     am_cfg = auto_cfg
                 except Exception as exc:
@@ -559,6 +554,6 @@ async def main_loop(
 
     # Clear the stray "❯ " prompt_toolkit already rendered before the
     # producer was cancelled — otherwise it sits right before Bye!.
-    sys.stdout.write("\033[2K\r")
+    sys.stdout.write("\x1b[2K\r")
     sys.stdout.flush()
     _console.print("[dim]Bye![/dim]")

@@ -246,12 +246,7 @@ def setup_automodel_interactive(current_provider: str) -> bool:
     try:
         from openagentic.core.llm.provider_config import get_provider_store
         store = get_provider_store()
-        config = store.get()
-        for profile in config.profiles:
-            if profile.id == target["id"]:
-                profile.automodel = automodel_cfg
-                break
-        store.save()
+        store.set_automodel(target["id"], automodel_cfg)
     except Exception as e:
         _console.print(f"  [red]Failed to save: {e}[/red]")
         return False

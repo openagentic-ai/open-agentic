@@ -13,6 +13,8 @@ import httpx
 
 from openagentic.config import SETTINGS
 
+_MAX_OUTPUT = 4000
+
 
 @dataclass
 class Tool:
@@ -79,11 +81,13 @@ class ToolRegistry:
     def _tool_calculator(self, arg: str) -> str:
         if not arg.strip():
             raise ValueError("calculator requires a math expression")
-        return str(self._safe_eval_math(arg))
+        return str(ToolRegistry._safe_eval_math(arg))
 
-    def _safe_eval_math(self, expr: str) -> float:
+    @staticmethod
+    def _safe_eval_math(expr: str) -> float:
         unary_operators: dict[type[ast.unaryop], Callable[[float], float]] = {
             ast.USub: operator.neg,
+            ast.UAdd: operator.pos,
         }
         binary_operators: dict[type[ast.operator], Callable[[float, float], float]] = {
             ast.Add: operator.add,
@@ -123,8 +127,8 @@ async def _run_command(args: dict[str, Any]) -> str:
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         output = stdout.decode("utf-8", errors="replace")
-        if len(output) > 4000:
-            output = output[:4000] + "\n... (truncated)"
+        if len(output) > _MAX_OUTPUT:
+            output = output[:_MAX_OUTPUT] + "\n... (truncated)"
         return f"Exit code: {proc.returncode}\n{output}"
     except asyncio.TimeoutError:
         proc.kill()
@@ -138,8 +142,8 @@ async def _read_file(args: dict[str, Any]) -> str:
     try:
         loop = asyncio.get_event_loop()
         content = await loop.run_in_executor(None, lambda: open(path, "r", encoding="utf-8").read())
-        if len(content) > 4000:
-            content = content[:4000] + "\n... (truncated)"
+        if len(content) > _MAX_OUTPUT:
+            content = content[:_MAX_OUTPUT] + "\n... (truncated)"
         return content
     except Exception as e:
         return f"Error: {e}"
@@ -165,8 +169,8 @@ async def _http_request(args: dict[str, Any]) -> str:
         async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
             resp = await client.request(method, url, headers=headers, content=body)
             text = resp.text
-            if len(text) > 4000:
-                text = text[:4000] + "\n... (truncated)"
+            if len(text) > _MAX_OUTPUT:
+                text = text[:_MAX_OUTPUT] + "\n... (truncated)"
             return f"Status: {resp.status_code}\n{text}"
     except Exception as e:
         return f"Error: {e}"
@@ -182,8 +186,8 @@ async def _python_exec(args: dict[str, Any]) -> str:
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
         output = stdout.decode("utf-8", errors="replace")
-        if len(output) > 4000:
-            output = output[:4000] + "\n... (truncated)"
+        if len(output) > _MAX_OUTPUT:
+            output = output[:_MAX_OUTPUT] + "\n... (truncated)"
         return f"Exit code: {proc.returncode}\n{output}"
     except asyncio.TimeoutError:
         proc.kill()
@@ -204,8 +208,7 @@ async def _calculator(args: dict[str, Any]) -> str:
     expr = str(args.get("input", "")).strip()
     if not expr:
         raise ValueError("calculator requires a math expression")
-    registry = ToolRegistry()
-    return str(registry._safe_eval_math(expr))
+    return str(ToolRegistry._safe_eval_math(expr))
 
 
 async def _knowledge_search(args: dict[str, Any]) -> str:

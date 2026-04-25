@@ -5,7 +5,10 @@ import tempfile
 from openagentic.core.llm.provider_config import ProviderConfigStore
 
 
-def test_provider_store_persists_updates():
+def test_provider_store_persists_updates(monkeypatch):
+    # 清除环境变量避免 _apply_env_bootstrap 干扰二次加载
+    for key in ("OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_CHAT_MODEL"):
+        monkeypatch.delenv(key, raising=False)
     with tempfile.TemporaryDirectory() as tmpdir:
         path = f"{tmpdir}/providers.json"
         store = ProviderConfigStore(path)
@@ -16,7 +19,7 @@ def test_provider_store_persists_updates():
             "deepseek",
             api_base="https://api.deepseek.com/v1",
             api_key="sk-test-12345678",
-            models=["deepseek/deepseek-chat", "deepseek/deepseek-reasoner"],
+            models=["deepseek/deepseek-v4-pro", "deepseek/deepseek-v4-flash"],
             enabled=True,
         )
         assert any(p.id == "deepseek" and p.api_key for p in updated.profiles)
@@ -24,7 +27,7 @@ def test_provider_store_persists_updates():
         reloaded = ProviderConfigStore(path).get()
         deepseek = next(p for p in reloaded.profiles if p.id == "deepseek")
         assert deepseek.api_base == "https://api.deepseek.com/v1"
-        assert deepseek.models == ["deepseek/deepseek-chat", "deepseek/deepseek-reasoner"]
+        assert deepseek.models == ["deepseek/deepseek-v4-pro", "deepseek/deepseek-v4-flash"]
 
 
 def test_resolve_runtime_uses_default_model_profile():
@@ -45,12 +48,15 @@ def test_resolve_runtime_uses_default_model_profile():
         assert api_key == "sk-openai-abc12345"
 
 
-def test_default_deepseek_profile_lists_reasoner_first():
+def test_default_deepseek_profile_lists_pro_first(monkeypatch):
+    # 清除环境变量避免 _apply_env_bootstrap 干扰
+    for key in ("OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_CHAT_MODEL"):
+        monkeypatch.delenv(key, raising=False)
     with tempfile.TemporaryDirectory() as tmpdir:
         path = f"{tmpdir}/providers.json"
         store = ProviderConfigStore(path)
         deepseek = next(p for p in store.get().profiles if p.id == "deepseek")
-        assert deepseek.models[0] == "deepseek/deepseek-reasoner"
+        assert deepseek.models[0] == "deepseek/deepseek-v4-pro"
 
 
 def test_env_bootstrap_updates_stale_default_to_deepseek(monkeypatch):

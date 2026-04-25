@@ -374,6 +374,15 @@ class ProviderConfigStore:
             cfg, _ = _apply_env_bootstrap(cfg)
             return cfg
 
+    def set_automodel(self, profile_id: str, automodel: dict[str, Any] | None) -> None:
+        """Persist automodel config for a profile to disk."""
+        with self._lock:
+            for p in self._config.profiles:
+                if p.id == profile_id:
+                    p.automodel = automodel
+                    self._save_unlocked()
+                    return
+
     def save(self) -> None:
         """Public save — acquires lock and persists current config to disk."""
         with self._lock:

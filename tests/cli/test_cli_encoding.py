@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-import pytest
 
 
 # ============================================================================
@@ -215,17 +213,17 @@ def test_react_has_cr_spinner():
 # cli/repl.py — sequential loop (no concurrent producer/consumer)
 # ============================================================================
 
-def test_repl_sequential_loop_has_no_input_producer():
-    """repl.py must NOT have _input_producer or _execution_consumer anymore."""
+def test_repl_has_concurrent_producer_consumer():
+    """repl.py must use Producer-Consumer pattern for Ctrl+C interrupt support (P1-1)."""
     src = _read_src("openagentic", "cli", "repl.py")
-    assert "_input_producer" not in src, (
-        "repl.py must not have concurrent _input_producer"
+    assert "_input_producer" in src, (
+        "repl.py must have _input_producer for concurrent input handling"
     )
-    assert "_execution_consumer" not in src, (
-        "repl.py must not have concurrent _execution_consumer"
+    assert "_execution_consumer" in src, (
+        "repl.py must have _execution_consumer for sequential command processing"
     )
-    assert "InputCoordinator" not in src, (
-        "repl.py must not have InputCoordinator dataclass"
+    assert "asyncio.Queue" in src, (
+        "repl.py must use asyncio.Queue for producer-consumer communication"
     )
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import subprocess
 import sys
@@ -457,8 +458,7 @@ async def execute_tool(
             mgr = _get_memory_manager()
             tags = args.get("tags", [])
             if isinstance(tags, str):
-                import json as _json
-                tags = _json.loads(tags) if tags.startswith("[") else [tags]
+                tags = json.loads(tags) if tags.startswith("[") else [tags]
             fp = mgr.save_episode(args["title"], args["summary"], tags)
             return f"OK: episode saved → {fp}"
 
@@ -466,8 +466,7 @@ async def execute_tool(
             mgr = _get_memory_manager()
             steps = args.get("steps", [])
             if isinstance(steps, str):
-                import json as _json
-                steps = _json.loads(steps) if steps.startswith("[") else [steps]
+                steps = json.loads(steps) if steps.startswith("[") else [steps]
             fp = mgr.save_procedure(
                 args["name"], args["description"], args["trigger_pattern"], steps,
             )

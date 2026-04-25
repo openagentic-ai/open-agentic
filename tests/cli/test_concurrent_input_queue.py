@@ -8,13 +8,12 @@ Covers:
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from openagentic.cli.tools import ConfirmFn, execute_tool
+from openagentic.cli.tools import execute_tool
 
 
 # ---------------------------------------------------------------------------

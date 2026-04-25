@@ -46,12 +46,16 @@ def _ensure_tool_call_id(tc: dict[str, Any], assistant_msg: dict[str, Any]) -> s
     return new_id
 
 
+_CUU = "\x1b[F"  # cursor up one line
+_EL = "\x1b[K"   # erase to end of line
+
+
 async def _spin_while(coro, text: str = "思考中..."):
     """Await *coro* while animating a braille spinner.
 
-    Uses ``\\033[F`` (cursor-up) to overwrite the previous frame in-place
-    instead of adding a new line on every frame.  This keeps the prompt at
-    the bottom of the terminal even under ``patch_stdout()``.
+    Uses cursor-up / erase-to-EOL escapes to overwrite the previous frame
+    in-place instead of adding a new line on every frame.  This keeps the
+    prompt at the bottom of the terminal even under ``patch_stdout()``.
     """
     done = False
     first_frame = True
@@ -65,15 +69,12 @@ async def _spin_while(coro, text: str = "思考中..."):
                 sys.stdout.write(f"  {frame} {text}\n")
                 first_frame = False
             else:
-                # Move cursor up one line, clear to end of line, re-write
-                sys.stdout.write(f"\033[F\033[K  {frame} {text}\n")
+                sys.stdout.write(f"{_CUU}{_EL}  {frame} {text}\n")
             sys.stdout.flush()
             await asyncio.sleep(0.08)
             i += 1
-        # Erase the spinner line.  No trailing newline so the first
-        # _console.print() after _spin_while reuses the now-empty line.
         if not first_frame:
-            sys.stdout.write("\033[F\033[K")
+            sys.stdout.write(f"{_CUU}{_EL}")
             sys.stdout.flush()
 
     task = asyncio.create_task(_spin())
