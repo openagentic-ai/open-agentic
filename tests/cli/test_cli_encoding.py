@@ -228,25 +228,37 @@ def test_repl_has_concurrent_producer_consumer():
 
 
 def test_repl_has_sequential_main_loop():
-    """main_loop must keep its prompt → process backbone wired up."""
-    src = _read_src("openagentic", "cli", "repl.py")
-    assert "while True:" in src
-    assert "session.prompt_async" in src
-    # react_loop 必须仍由 repl.py 触发；包成 asyncio.create_task 是允许的
-    # （用于把 Ctrl+C 路由到当轮 react 任务，不退 CLI）。
-    assert "react_loop(" in src
+    """main_loop must keep its prompt → process backbone wired up.
+
+    react_loop now lives behind _run_react_turn in slash_commands.py after
+    the refactor; repl.py invokes that helper instead of importing react_loop
+    directly.
+    """
+    repl_src = _read_src("openagentic", "cli", "repl.py")
+    assert "while True:" in repl_src
+    assert "session.prompt_async" in repl_src
+    assert "_run_react_turn" in repl_src, (
+        "repl.py must dispatch user turns through _run_react_turn"
+    )
+    slash_src = _read_src("openagentic", "cli", "slash_commands.py")
+    assert "react_loop(" in slash_src, (
+        "slash_commands.py must invoke react_loop inside _run_react_turn"
+    )
 
 
 def test_input_prompt_has_top_separator():
-    """The prompt must include full-width top border in round style: ╭...╮."""
-    src = _read_src("openagentic", "cli", "repl.py")
+    """The prompt must include full-width top border in round style: ╭...╮.
+
+    UI primitives moved into slash_commands.py during the repl.py refactor.
+    """
+    src = _read_src("openagentic", "cli", "slash_commands.py")
     assert "╭" in src, "must have top-left corner ╭"
     assert "╮" in src, "must have top-right corner ╮"
 
 
 def test_input_prompt_has_bottom_separator():
     """The bottom_toolbar must include full-width bottom border: ╰...╯."""
-    src = _read_src("openagentic", "cli", "repl.py")
+    src = _read_src("openagentic", "cli", "slash_commands.py")
     assert "╰" in src, "must have bottom-left corner ╰"
     assert "╯" in src, "must have bottom-right corner ╯"
     assert "shutil.get_terminal_size" in src, "must dynamically compute width"
@@ -254,7 +266,7 @@ def test_input_prompt_has_bottom_separator():
 
 def test_bottom_toolbar_has_hints():
     """The bottom_toolbar must include hint text below the separator."""
-    src = _read_src("openagentic", "cli", "repl.py")
+    src = _read_src("openagentic", "cli", "slash_commands.py")
     assert "SLASH_COMMANDS" in src, "must have slash command list"
     assert "/help" in src, "slash commands must include /help"
     assert "/quit" in src, "slash commands must include /quit"

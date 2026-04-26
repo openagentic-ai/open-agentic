@@ -63,6 +63,12 @@ async def litellm_chat(
         # Print full error details to stderr so user can see what happened
         print(f"\n[LLM ERROR] {type(e).__name__}: {e}", file=sys.stderr)
         raise
+    # Best-effort usage/cost accounting — failures must not break chat.
+    try:
+        from openagentic.cli import cost_tracker
+        cost_tracker.record(model, response)
+    except Exception:
+        pass
     choice = response.choices[0]
     msg = choice.message
     tool_calls = []

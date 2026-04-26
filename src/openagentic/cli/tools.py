@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import difflib
 import json
 import os
 import subprocess
@@ -353,14 +354,55 @@ async def execute_tool(
         confirm_fn: Optional async callable for user confirmation.
                     If None, falls back to synchronous stdin prompt.
     """
+    # ── Permissions gate (allow / ask / deny + path & prefix lists) ──
+    # Deny short-circuits before any file/shell access; allow skips confirm.
+    # "ask" leaves existing per-tool confirm_fn behavior intact.
+    from openagentic.cli import permissions as _perm
+    try:
+        decision, reason = _perm.decide(name, args)
+    except Exception as exc:
+        # Permissions must never break tool execution — log and treat as ask.
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "permissions.decide failed for %s: %s", name, exc, exc_info=True,
+        )
+        decision, reason = _perm.DECISION_ASK, ""
+
+    if decision == _perm.DECISION_DENY:
+        return (
+            f"[REFUSED] permissions: {name} 被策略拒绝（{reason}）。"
+            "如需放行，请用 /permissions 调整。"
+        )
+
+    skip_confirm = decision == _perm.DECISION_ALLOW
+
+    async def _ask(title: str, detail: str) -> bool:
+        """Same confirm pipeline used by write_file/delete_file — reused here
+        so all four gated tools share one Y/N path. Skips if policy=allow.
+        """
+        if skip_confirm:
+            return True
+        if confirm_fn:
+            return await confirm_fn(title, detail)
+        return _default_confirm_sync(title, detail)
+
     try:
         if name == "run_command":
             cmd = args.get("command", "")
+            # decision==ASK covers both policy=ask and the forced-ask path for
+            # root commands (sudo/doas/pkexec/su) — see permissions._is_root_command.
+            if not await _ask(
+                "执行 shell 命令" + ("（root 级，强制确认）" if reason == "root 级命令强制确认" else ""),
+                f"$ {cmd}",
+            ):
+                return "[REFUSED] 用户未确认命令执行，已取消"
             _tools_console.print(f"  [bold yellow]$[/bold yellow] [dim]{cmd}[/dim]")
             return await asyncio.to_thread(_run_command_sync, cmd)
 
         elif name == "read_file":
             path = args.get("path", "")
+            if not await _ask("读取文件", f"路径: {path}"):
+                return "[REFUSED] 用户未确认读取，已取消"
             _tools_console.print(f"  [dim]→ read[/dim] {path}")
             content = await asyncio.to_thread(_read_file_sync, path)
             return content
@@ -377,11 +419,11 @@ async def execute_tool(
             op_label = "覆盖已有文件" if exists else "新建文件（增加文件）"
             title = "覆盖写入文件" if exists else "新建文件"
             preview = f"路径: {p}\n字节数: {len(content.encode('utf-8'))}\n操作: {op_label}"
-            if confirm_fn:
-                confirmed = await confirm_fn(title, preview)
-            else:
-                confirmed = _default_confirm_sync(title, preview)
-            if not confirmed:
+            if exists:
+                diff_text = _build_unified_diff(p, content)
+                if diff_text:
+                    preview += "\n\n" + diff_text
+            if not await _ask(title, preview):
                 return "[REFUSED] 用户未确认写入，已取消（可用自然语言说明如何手动修改）"
             _tools_console.print(f"  [dim]→ write[/dim] {p} [dim]({len(content)} chars)[/dim]")
             os.makedirs(str(p.parent), exist_ok=True)
@@ -398,11 +440,7 @@ async def execute_tool(
                 return f"[ERROR] delete_file: 不是普通文件或不存在: {p}"
             title = "删除文件"
             detail = f"路径: {p}\n此操作不可撤销"
-            if confirm_fn:
-                confirmed = await confirm_fn(title, detail)
-            else:
-                confirmed = _default_confirm_sync(title, detail)
-            if not confirmed:
+            if not await _ask(title, detail):
                 return "[REFUSED] 用户未确认删除，已取消"
             _tools_console.print(f"  [dim]→ delete[/dim] {p}")
             p.unlink()
@@ -498,3 +536,42 @@ def _read_file_sync(path: str) -> str:
     if len(content) > MAX_OUTPUT:
         content = content[:MAX_OUTPUT] + f"\n... (truncated, {len(content)} chars total)"
     return content or "(empty file)"
+
+
+# Max diff lines to show in confirmation prompt — full diff would overwhelm.
+_DIFF_PREVIEW_MAX_LINES = 80
+
+
+def _build_unified_diff(target: Path, new_content: str) -> str:
+    """Render a unified diff between the file at *target* and *new_content*.
+
+    Returns an empty string for binary files, identical content, or read errors —
+    callers should treat empty as "no diff to show" and fall back to the basic
+    byte-count preview.
+    """
+    try:
+        old_text = target.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, OSError):
+        return "(diff 不可用：文件不是 UTF-8 文本或读取失败)"
+    if old_text == new_content:
+        return "(无变化：新内容与原文件完全一致)"
+    diff_lines = list(
+        difflib.unified_diff(
+            old_text.splitlines(keepends=False),
+            new_content.splitlines(keepends=False),
+            fromfile=f"{target} (current)",
+            tofile=f"{target} (new)",
+            lineterm="",
+            n=3,
+        )
+    )
+    if not diff_lines:
+        return ""
+    truncated = False
+    if len(diff_lines) > _DIFF_PREVIEW_MAX_LINES:
+        diff_lines = diff_lines[:_DIFF_PREVIEW_MAX_LINES]
+        truncated = True
+    body = "\n".join(diff_lines)
+    if truncated:
+        body += f"\n... (diff truncated, > {_DIFF_PREVIEW_MAX_LINES} lines)"
+    return "diff:\n" + body

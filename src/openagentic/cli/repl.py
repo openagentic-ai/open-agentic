@@ -1,22 +1,23 @@
-"""OpenAgentic CLI REPL — concurrent input queue (Producer-Consumer)."""
+"""OpenAgentic CLI REPL — concurrent input queue (Producer-Consumer).
+
+This file is intentionally narrow: bootstrap the session, run the
+producer/consumer loop, dispatch slash commands. All handler bodies and UI
+primitives live in :mod:`openagentic.cli.slash_commands`.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import shutil
 import sys
 
 from prompt_toolkit import PromptSession
-from prompt_toolkit.application.current import get_app
-from prompt_toolkit.completion import Completer, Completion
-from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.patch_stdout import patch_stdout
 from rich.console import Console
 
 from openagentic.cli._patchable_stdout import _patchable_stdout
-from openagentic.cli.auth import clear_cli_session_file, platform_authenticate_sync
-from openagentic.cli.model_router import automodel_status, route_model, setup_automodel_interactive
+from openagentic.cli.auth import clear_cli_session_file
+from openagentic.cli.model_router import automodel_status, setup_automodel_interactive
 from openagentic.cli.prompt import (
     build_core_memory_section,
     build_skills_section,
@@ -32,158 +33,27 @@ from openagentic.cli.providers import (
     resolve_provider,
     select_provider_interactive,
 )
-from openagentic.cli.react import react_loop
+from openagentic.cli.slash_commands import (
+    SLASH_COMMANDS,
+    SlashCompleter,
+    _SENTINEL_QUIT,
+    _apply_automodel_defaults,
+    _handle_btw,
+    _handle_clear,
+    _handle_compact,
+    _handle_context,
+    _handle_cost,
+    _handle_login_platform,
+    _handle_permissions,
+    _handle_skills_cmd,
+    _make_prompt_msg,
+    _make_toolbar,
+    _run_react_turn,
+    print_help,
+)
 
 logger = logging.getLogger(__name__)
 _console = Console(file=_patchable_stdout)
-
-# ---------------------------------------------------------------------------
-# Slash command helpers (extracted to keep main_loop tractable)
-# ---------------------------------------------------------------------------
-
-
-async def _handle_compact(
-    messages: list[dict],
-    model: str,
-    api_base: str | None,
-    api_key: str | None,
-) -> None:
-    """Force-compress working memory now."""
-    from openagentic.memory.manager import compress_working_memory, estimate_tokens
-    before = estimate_tokens(messages)
-    if len(messages) <= 12:
-        _console.print(
-            f"  [dim]当前 {len(messages)} 条消息 / ~{before} token，"
-            "数量太少，无需压缩。[/dim]"
-        )
-        return
-    try:
-        new_messages = await compress_working_memory(
-            messages, model=model, api_base=api_base, api_key=api_key,
-        )
-        messages[:] = new_messages
-        after = estimate_tokens(messages)
-        _console.print(
-            f"  [green]compacted:[/green] {before} → {after} token "
-            f"({len(messages)} 条消息)"
-        )
-    except Exception as exc:
-        _console.print(f"  [red]compact failed: {exc}[/red]")
-
-
-def _handle_context(messages: list[dict]) -> None:
-    """Show context window usage stats."""
-    from openagentic.memory.manager import estimate_tokens
-    total = estimate_tokens(messages)
-    sys_len = len(messages[0].get("content") or "") if messages else 0
-    roles: dict[str, int] = {}
-    for m in messages:
-        r = m.get("role", "?")
-        roles[r] = roles.get(r, 0) + 1
-    _console.print()
-    _console.print(f"  [bold]messages:[/bold] {len(messages)} 条")
-    _console.print(
-        "  [bold]by role:[/bold] "
-        + ", ".join(f"{r}={n}" for r, n in roles.items())
-    )
-    _console.print(f"  [bold]system prompt:[/bold] {sys_len} 字符")
-    _console.print(f"  [bold]est. tokens:[/bold] ~{total}")
-    _console.print("  [dim]auto-compact 阈值: 6000 token[/dim]")
-    _console.print()
-
-
-def _handle_btw(messages: list[dict], note: str) -> None:
-    """Append a note to the message list without triggering inference."""
-    messages.append({"role": "user", "content": note})
-    preview = note[:100] + ("..." if len(note) > 100 else "")
-    _console.print(f"  [green]noted:[/green] {preview}")
-    _console.print("  [dim](已加入对话上下文，未触发推理)[/dim]")
-
-
-SLASH_COMMANDS = [
-    "/help", "/config", "/model", "/provider", "/providers",
-    "/provider-config", "/automodel", "/clear",
-    "/skills",
-    "/compact", "/context", "/btw",
-    "/login-platform", "/logout-platform", "/quit",
-]
-
-_SENTINEL_QUIT = object()
-
-
-class SlashCompleter(Completer):
-    """Auto-complete slash commands when input starts with '/'."""
-
-    def get_completions(self, document, complete_event):
-        text = document.text_before_cursor
-        if not text.startswith("/"):
-            return
-        for cmd in SLASH_COMMANDS:
-            if cmd.startswith(text):
-                yield Completion(cmd, start_position=-len(text))
-
-
-def print_help() -> None:
-    _console.print()
-    _console.print("[bold]Commands[/bold]")
-    _console.print(
-        "  /help  /config  /clear  /model <name>  /providers  /provider [id]  "
-        "/provider-config [id]"
-    )
-    _console.print(
-        "  /automodel [on|off]  /login-platform  /logout-platform  /quit"
-    )
-    _console.print(
-        "  /skills [name]  /skills new <name>  /skills reload"
-    )
-    _console.print(
-        "  /compact  /context  /btw <text>"
-    )
-    _console.print()
-    _console.print("[bold]Tips[/bold]")
-    _console.print("  write_file / delete_file need Y/N confirmation before execution")
-    _console.print("  /btw <text> 仅追加到对话上下文，不触发推理（高频备注/补充用）")
-    _console.print()
-
-
-def _make_prompt_msg() -> HTML:
-    w = shutil.get_terminal_size().columns
-    inner = w - 2 if w >= 2 else w
-    top_bar = '─' * inner
-    return HTML(
-        f'<style fg="#666666">╭{top_bar}╮</style>\n'
-        f'<b>❯</b> '
-    )
-
-
-def _make_toolbar(pending: int = 0):
-    def _get_toolbar():
-        w = shutil.get_terminal_size().columns
-        inner = w - 2 if w >= 2 else w
-        bar = '─' * inner
-        try:
-            app = get_app()
-            text = app.current_buffer.text
-        except Exception:
-            text = ""
-
-        pending_hint = f"  [{pending} pending]" if pending > 0 else ""
-
-        if text.startswith("/"):
-            matching = [c for c in SLASH_COMMANDS if c.startswith(text)]
-            if matching:
-                hint = "  ".join(matching)
-            else:
-                hint = f"  未知命令：{text}"
-            return HTML(
-                f'<style fg="#666666">╰{bar}╯</style>\n'
-                f'<style fg="#aaaaaa">  {hint}{pending_hint}</style>'
-            )
-        return HTML(
-            f'<style fg="#666666">╰{bar}╯</style>\n'
-            f'<style fg="#555555">  /help · 按 / 查看命令{pending_hint}</style>'
-        )
-    return _get_toolbar
 
 
 # ---------------------------------------------------------------------------
@@ -229,44 +99,7 @@ async def main_loop(
         api_key = env_auth_token
 
     automodel_enabled = True
-
-    # ── Auto-detect / apply automodel config ──
-    from openagentic.cli.model_router import _get_automodel_config
-    am_cfg = _get_automodel_config(provider)
-    if am_cfg and am_cfg.get("simple_model"):
-        model = am_cfg["simple_model"]
-    else:
-        # Try to auto-detect cheap/expensive model pairs by naming convention
-        profile = find_profile(provider)
-        models_list = profile["models"] if profile else []
-        if len(models_list) >= 2:
-            cheap_kw = ["flash", "mini", "lite", "nano", "tiny", "small", "fast"]
-            exp_kw = ["pro", "max", "ultra", "large", "premium", "op"]
-            cheap = next((m for m in models_list if any(k in m.lower() for k in cheap_kw)), None)
-            expensive = next((m for m in models_list if any(k in m.lower() for k in exp_kw)), None)
-            # If only one direction found, infer the other from the remaining models
-            if cheap and not expensive:
-                others = [m for m in models_list if m != cheap]
-                if others:
-                    expensive = others[0]  # pick first non-cheap as complex
-            elif expensive and not cheap:
-                others = [m for m in models_list if m != expensive]
-                if others:
-                    cheap = others[0]
-            if cheap and expensive and cheap != expensive:
-                auto_cfg = {"complex_model": expensive, "simple_model": cheap}
-                # Persist to config file
-                try:
-                    from openagentic.core.llm.provider_config import get_provider_store
-                    store = get_provider_store()
-                    store.set_automodel(provider, auto_cfg)
-                    model = cheap
-                    am_cfg = auto_cfg
-                except Exception as exc:
-                    logger.warning(
-                        "automodel auto-config persist failed (provider=%s): %s",
-                        provider, exc, exc_info=True,
-                    )
+    model = _apply_automodel_defaults(provider, model)
 
     endpoint = api_base or "(provider default)"
 
@@ -391,26 +224,7 @@ async def main_loop(
             if user_input == "/quit":
                 return
             if user_input == "/clear":
-                if len(messages) > 3:
-                    try:
-                        from openagentic.memory.manager import MemoryManager
-                        from datetime import datetime, timezone
-                        mgr = MemoryManager()
-                        title = f"会话 {datetime.now(timezone.utc).strftime('%m-%d %H:%M')}"
-                        summary_lines = []
-                        for m in messages[-20:]:
-                            role = m.get("role", "?")
-                            content = (m.get("content") or "")[:200]
-                            if content:
-                                summary_lines.append(f"[{role}] {content}")
-                        if summary_lines:
-                            mgr.save_episode(title, "\n".join(summary_lines[-10:]), ["conversation"])
-                    except Exception as exc:
-                        logger.warning("auto-save episode on /clear failed: %s", exc, exc_info=True)
-                messages.clear()
-                messages.append({"role": "system", "content": ""})
-                rebuild_system_message()
-                _console.print("[green]  history cleared[/green]")
+                _handle_clear(messages, rebuild_system_message)
                 continue
             if user_input == "/help":
                 print_help()
@@ -505,26 +319,7 @@ async def main_loop(
                 _console.print("  [green]Logged out.[/green] [dim]Use /login-platform to re-login.[/dim]")
                 continue
             if user_input == "/login-platform":
-                base = (plat["base"] or "").strip()
-                if not base:
-                    input_gate.clear()
-                    try:
-                        base = (await session.prompt_async(
-                            "  Server URL (e.g. http://127.0.0.1:8000): "
-                        )).strip()
-                    except (EOFError, KeyboardInterrupt):
-                        input_gate.set()
-                        continue
-                    input_gate.set()
-                if not base:
-                    _console.print("  [red]URL required.[/red]")
-                    continue
-                plat["base"] = base.rstrip("/")
-                tok, em = platform_authenticate_sync(plat["base"])
-                plat["token"] = tok
-                plat["email"] = em
-                rebuild_system_message()
-                _console.print(f"  [green]Logged in:[/green] {em}")
+                await _handle_login_platform(plat, session, input_gate, rebuild_system_message)
                 continue
             if user_input.startswith("/provider-config"):
                 target = user_input.replace("/provider-config", "", 1).strip() or provider
@@ -559,62 +354,9 @@ async def main_loop(
                     continue
 
             if user_input == "/skills" or user_input.startswith("/skills "):
-                from openagentic.skills import SkillsManager, SkillNotFound, SkillError
-                mgr = SkillsManager()
-                args = user_input[len("/skills"):].strip()
-
-                if not args:
-                    skills, errors = mgr.list_with_errors()
-                    _console.print()
-                    if not skills and not errors:
-                        _console.print("  [dim]还没有 skill。`/skills new <name>` 创建一个。[/dim]")
-                    for s in skills:
-                        _console.print(f"  [bold cyan]{s.slug}[/bold cyan]  {s.description}")
-                    for path, err in errors:
-                        _console.print(f"  [red]✗ {path}: {err}[/red]")
-                    _console.print()
-                    continue
-
-                parts = args.split(maxsplit=1)
-                sub = parts[0]
-
-                if sub == "reload":
-                    # 解析在 list_with_errors 内每次都重扫，无需缓存——这里只是给用户反馈
-                    skills, errors = mgr.list_with_errors()
-                    _console.print(f"\n  [green]reloaded:[/green] {len(skills)} skill(s), {len(errors)} error(s)")
-                    rebuild_system_message()
-                    _console.print()
-                    continue
-
-                if sub == "new":
-                    if len(parts) < 2 or not parts[1].strip():
-                        _console.print("  [red]Usage: /skills new <slug>[/red]")
-                        continue
-                    new_slug = parts[1].strip()
-                    try:
-                        path = mgr.create_template(new_slug)
-                    except SkillError as exc:
-                        _console.print(f"  [red]{exc}[/red]")
-                        continue
-                    _console.print(f"\n  [green]created:[/green] {path}")
-                    _console.print("  [dim]编辑后用 /skills reload 重新加载。[/dim]\n")
-                    continue
-
-                # 视为 /skills <slug> —— 显示该 skill 详情
-                target_slug = sub
-                try:
-                    skill = mgr.get(target_slug)
-                except SkillNotFound as exc:
-                    _console.print(f"  [red]{exc}[/red]")
-                    continue
-                _console.print()
-                _console.print(f"  [bold cyan]{skill.slug}[/bold cyan]  {skill.path}")
-                _console.print(f"  [dim]{skill.description}[/dim]")
-                if skill.allowed_tools:
-                    _console.print(f"  [dim]allowed-tools:[/dim] {', '.join(skill.allowed_tools)}")
-                _console.print()
-                _console.print(skill.body.rstrip())
-                _console.print()
+                _handle_skills_cmd(
+                    user_input[len("/skills"):].strip(), rebuild_system_message,
+                )
                 continue
 
             if user_input == "/compact":
@@ -622,6 +364,12 @@ async def main_loop(
                 continue
             if user_input == "/context":
                 _handle_context(messages)
+                continue
+            if user_input == "/cost":
+                _handle_cost()
+                continue
+            if user_input == "/permissions" or user_input.startswith("/permissions "):
+                _handle_permissions(user_input[len("/permissions"):])
                 continue
             if user_input.startswith("/btw"):
                 note = user_input[len("/btw"):].strip()
@@ -642,54 +390,20 @@ async def main_loop(
                 _console.print()
                 continue
 
-            # ── LLM triage auto-routing ──
-            current_model = model
-            routed_model, hint = await route_model(
+            # ── 用户对话轮次：triage 路由 → react_loop（可取消）→ 复位路由后的模型 ──
+            model = await _run_react_turn(
                 user_input,
-                provider,
-                current_model,
-                api_base,
-                api_key,
+                messages,
+                provider=provider,
+                model=model,
+                api_base=api_base,
+                api_key=api_key,
                 automodel_enabled=automodel_enabled,
+                plat=plat,
+                confirm_fn=_confirm_fn,
+                react_task_ref=react_task_ref,
+                rebuild_system_message=rebuild_system_message,
             )
-            if hint:
-                _console.print(f"  [dim]{hint}[/dim]")
-            if routed_model != current_model:
-                model = routed_model
-                rebuild_system_message()
-
-            # ── Execute react loop（包成 task，让 producer 的 Ctrl+C 能取消）──
-            react_task = asyncio.create_task(
-                react_loop(
-                    user_input,
-                    messages,
-                    model,
-                    api_base,
-                    api_key,
-                    platform_api_base=plat["base"],
-                    platform_user_email=plat["email"],
-                    confirm_fn=_confirm_fn,
-                )
-            )
-            react_task_ref["task"] = react_task
-            try:
-                await react_task
-            except asyncio.CancelledError:
-                _console.print(
-                    "\n  [yellow]已中断本轮（Ctrl+C）。会话保留，可继续输入；再按一次 Ctrl+C 退出。[/yellow]"
-                )
-            except Exception as e:
-                _console.print(f"\n  [red bold]Error:[/red bold] {type(e).__name__}: {e}")
-            finally:
-                react_task_ref["task"] = None
-
-            # After execution, reset model back to simple_model for next triage
-            if routed_model != current_model and automodel_enabled:
-                from openagentic.cli.model_router import _get_automodel_config
-                am_cfg = _get_automodel_config(provider)
-                if am_cfg and am_cfg.get("simple_model"):
-                    model = am_cfg["simple_model"]
-                    rebuild_system_message()
 
             _console.print()
             sys.stdout.flush()

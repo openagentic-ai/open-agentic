@@ -1,4 +1,8 @@
-"""模块说明（中文）：`src/openagentic/agent/router.py`。\n\n该文件定义 HTTP 路由与请求入口，负责参数校验与服务层调用。\n"""
+"""模块说明（中文）：`src/openagentic/agent/router.py`。
+
+Agent HTTP API 路由：CRUD + 执行 + 执行历史查询。
+所有端点均需 JWT 鉴权，user_id 行级隔离。
+"""
 
 import uuid
 
@@ -18,6 +22,7 @@ async def list_agents(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """列出当前用户的所有 Agent（按更新时间倒序）。"""
     return await service.list_agents(db, current_user.id)
 
 
@@ -27,6 +32,7 @@ async def create_agent(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """创建 Agent（工具列表默认启用全部内置工具）。"""
     return await service.create_agent(db, current_user.id, body)
 
 
@@ -36,6 +42,7 @@ async def get_agent(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """按 ID 查询 Agent，校验归属用户（越权返回 404）。"""
     agent = await service.get_agent(db, agent_id, current_user.id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -49,6 +56,7 @@ async def update_agent(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """部分更新 Agent（仅传入字段生效）。"""
     agent = await service.get_agent(db, agent_id, current_user.id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -61,6 +69,7 @@ async def delete_agent(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """删除 Agent 实体。"""
     agent = await service.get_agent(db, agent_id, current_user.id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -74,6 +83,7 @@ async def execute_agent(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """执行 Agent：运行 ReAct loop，返回执行记录（含步骤追踪）。"""
     agent = await service.get_agent(db, agent_id, current_user.id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -86,8 +96,8 @@ async def list_executions(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """查询某 Agent 的所有执行历史（按创建时间倒序）。"""
     agent = await service.get_agent(db, agent_id, current_user.id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
     return await service.list_executions(db, agent.id)
-

@@ -1,4 +1,7 @@
-"""模块说明（中文）：`src/openagentic/agent/schemas.py`。\n\n该文件定义请求/响应数据结构与校验规则。\n"""
+"""模块说明（中文）：`src/openagentic/agent/schemas.py`。
+
+Agent 模块请求/响应数据结构（Pydantic models）。
+"""
 
 from __future__ import annotations
 
@@ -10,6 +13,7 @@ from pydantic import BaseModel
 
 
 class AgentCreate(BaseModel):
+    """创建 Agent 请求体。tools 为空时默认启用全部内置工具。"""
     name: str
     description: str | None = None
     system_prompt: str | None = None
@@ -19,6 +23,7 @@ class AgentCreate(BaseModel):
 
 
 class AgentUpdate(BaseModel):
+    """更新 Agent 请求体（所有字段可选，仅传入字段生效）。"""
     name: str | None = None
     description: str | None = None
     system_prompt: str | None = None
@@ -29,6 +34,7 @@ class AgentUpdate(BaseModel):
 
 
 class AgentResponse(BaseModel):
+    """Agent 查询响应（from_attributes=True 支持 ORM 自动转换）。"""
     id: uuid.UUID
     name: str
     description: str | None
@@ -44,10 +50,12 @@ class AgentResponse(BaseModel):
 
 
 class AgentRunRequest(BaseModel):
+    """执行 Agent 请求体。"""
     input: str
 
 
 class ExecutionResponse(BaseModel):
+    """Agent 执行记录响应。"""
     id: uuid.UUID
     agent_id: uuid.UUID
     status: str
@@ -62,6 +70,7 @@ class ExecutionResponse(BaseModel):
 
 
 class ToolInfo(BaseModel):
+    """工具信息（名称 + 描述 + 参数 schema）。"""
     name: str
     description: str
     parameters: dict[str, Any]

@@ -1,4 +1,7 @@
-"""模块说明（中文）：`src/openagentic/core/llm/router.py`。\n\n该文件定义 HTTP 路由与请求入口，负责参数校验与服务层调用。\n"""
+"""模块说明（中文）：`src/openagentic/core/llm/router.py`。
+
+LLM 网关 HTTP API 路由：模型列表、Provider 配置管理、默认模型切换。
+"""
 
 from fastapi import APIRouter
 
@@ -10,7 +13,11 @@ router = APIRouter(prefix="/api", tags=["llm"])
 
 @router.get("/models")
 async def list_models():
-    """List available models from configured provider profiles."""
+    """列出所有已启用 provider 的模型。
+
+    返回格式：{"default_model": "...", "models": [{"id": ..., "name": ..., "provider": ...}]}
+    若无已启用 provider 的模型，至少回退到默认模型。
+    """
     config = get_provider_store().get()
     models: list[dict] = []
     for profile in config.profiles:
@@ -24,6 +31,8 @@ async def list_models():
                     "provider": profile.id,
                 }
             )
+
+    # 回退：确保至少返回一个模型
     if not models:
         default_model = config.default_model
         models.append(
@@ -38,12 +47,13 @@ async def list_models():
 
 @router.get("/llm/providers")
 async def get_provider_profiles():
-    """Get persisted provider profiles (API key is masked)."""
+    """获取持久化的 provider 配置（API Key 已脱敏）。"""
     return get_provider_store().get().to_public_dict()
 
 
 @router.put("/llm/providers/{provider_id}")
 async def upsert_provider_profile(provider_id: str, body: schemas.ProviderProfileUpdate):
+    """创建或更新 provider 配置（API Key / API Base / 模型列表等）。"""
     config = get_provider_store().upsert_profile(
         profile_id=provider_id,
         display_name=body.display_name,
@@ -57,5 +67,6 @@ async def upsert_provider_profile(provider_id: str, body: schemas.ProviderProfil
 
 @router.put("/llm/default-model")
 async def update_default_model(body: schemas.DefaultModelUpdate):
+    """切换默认模型。"""
     config = get_provider_store().set_default_model(body.model)
     return config.to_public_dict()

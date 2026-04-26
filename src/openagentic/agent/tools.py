@@ -1,4 +1,10 @@
-"""模块说明（中文）：`src/openagentic/agent/tools.py`。\n\n该文件属于 Agent 模块，处理智能体定义、执行与工具调用。\n"""
+"""模块说明（中文）：`src/openagentic/agent/tools.py`。
+
+Agent 工具注册表与内置工具实现。
+工具分为两类：
+- 新版 async Tool（支持 function-calling schema）
+- 旧版 legacy sync 工具（简单字符串入/出，向后兼容）
+"""
 
 from __future__ import annotations
 
@@ -13,12 +19,17 @@ import httpx
 
 from openagentic.config import SETTINGS
 
+# 单次工具输出截断上限，防止 token 爆炸
 _MAX_OUTPUT = 4000
 
 
 @dataclass
 class Tool:
-    """A tool that an agent can use."""
+    """新版工具定义：名称、描述、参数 schema、异步执行函数。
+
+    参数 schema 遵循 OpenAI function-calling 格式：
+    {"type": "object", "properties": {...}, "required": [...]}
+    """
     name: str
     description: str
     parameters: dict[str, Any]
@@ -26,10 +37,16 @@ class Tool:
 
 
 class ToolRegistry:
-    """Registry of available tools."""
+    """工具注册表：管理工具注册、查询和 schema 导出。
+
+    同时持有：
+    - _tools：新版 async Tool 注册表
+    - _legacy_tools：旧版 sync 工具（字符串入/出，简单场景）
+    """
 
     def __init__(self) -> None:
         self._tools: dict[str, Tool] = {}
+        # 旧版同步工具：简单字符串参数，直接返回字符串
         self._legacy_tools: dict[str, Callable[[str], str]] = {
             "echo": lambda arg: arg,
             "current_time": lambda _arg: datetime.now(timezone.utc).isoformat(),
@@ -37,18 +54,21 @@ class ToolRegistry:
         }
 
     def register(self, tool: Tool) -> None:
+        """注册一个新版 async 工具。"""
         self._tools[tool.name] = tool
 
     def get(self, name: str) -> Tool | None:
+        """按名称查找工具（仅新版 async 工具）。"""
         return self._tools.get(name)
 
     def list_tools(self, names: list[str] | None = None) -> list[Tool]:
+        """列出工具，可按名称过滤。"""
         if names is None:
             return list(self._tools.values())
         return [t for n in names if (t := self._tools.get(n)) is not None]
 
     def get_schemas(self, names: list[str] | None = None) -> list[dict]:
-        """Return tool schemas in Ollama function-calling format."""
+        """导出 Ollama/OpenAI 兼容的 function-calling schema 列表。"""
         tools = self.list_tools(names)
         return [
             {
@@ -63,10 +83,16 @@ class ToolRegistry:
         ]
 
     def list_tool_names(self) -> list[str]:
+        """返回所有工具的排序名称列表（含 legacy）。"""
         names = set(self._tools.keys()) | set(self._legacy_tools.keys())
         return sorted(names)
 
     def call(self, name: str, arg: str) -> str:
+        """同步调用工具（仅支持 legacy sync 工具）。
+
+        Raises:
+            ValueError: 工具不存在或为 async-only 工具
+        """
         legacy = self._legacy_tools.get(name)
         if legacy:
             return legacy(arg)
@@ -79,16 +105,23 @@ class ToolRegistry:
         )
 
     def _tool_calculator(self, arg: str) -> str:
+        """安全计算数学表达式（仅四则运算+幂，无 Python eval）。"""
         if not arg.strip():
             raise ValueError("calculator requires a math expression")
         return str(ToolRegistry._safe_eval_math(arg))
 
     @staticmethod
     def _safe_eval_math(expr: str) -> float:
+        """使用 AST 安全解析数学表达式，不支持任何 Python 语句/函数调用。
+
+        支持的运算：+ - * / **  和一元正负号。
+        """
+        # 一元运算符映射
         unary_operators: dict[type[ast.unaryop], Callable[[float], float]] = {
             ast.USub: operator.neg,
             ast.UAdd: operator.pos,
         }
+        # 二元运算符映射
         binary_operators: dict[type[ast.operator], Callable[[float, float], float]] = {
             ast.Add: operator.add,
             ast.Sub: operator.sub,
@@ -116,14 +149,23 @@ class ToolRegistry:
         return _eval(parsed.body)
 
 
+# ---------------------------------------------------------------------------
+# 内置异步工具实现
+# ---------------------------------------------------------------------------
+
+
 async def _run_command(args: dict[str, Any]) -> str:
+    """执行 shell 命令并返回输出（timeout 默认 60s，最大 60s）。
+
+    安全：使用 asyncio subprocess，不经过 shell=True 的字符串拼接。
+    """
     command = args.get("command", "")
     timeout = min(args.get("timeout", 60), 60)
     try:
         proc = await asyncio.create_subprocess_shell(
             command,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
+            stderr=asyncio.subprocess.STDOUT,  # stderr 合并到 stdout
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         output = stdout.decode("utf-8", errors="replace")
@@ -138,6 +180,7 @@ async def _run_command(args: dict[str, Any]) -> str:
 
 
 async def _read_file(args: dict[str, Any]) -> str:
+    """读取文件内容（UTF-8），超过上限截断。"""
     path = args.get("path", "")
     try:
         loop = asyncio.get_event_loop()
@@ -150,6 +193,7 @@ async def _read_file(args: dict[str, Any]) -> str:
 
 
 async def _write_file(args: dict[str, Any]) -> str:
+    """写入文件（覆盖模式），返回写入字符数。"""
     path = args.get("path", "")
     content = args.get("content", "")
     try:
@@ -161,6 +205,7 @@ async def _write_file(args: dict[str, Any]) -> str:
 
 
 async def _http_request(args: dict[str, Any]) -> str:
+    """发起 HTTP 请求并返回响应文本（30s timeout，跟随重定向）。"""
     method = args.get("method", "GET").upper()
     url = args.get("url", "")
     headers = args.get("headers", {})
@@ -177,6 +222,7 @@ async def _http_request(args: dict[str, Any]) -> str:
 
 
 async def _python_exec(args: dict[str, Any]) -> str:
+    """执行 Python 代码片段（30s timeout，独立子进程隔离）。"""
     code = args.get("code", "")
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -197,14 +243,17 @@ async def _python_exec(args: dict[str, Any]) -> str:
 
 
 async def _echo(args: dict[str, Any]) -> str:
+    """简单回声工具：返回输入文本。"""
     return str(args.get("input", ""))
 
 
 async def _current_time(_args: dict[str, Any]) -> str:
+    """返回当前 UTC 时间（ISO 8601 格式）。"""
     return datetime.now(timezone.utc).isoformat()
 
 
 async def _calculator(args: dict[str, Any]) -> str:
+    """安全计算数学表达式。"""
     expr = str(args.get("input", "")).strip()
     if not expr:
         raise ValueError("calculator requires a math expression")
@@ -212,6 +261,10 @@ async def _calculator(args: dict[str, Any]) -> str:
 
 
 async def _knowledge_search(args: dict[str, Any]) -> str:
+    """调用平台知识库检索 API，支持 bearer token 鉴权。
+
+    需要 query 和 kb_id 两个参数；可选 top_k 和 bearer_token。
+    """
     query = str(args.get("query") or args.get("input") or "").strip()
     kb_id = str(args.get("kb_id") or "").strip()
     top_k = int(args.get("top_k") or 5)
@@ -221,6 +274,7 @@ async def _knowledge_search(args: dict[str, Any]) -> str:
     if not kb_id:
         return "Error: knowledge_search requires kb_id"
 
+    # 使用 OPENAGENTIC_API_BASE 或默认 localhost 连接平台 API
     api_base = (SETTINGS.OPENAGENTIC_API_BASE or "http://127.0.0.1:8000").rstrip("/")
     headers = {"Content-Type": "application/json"}
     if bearer_token:
@@ -248,6 +302,19 @@ async def _knowledge_search(args: dict[str, Any]) -> str:
 
 
 def _build_default_registry() -> ToolRegistry:
+    """构建默认工具注册表，包含 9 个内置工具。
+
+    工具清单：
+    - echo: 回声
+    - current_time: 当前 UTC 时间
+    - calculator: 安全数学计算
+    - run_command: 执行 shell 命令
+    - read_file: 读取文件
+    - write_file: 写入文件
+    - http_request: HTTP 请求
+    - python_exec: Python 代码执行
+    - knowledge_search: 知识库检索
+    """
     registry = ToolRegistry()
 
     registry.register(Tool(
@@ -368,4 +435,5 @@ def _build_default_registry() -> ToolRegistry:
     return registry
 
 
+# 全局默认注册表：Agent 创建时默认使用的工具集合
 default_registry = _build_default_registry()

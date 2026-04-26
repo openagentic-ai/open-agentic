@@ -1,4 +1,14 @@
-"""模块说明（中文）：`src/openagentic/workflow/schemas.py`。\n\n该文件定义请求/响应数据结构与校验规则。\n"""
+"""模块说明（中文）：`src/openagentic/workflow/schemas.py`。
+
+工作流模块请求/响应数据结构。
+
+definition 格式示例：
+{
+  "nodes": [{"id": "start", "type": "value", "config": {"value": "hello"}},
+            {"id": "llm1", "type": "llm", "config": {"prompt": "..."}}],
+  "edges": [{"from": "start", "to": "llm1"}]
+}
+"""
 
 from __future__ import annotations
 
@@ -9,12 +19,14 @@ from pydantic import BaseModel, Field
 
 
 class WorkflowCreate(BaseModel):
+    """创建工作流请求：名称 + DAG 定义（nodes/edges）。"""
     name: str = Field(..., max_length=255)
     description: str | None = None
     definition: dict = Field(..., description="DAG definition with nodes and edges")
 
 
 class WorkflowUpdate(BaseModel):
+    """更新工作流请求（所有字段可选）。"""
     name: str | None = None
     description: str | None = None
     definition: dict | None = None
@@ -22,6 +34,7 @@ class WorkflowUpdate(BaseModel):
 
 
 class WorkflowResponse(BaseModel):
+    """工作流查询响应。"""
     id: uuid.UUID
     name: str
     description: str | None
@@ -34,10 +47,12 @@ class WorkflowResponse(BaseModel):
 
 
 class WorkflowRunRequest(BaseModel):
+    """启动工作流执行请求。"""
     input_data: dict | None = None
 
 
 class WorkflowExecutionResponse(BaseModel):
+    """工作流执行记录响应。"""
     id: uuid.UUID
     workflow_id: uuid.UUID
     status: str
@@ -53,7 +68,7 @@ class WorkflowExecutionResponse(BaseModel):
 
 
 class NodeDefinition(BaseModel):
-    """Schema for documenting node structure within a workflow definition."""
+    """工作流节点定义 schema（文档用途）。"""
     id: str
     type: str
     config: dict = Field(default_factory=dict)
@@ -61,7 +76,7 @@ class NodeDefinition(BaseModel):
 
 
 class EdgeDefinition(BaseModel):
-    """Schema for documenting edge structure within a workflow definition."""
+    """工作流边定义 schema（文档用途）。"""
     source: str
     target: str
     condition: str | None = None

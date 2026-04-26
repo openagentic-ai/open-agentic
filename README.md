@@ -126,6 +126,12 @@ OpenAgentic 是**中立的企业 SOP 编排层**——飞书/钉钉/企微/邮�
 3. **Phase 5.5 — CLI 补行业基线**（辅线，但**底座验证场**）：仅做"不做就 broken"的命令（`/compact` `/context` `/cost` `/permissions` `write_file diff`）。**真正价值在于**用 CLI 验证 Agent+Workflow+KB+Memory 范式跑得通，70+ 命令对标已放弃。
 4. **Phase 6 — 前后端闭环 / Android**（暂缓）：CLI 优先，UI/Android 等首批客户共建后由真实需求驱动。
 
+## 最近更新
+
+- **237 passed, 2 skipped** 测试覆盖（新增 75 条）
+- 新增测试模块：`tests/db/`、`tests/observability/`、`tests/skills/`、`tests/tenant/`、`tests/config/`、`tests/deps/`、`tests/entry/`
+- 全量源文件中文行内注释补全
+
 ## 目录
 
 - [产品定位](#产品定位)
@@ -149,7 +155,7 @@ OpenAgentic 是**中立的企业 SOP 编排层**——飞书/钉钉/企微/邮�
 | **4 Knowledge/RAG** | ✅ | KB CRUD、文档分块+向量检索+重排、`knowledge_search` 工具 |
 | **4.5 四层记忆** | ✅ 文件版 | Working/Core/Episodic/Procedural，`~/.openagentic/memory/` |
 | **5 多租户+可观测** | ✅ 单租户级 | 行级 user_id 隔离 ✓；tenant/request_id contextvar ✓；Prometheus `/metrics` ✓；structlog 注入 request_id+tenant_id ✓。组织(Org)级隔离与跨服务 correlation 留作未来扩展，**计费/配额已撤回（属上游 LLM 网关职责）** |
-| **5.5 CLI 补行业基线**（辅线） | 🟡 推进中 | 已落地：`/compact` `/context` `/btw` + procedural 自动注入；待做（P0）：`/cost` / `write_file` diff / `/permissions`；70+ 命令对标已**克制放弃** |
+| **5.5 CLI 补行业基线**（辅线） | 🟡 推进中 | 已落地：`/compact` `/context` `/btw` + procedural 自动注入 + **P0 三件**（`/cost` / `write_file` diff / `/permissions`）；待做（P1）：`/diff` / `/review` / 3 个内置 SKILL；70+ 命令对标已**克制放弃** |
 | **6 前后端闭环 / Android** | ⏸ 暂缓 | UI 8 页面完成；Devices/Sessions/Channels 后端 stub；Android 仅图标接入；等客户共建后再补 |
 | **7 Workflow 企业化**（主轴） | 🔲 计划中 | **核心差异化护城河**：节点连接器 / 人工审批 / 模板库 / 可视化编辑器 / 版本+回滚 / 节点级 SLA |
 | **8 行业 SOP 模板**（横向扩张） | 🔲 计划中 | **任何有 SOP 情景的行业都做**；通用原型：审批型 / 报告生成 / 分类路由 / 质检合规 / 流水线处理 |
@@ -168,9 +174,12 @@ OpenAgentic 是**中立的企业 SOP 编排层**——飞书/钉钉/企微/邮�
 
 - **20 个 LLM provider**：OpenAI / Anthropic / DeepSeek / XAI / Gemini / Mistral / Cohere / Groq / OpenRouter / Moonshot / Zhipu / MiniMax / Volcengine / Baidu / Tencent / Nvidia / Together / Fireworks / Qwen / Ollama
 - **12 个工具**：`run_command` `read_file` `write_file` `delete_file` `done` + 7 个 memory 工具
-- **15 个 slash 命令**：`/model` `/providers` `/automodel` `/clear` `/login-platform` `/skills` `/compact` `/context` `/btw` 等
+- **17 个 slash 命令**：`/model` `/providers` `/automodel` `/clear` `/login-platform` `/skills` `/compact` `/context` `/btw` `/cost` `/permissions` 等
 - **Skills 系统**（Claude Code 风格）：`~/.openagentic/skills/<slug>/SKILL.md`，frontmatter+markdown，启动时 metadata 注入 system prompt（每条 ~50 token），全文按需 `read_file` 加载。内置 3 个：`git-commit` / `code-review` / `debug-trace`。`/skills` 列表，`/skills <name>` 看详情，`/skills new <name>` 建模板，`/skills reload` 热加载
-- **写/删文件确认门**：异步确认，REFUSED 由模型重规划
+- **写/删文件确认门**：异步确认，REFUSED 由模型重规划；**root 命令**（`sudo` / `doas` / `pkexec` / `su`）即使 policy=allow 也强制 Y/N 确认
+- **`/permissions` 策略**：4 个 gated tool（read/run/write/delete）按 `allow / ask / deny` 三档管控，支持文件路径白/黑名单与 `run_command` 前缀白/黑名单，存于 `~/.openagentic/permissions.json`
+- **`/cost` 会话成本**：per-model token + USD 估算（litellm.completion_cost），`/clear` 自动重置
+- **`write_file` diff 预览**：覆盖时在 confirm 提示中展示 unified diff（>80 行截断，二进制降级为字节数预览）
 - **REPL 并发输入队列**：输入不阻塞推理
 - **四层记忆接入 ReAct loop**：Working 自动压缩 + Core 启动注入 + Episodic 每轮检索 + Procedural 每轮 top-3 注入
 - **DeepSeek V4 Pro/Flash 自动路由**（`/automodel`，支持任意 provider 的二级模型 triage）
@@ -184,10 +193,13 @@ OpenAgentic 是**中立的企业 SOP 编排层**——飞书/钉钉/企微/邮�
 - `react.py` `tool_call.id` 缺失时自动生成 UUID fallback（兼容 DeepSeek 等不返回 id 的端点）
 - `--no-provider-check` + `OPENAGENTIC_SKIP_PROVIDER_CHECK` 跳过 API key 强制配置向导
 - `react.py` `repl.py` 4 处 `except Exception: pass` 替换为 `logger.warning(..., exc_info=True)`
+- **Phase 5.5 P0 三件**全部落地：`/cost`（per-model token+USD）、`write_file` 覆盖时 unified diff 预览、`/permissions`（allow/ask/deny + 路径/前缀白/黑名单）
+- **root 命令强制确认**：`sudo` / `doas` / `pkexec` / `su` token 级匹配（避免 `sudoku` 误伤），即使 policy=allow 或命中 allow_prefixes 也强制 Y/N
+- **代码瘦身**：`repl.py` 949 → 434 行，提取 `cli/slash_commands.py`（567 行）承接所有 `_handle_*` 处理器与 UI 原语；`main_loop` 535 → 408 行，`_execution_consumer` 325 → 198 行，全项目 .py 文件均 ≤ 800 行
 
 ### 测试覆盖
 
-137 passed, 2 skipped — 覆盖 CLI 编码、LLM provider 配置、记忆系统、知识库、工作流、MCP、Agent、认证、聊天、迁移脚本、运维烟雾。
+237 passed, 2 skipped — 覆盖 CLI 编码、P0 三件（`/cost` / `write_file` diff / `/permissions`）、root 命令强制确认、LLM provider 配置、记忆系统、知识库、工作流、MCP、Agent、认证、聊天、迁移脚本、运维烟雾、数据库会话、可观测性、Skills 系统、租户上下文。
 
 ## 快速启动
 
@@ -362,6 +374,17 @@ src/openagentic/
 ui/                      # React 前端
 extensions/
 └── android/             # Android 客户端（已接入应用图标 mipmap 5 档+adaptive，当前暂缓）
+tests/
+├── test_*.py            # 根级：Agent、workflow、knowledge、MCP、认证、聊天、记忆、迁移等
+├── cli/                 # CLI 编码、slash 命令、交互边界
+├── db/                  # 数据库会话测试
+├── observability/       # 日志、指标、中间件测试
+├── skills/              # Skill 加载器与管理器测试
+├── tenant/              # 租户 contextvar 测试
+├── config/              # 配置加载与校验
+├── deps/                # FastAPI 依赖注入
+├── entry/               # CLI 入口参数解析
+└── smoke/               # Phase 0 运维烟雾（需 Docker）
 ```
 
 **设计原则**：
@@ -426,9 +449,9 @@ extensions/
 |---|---|---|---|
 | `/compact` `/context` `/btw` | ✅ | — | 已完成（D1 简单组） |
 | Procedural memory 自动注入 ReAct | ✅ | — | 已完成（镜像 episodic） |
-| `/cost` | 🔲 | **P0** | 企业要看 token 花费，需 wrap litellm 累计 usage |
-| `write_file` diff 预览（覆盖时 unified diff） | 🔲 | **P0** | 不做用户不敢让 AI 改文件 |
-| `/permissions`（allow/ask/deny + 路径白名单） | 🔲 | **P0** | 企业级硬需求，从 D3 提前到 P0 |
+| `/cost` | ✅ | — | 已落地：per-model token + USD 估算（litellm.completion_cost），`/clear` 自动重置 |
+| `write_file` diff 预览（覆盖时 unified diff） | ✅ | — | 已落地：覆盖时在 confirm 提示中展示 unified diff（>80 行截断，二进制降级） |
+| `/permissions`（allow/ask/deny + 路径白名单） | ✅ | — | 已落地：4 个 gated tool（read/run/write/delete），`~/.openagentic/permissions.json`，路径与命令前缀双白/黑名单 |
 | `/diff`（包 `git diff` + rich 染色） | 🔲 | P1 | 半小时活 |
 | `/review`（喂 git diff + code-review skill） | 🔲 | P1 | 1 小时活 |
 | 3 个内置 SKILL：`security-review` / `simplify` / `batch` | 🔲 | P1 | 写 SKILL.md，下次启动自动播种 |
@@ -555,7 +578,7 @@ extensions/
 ## 开发与测试
 
 ```bash
-# 全量测试（137 passed, 2 skipped）
+# 全量测试（237 passed, 2 skipped）
 pytest -q
 
 # CLI 与交互边界
@@ -575,6 +598,21 @@ pip-audit
 
 `.github/workflows/quality-security.yml`：`ruff` + `mypy` + `bandit` + `pip-audit` + `schemathesis`。SonarCloud 见 `.github/workflows/sonarcloud.yml`。
 
+### 测试目录结构
+
+| 目录 | 说明 |
+|------|------|
+| `tests/cli/` | CLI 编码、slash 命令、交互边界 |
+| `tests/db/` | 数据库会话测试 |
+| `tests/observability/` | 日志、指标、中间件测试 |
+| `tests/skills/` | Skill 加载器与管理器测试 |
+| `tests/tenant/` | 租户 contextvar 测试 |
+| `tests/config/` | 配置加载与校验 |
+| `tests/deps/` | FastAPI 依赖注入 |
+| `tests/entry/` | CLI 入口参数解析 |
+| `tests/smoke/` | Phase 0 运维烟雾（需 Docker） |
+| `tests/` 根 | Agent、工作流、知识库、MCP、认证、聊天、记忆、迁移等 |
+
 ## 常见问题
 
 1. **数据库连不上**：检查 `DATABASE_URL`，确认 Postgres 容器 healthy
@@ -584,3 +622,12 @@ pip-audit
 5. **`ModuleNotFoundError: No module named 'openagentic'`**：未 `pip install -e .`，在仓库根目录执行后重试
 6. **`openagentic` 命令找不到**：同上，或直接用 `python -m openagentic.cli`
 7. **pip 提示 `Ignoring invalid distribution ~...`**：删除 `.venv/lib/site-packages` 中以 `~` 开头的损坏目录后重装
+
+## 贡献指南
+
+欢迎贡献！请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md) 了解代码规范、提交 PR 流程与行为准则。简要概览：
+
+- **分支策略**：从 `main` 拉 feature 分支，提交前跑全量测试与静态检查
+- **代码规范**：Python（Ruff + MyPy）、前端（ESLint + Prettier）
+- **测试要求**：新增功能需附带测试；pytest 全量 237 条必须通过
+- **PR 流程**：描述清楚改了啥、为什么、如何验证；CI 绿灯后请求 review
