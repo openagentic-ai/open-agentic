@@ -37,10 +37,74 @@ from openagentic.cli.react import react_loop
 logger = logging.getLogger(__name__)
 _console = Console(file=_patchable_stdout)
 
+# ---------------------------------------------------------------------------
+# Slash command helpers (extracted to keep main_loop tractable)
+# ---------------------------------------------------------------------------
+
+
+async def _handle_compact(
+    messages: list[dict],
+    model: str,
+    api_base: str | None,
+    api_key: str | None,
+) -> None:
+    """Force-compress working memory now."""
+    from openagentic.memory.manager import compress_working_memory, estimate_tokens
+    before = estimate_tokens(messages)
+    if len(messages) <= 12:
+        _console.print(
+            f"  [dim]当前 {len(messages)} 条消息 / ~{before} token，"
+            "数量太少，无需压缩。[/dim]"
+        )
+        return
+    try:
+        new_messages = await compress_working_memory(
+            messages, model=model, api_base=api_base, api_key=api_key,
+        )
+        messages[:] = new_messages
+        after = estimate_tokens(messages)
+        _console.print(
+            f"  [green]compacted:[/green] {before} → {after} token "
+            f"({len(messages)} 条消息)"
+        )
+    except Exception as exc:
+        _console.print(f"  [red]compact failed: {exc}[/red]")
+
+
+def _handle_context(messages: list[dict]) -> None:
+    """Show context window usage stats."""
+    from openagentic.memory.manager import estimate_tokens
+    total = estimate_tokens(messages)
+    sys_len = len(messages[0].get("content") or "") if messages else 0
+    roles: dict[str, int] = {}
+    for m in messages:
+        r = m.get("role", "?")
+        roles[r] = roles.get(r, 0) + 1
+    _console.print()
+    _console.print(f"  [bold]messages:[/bold] {len(messages)} 条")
+    _console.print(
+        "  [bold]by role:[/bold] "
+        + ", ".join(f"{r}={n}" for r, n in roles.items())
+    )
+    _console.print(f"  [bold]system prompt:[/bold] {sys_len} 字符")
+    _console.print(f"  [bold]est. tokens:[/bold] ~{total}")
+    _console.print("  [dim]auto-compact 阈值: 6000 token[/dim]")
+    _console.print()
+
+
+def _handle_btw(messages: list[dict], note: str) -> None:
+    """Append a note to the message list without triggering inference."""
+    messages.append({"role": "user", "content": note})
+    preview = note[:100] + ("..." if len(note) > 100 else "")
+    _console.print(f"  [green]noted:[/green] {preview}")
+    _console.print("  [dim](已加入对话上下文，未触发推理)[/dim]")
+
+
 SLASH_COMMANDS = [
     "/help", "/config", "/model", "/provider", "/providers",
     "/provider-config", "/automodel", "/clear",
     "/skills",
+    "/compact", "/context", "/btw",
     "/login-platform", "/logout-platform", "/quit",
 ]
 
@@ -72,9 +136,13 @@ def print_help() -> None:
     _console.print(
         "  /skills [name]  /skills new <name>  /skills reload"
     )
+    _console.print(
+        "  /compact  /context  /btw <text>"
+    )
     _console.print()
     _console.print("[bold]Tips[/bold]")
     _console.print("  write_file / delete_file need Y/N confirmation before execution")
+    _console.print("  /btw <text> 仅追加到对话上下文，不触发推理（高频备注/补充用）")
     _console.print()
 
 
@@ -547,6 +615,20 @@ async def main_loop(
                 _console.print()
                 _console.print(skill.body.rstrip())
                 _console.print()
+                continue
+
+            if user_input == "/compact":
+                await _handle_compact(messages, model, api_base, api_key)
+                continue
+            if user_input == "/context":
+                _handle_context(messages)
+                continue
+            if user_input.startswith("/btw"):
+                note = user_input[len("/btw"):].strip()
+                if not note:
+                    _console.print("  [red]Usage: /btw <text>[/red]")
+                    continue
+                _handle_btw(messages, note)
                 continue
 
             if user_input == "/config":

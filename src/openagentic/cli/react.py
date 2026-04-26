@@ -121,6 +121,17 @@ async def react_loop(
     except Exception as exc:
         logger.warning("episodic memory injection failed: %s", exc, exc_info=True)
 
+    # ── Procedural memory injection: search reusable procedures matching user_input ──
+    try:
+        procs = MemoryManager().search_procedures(user_input, top_k=3)
+        if procs:
+            ctx = "## Relevant Procedures\n\n"
+            for i, p in enumerate(procs, 1):
+                ctx += f"{i}. {p['name']}\n   {p['content'][:300]}\n\n"
+            messages.insert(1, {"role": "system", "content": ctx})
+    except Exception as exc:
+        logger.warning("procedural memory injection failed: %s", exc, exc_info=True)
+
     # ── Working memory compression: compress if over token budget ──
     if working_memory_compressible(messages):
         try:
