@@ -151,7 +151,7 @@ OpenAgentic 是**中立的企业 SOP 编排层**——飞书/钉钉/企微/邮�
 | **0 基础设施** | ✅ | FastAPI 工厂、Alembic、Docker Compose (`pgvector/pgvector:pg16`)、structlog |
 | **1 账号+对话** | ✅ | JWT + bcrypt、Conversation/Message CRUD、LiteLLM 流式 SSE |
 | **2 Agent+MCP** | ✅ | Agent CRUD、ReAct 执行器、工具注册表、MCP HTTP JSON-RPC |
-| **3 Workflow** | ✅ | DAG 校验+拓扑执行、节点重试/超时、`{{var}}` 模板渲染 |
+| **3 Workflow** | ✅ | DAG 校验（结构/唯一 id/支持类型/无环）+ 拓扑序执行；节点级 `retries` / `timeout_sec`；`{{input.x}}` `{{nodes.<id>}}` 模板渲染；软取消 + 协程 cancel 双通道；结构化 trace（每节点 status/attempt/output/error） |
 | **4 Knowledge/RAG** | ✅ | KB CRUD、文档分块+向量检索+重排、`knowledge_search` 工具 |
 | **4.5 四层记忆** | ✅ 文件版 | Working/Core/Episodic/Procedural，`~/.openagentic/memory/` |
 | **5 多租户+可观测** | ✅ 单租户级 | 行级 user_id 隔离 ✓；tenant/request_id contextvar ✓；Prometheus `/metrics` ✓；structlog 注入 request_id+tenant_id ✓。组织(Org)级隔离与跨服务 correlation 留作未来扩展，**计费/配额已撤回（属上游 LLM 网关职责）** |
@@ -332,7 +332,10 @@ REPL 采用 Producer-Consumer 并发模型。模型执行长任务时，**按一
 
 ### Agent & 工作流
 - `GET/POST /api/agents`、`POST /api/agents/{id}/execute`、`GET /api/agents/{id}/executions`
-- `GET/POST /api/workflows`、`POST /api/workflows/{id}/run`
+- `GET/POST /api/workflows`、`GET/PATCH/DELETE /api/workflows/{id}`
+- `POST /api/workflows/{id}/runs`（创建并立即执行一次 run）
+- `GET /api/workflow-runs?workflow_id=…`、`GET /api/workflow-runs/{run_id}`
+- `POST /api/workflow-runs/{run_id}/cancel`（软取消：写入标志 + 协程 cancel）
 
 ### 知识库
 - `GET/POST /api/knowledge`、`POST /{kb_id}/documents`、`POST /{kb_id}/search`、`POST /{kb_id}/optimize-index`
@@ -371,9 +374,9 @@ src/openagentic/
 ├── tenant/              # 请求级 tenant_id / request_id contextvar
 ├── observability/       # structlog 配置 + Prometheus + RequestContextMiddleware
 └── db/                  # session、Base
-ui/                      # React 前端
-extensions/
-└── android/             # Android 客户端（已接入应用图标 mipmap 5 档+adaptive，当前暂缓）
+ui/                      # 参考 Web 前端（React + Vite + Tailwind + Zustand）— 与 src/ 平级，作为"双主仓"，桌面端 Tauri 壳子规划共用此源码
+extensions/              # 非 Web 客户端壳子（共建驱动 / 实验性，共用同一套 HTTP API，非独立产品线）
+└── android/             # Android 客户端（仅图标 mipmap 5 档+adaptive + UI 静态预览，无功能；共建驱动）
 tests/
 ├── test_*.py            # 根级：Agent、workflow、knowledge、MCP、认证、聊天、记忆、迁移等
 ├── cli/                 # CLI 编码、slash 命令、交互边界
@@ -407,6 +410,129 @@ tests/
 | 认证 | JWT（python-jose）+ bcrypt |
 | 前端 | React + Vite + TailwindCSS + Zustand |
 | 容器 | Docker Compose |
+
+### 客户端入口策略
+
+> **核心认知**：客户端是「接入入口」，不是「产品线」。后端能力（Phase 7 Workflow 企业化 + Phase 8 行业模板）才是护城河。所有客户端共用同一套 HTTP API + JWT，**thin shell over backend**——壳子轻、能力共享，避免把 1 份精力切成 N 份做没护城河的多端 UI。
+>
+> 与产品定位一致："不是 2C 产品 / 必须私有化 / 不站任何大厂生态队"。所以**小程序不做**（微信生态站队 + 2C 通路），**公有云 SaaS 不做**（与私有化定位互斥）。
+
+| 入口 | 状态 | 形态 | 何时投入 |
+|---|---|---|---|
+| **CLI** | ✅ 已做 | `src/openagentic/cli/`，对标 Claude Code 行业基线 | 辅线，Phase 5.5 收尾即克制 |
+| **Web UI** | 🟡 8 页面框架 + 后端部分 stub | `ui/`（React + Vite + Tailwind + Zustand）— **位于仓库 root，与 `src/` 平级**，是参考前端而非 `extensions/` 子项 | 客户私有化部署后业务/运营人员主入口；Phase 7 可视化编辑器（React Flow）落在这里 |
+| **桌面 app（Windows / macOS）** | 🔲 不开工 | **Tauri 直接包 `ui/`**（不用 Electron——壳子轻 10x；Tauri 项目放 `extensions/desktop/`） | 仅当客户明确要求"内网员工不开浏览器、要桌面图标"才做，1 周量级 |
+| **Android** | 🟡 仅图标 + UI 预览 | `extensions/android/`（Kotlin） | 共建驱动——等真实客户提"移动审批/工单查看"再补功能 |
+| **iOS** | 🔲 不开工 | 计划 `extensions/ios/`（Swift 原生，多端共用 HTTP API） | 共建驱动——苹果开发者账号 $99/年 + 中国区 ICP+算法备案，在客户买单前别开账号 |
+| **私有云 SaaS** | 🔲 计划 | **不是公有云 SaaS**——是给"自己没机房 / 不要装机但仍要数据隔离"的客户提供独立租户云实例（一客户一套部署 / 独立 DB / 独立域名） | Phase 7 + Phase 8 跑出 3-5 个共建客户后启动；本质是私有化部署的"托管化"，不是多租户共享数据库 |
+| **小程序（微信 / 支付宝 / 抖音）** | ❌ 不做 | — | 与"不站任何大厂生态队 + 私有化 + 非 2C"三条核心定位均冲突 |
+| **公有云 SaaS（多租户共享 DB）** | ❌ 不做（0→1 阶段） | — | 与私有化定位互斥；客户数据敏感性是核心卖点，自己先违背=废掉差异化 |
+
+#### 私有云 SaaS 的具体形态（区分于公有云）
+
+| 维度 | 公有云 SaaS（不做） | **私有云 SaaS（计划）** |
+|---|---|---|
+| 数据隔离 | 行级/Org 级，多租户共享 DB | **物理隔离**，一客户一套独立 DB + 独立域名 |
+| 客户购买 | 按账号订阅 | 按租户实例订阅（含部署 + 升级 + 运维 SLA） |
+| 部署位置 | 我们的云账号 | 我们托管的云账号 **或** 客户云账号（VPC peering） |
+| 数据出境 | ❌ 客户数据进我们 DB | ✅ 客户数据仍在隔离实例，运维不查询业务数据 |
+| 与"私有化"关系 | 互斥 | **是私有化的托管形态**——客户不要机房但要数据隔离 |
+
+**判断标准**：私有云 SaaS 是给"金融 / 政府 / 头部国企以下、但仍重视数据合规"的中型客户准备的中间档。Phase 7/8 跑出共建客户后再开工，避免过早投入运维基础设施。
+
+### Workflow DAG 引擎
+
+> 这是 OpenAgentic 平台主轴的运行时基础。当前实现是「轻量 DAG 引擎」——足以跑通节奏，但企业级能力（连接器/审批/可视化/版本回滚）在 Phase 7 才会补齐。读者如果在做选型，请把这一节和 [当前底气评估](#当前底气评估对客户必须诚实) 对照看。
+
+#### 定义格式（`workflows.definition`）
+
+```json
+{
+  "nodes": [
+    {"id": "input",  "type": "value", "config": {"value": "{{input.question}}"}},
+    {"id": "answer", "type": "llm",   "config": {
+        "system_prompt": "你是 SOP 助手",
+        "prompt": "请回答：{{nodes.input}}",
+        "model": "deepseek/deepseek-v4-flash",
+        "retries": 1,
+        "timeout_sec": 30
+    }}
+  ],
+  "edges": [{"from": "input", "to": "answer"}]
+}
+```
+
+#### 节点类型（仅 3 种，刻意保持极简）
+
+| type   | 行为 | 关键 config |
+|--------|------|-------------|
+| `value` | 把字面量/渲染后字符串作为输出 | `value` |
+| `tool`  | 调用工具注册表中的工具 | `tool_name`、`arg`（透传给工具的 input/query/command） |
+| `llm`   | 走 LiteLLM 网关 chat completion | `prompt`（必填）、`system_prompt`、`model` |
+
+> Phase 7 会扩展为「节点连接器」（HTTP / DB / SMTP / 飞书 / 钉钉 / 企微 / 邮件 / Webhook / 文件系统）+ 人工审批节点。当前只有上面 3 种是上游的硬依赖。
+
+#### 校验（`validate_definition`）
+
+创建 / 更新工作流时强制：
+
+- `nodes` 非空数组、`edges` 数组
+- 节点 `id` 非空且全局唯一
+- 节点 `type` ∈ {`value`, `tool`, `llm`}
+- `edges` 两端必须指向已存在节点
+- **拓扑排序必须能完整覆盖所有节点**——否则判定有环并 `400 Bad Request`
+
+#### 执行模型
+
+1. `POST /api/workflows/{id}/runs` 创建一条 `WorkflowExecution`（status=`pending`）并立即执行
+2. 状态机：`pending → running → completed | failed | cancelled`
+3. 拓扑序**串行执行**节点；当前未做并行调度（同层节点不并发）
+4. 每个节点执行前先 `db.refresh(run)` 检查取消标志，命中即 break
+5. 节点 config 渲染 `{{input.…}}` / `{{nodes.<id>}}` 模板（递归遍历 dict/list/str）
+6. 节点级容错：`asyncio.wait_for(timeout_sec)` 包裹 + `retries` 次重试（默认 timeout=60、retries=0）
+7. 任意节点超过重试预算未成功 → 整个 run `failed` 并写入 `node_states.error`
+8. 整图最后一个拓扑节点的输出作为 run 的 `output_data.result`
+
+#### 模板变量
+
+```
+{{input.<key>}}        # POST run 时传入的 input_data
+{{nodes.<node_id>}}    # 已执行节点的输出（按拓扑序）
+```
+
+不支持表达式 / 过滤器 / 条件——是字符串替换不是 Jinja，刻意收窄能力以避免引擎复杂化。需要分支逻辑请走 `tool` 节点封装。
+
+#### 取消（双通道）
+
+`POST /api/workflow-runs/{run_id}/cancel` 同时做两件事：
+
+- **软标志**：写 `node_states._cancel_requested = True`，下一节点循环开头被感知后写入 `cancelled` trace 并 break
+- **硬中断**：`runtime.cancel(run_id)` 触发 `asyncio.Task.cancel()`，正在 `wait_for` 内的节点立即抛 `CancelledError`，被 `execute_run` 统一映射为 `cancelled`
+
+软标志解决"节点边界优雅停"，硬中断解决"长跑节点立即停"。
+
+#### 执行 Trace（`node_states.trace`）
+
+每个节点至少产出一条 trace 项：
+
+```json
+{"node_id": "answer", "node_type": "llm", "status": "success",  "attempt": 1, "output": "…"}
+{"node_id": "answer", "node_type": "llm", "status": "retrying", "attempt": 1, "error": "…"}
+{"node_id": "answer", "node_type": "llm", "status": "failed",   "attempt": 2, "error": "…"}
+{"node_id": "answer",                       "status": "cancelled", "reason": "cancel_requested"}
+```
+
+通过 `GET /api/workflow-runs/{run_id}` 整体回看，目前**没有 SSE/流式 trace 推送**——这是 Phase 7 可观测性升级的待办。
+
+#### 当前不做（与 Phase 7 路线图对齐）
+
+- 同层并行执行 / 调度器（DAG 引擎刻意串行）
+- 条件边 / 分支跳转（`EdgeDefinition.condition` 字段已留位但 runtime 未消费）
+- 子工作流 / 工作流互调
+- 节点连接器（HTTP/DB/IM/SMTP/文件）
+- 人工审批节点（暂停 → 通知 → 续跑）
+- 版本管理 / 灰度 / 回滚
+- 节点级 SLA + 失败告警接 IM
 
 ## 路线图
 
@@ -507,11 +633,29 @@ tests/
 | **节点级 SLA + 失败告警** | P2 | Prometheus 已有基础，扩到节点维度；告警接钉钉/企微 | 可观测性升级 |
 | **重试 / DLQ 策略** | P2 | 节点失败后的处理选项（重试 N 次、转人工、DLQ） | 企业容错要求 |
 
+#### DAG 引擎层 TODO（Phase 7 配套 / 引擎本体）
+
+> 这一组属于 DAG 引擎本身的能力补完，不是"企业级"层的事，但客户上 SOP 后大概率会撞上。按"撞上概率"排序：
+
+| 任务 | 优先级 | 说明 | 撞上场景 |
+|---|---|---|---|
+| 条件边（消费 `EdgeDefinition.condition`） | **P0** | 字段已留位，runtime 没消费；先支持 `{{nodes.x}} == "approved"` 这类基础表达式 | 任何审批型 SOP——通过/打回是分支，不是顺序 |
+| 同层节点并行执行 | P1 | 当前严格串行（`for node_id in order`），同入度=0 节点应可 `asyncio.gather` | 报告生成 SOP——多个数据源并行查询 |
+| `value` / `tool` / `llm` 之外加 `branch` / `loop` 节点 | P1 | 显式分支与有界循环，避免逼用户用条件边硬拼 | 分类路由 SOP—— for-each 客户工单批处理 |
+| 子工作流节点（`subflow` type） | P1 | 一个 workflow 调另一个 workflow 作为节点 | 模板复用——审批型 SOP 嵌进报告生成 SOP |
+| SSE / WebSocket 流式 trace | P1 | 当前要轮询 `GET /workflow-runs/{id}` 拿状态 | 可视化编辑器要实时高亮当前节点 |
+| Run 级 retries（不只节点级） | P2 | 整图重跑（幂等性由用户保证） | 失败重启场景 |
+| 节点输入 / 输出 schema 声明 + 校验 | P2 | 当前 config 是裸 dict，连接器一多 schema 漂移 | 可视化编辑器要据 schema 给字段提示 |
+| 调度器（cron / event trigger） | P2 | 当前只能手动 POST run | 巡检报告 / 周报 SOP——必须定时触发 |
+| 同 workflow 并发控制 | P2 | 当前一个 workflow 可同时多 run，无锁 | 单例工作流（如全局对账）必撞 |
+| Trace 持久化分离 | P3 | 现在 trace 写在 `node_states` 一个 JSONB，长 trace 会膨胀 | 大流量后查询性能问题 |
+
 #### 不做清单
 
 - 复杂 BPMN 标准（XML 那套）→ 用更轻的 DAG + 节点类型
 - 跨工作流复杂事务 / Saga → 第一阶段用最终一致性
 - 实时流（Kafka 接入）→ 不是当前客户的高频痛点
+- Jinja / 表达式引擎 → 模板渲染刻意保持「字符串替换」级别，复杂逻辑走 `tool` 节点
 
 ### Phase 8：行业 SOP 模板库（横向扩张）
 
@@ -555,9 +699,11 @@ tests/
 - 沉淀完毕后即横向打开金融 / 制造 / 物流 / 医疗 / 零售 / 教育 / 咨询等任意 SOP 密集行业
 - **不限定行业不等于不聚焦**——聚焦"通用 SOP 原型 + 私有化部署 + 中国可用"，而非聚焦某一个行业
 
-### Phase 6：前后端闭环 / Android（暂缓）
+### Phase 6：前后端闭环 / 多端入口（暂缓）
 
-> **战略调整**：CLI 优先 + Workflow 优先。UI / Android 推到客户共建之后，由真实需求驱动。**工作流可视化编辑器（React Flow）已转 Phase 7**，那里才是它该在的位置。
+> **战略调整**：CLI 优先 + Workflow 优先。UI / 桌面 / 移动端推到客户共建之后，由真实需求驱动。**工作流可视化编辑器（React Flow）已转 Phase 7**，那里才是它该在的位置。
+>
+> **多端铺开判断与边界**：见上方 [客户端入口策略](#客户端入口策略)。**做：CLI / Web / 桌面 Tauri / Android / iOS / 私有云 SaaS**（thin shell over HTTP API，按客户共建节奏开工）。**不做：小程序 / 公有云 SaaS**（与"不站大厂生态队 + 必须私有化 + 非 2C"定位冲突）。
 
 #### 已完成
 - [x] `ui/` 8 页面框架（Sessions、Settings、Skills、Channels、Devices 等）
