@@ -1,105 +1,15 @@
-"""模块说明（中文）：`src/openagentic/cli/llm.py`。\n\n该文件属于 CLI 子系统，处理终端交互、命令解析或平台适配。\n"""
+"""模块说明（中文）：`src/openagentic/cli/llm.py`。
 
-from __future__ import annotations
+向后兼容封装——实际逻辑已迁移至 `openagentic.agent.llm`。
+CLI 入口仍然从此文件导入，行为不变。
+"""
 
-import json
-import os
-import sys
-from typing import Any
+from openagentic.agent.llm import (  # noqa: F401
+    is_deepseek_reasoning_model,
+    ensure_reasoning_content,
+    litellm_chat,
+)
 
-import litellm
-
-# OPENAGENTIC_DEBUG=1 enables litellm debug logging
-if os.environ.get("OPENAGENTIC_DEBUG"):
-    litellm._turn_on_debug()
-
-
-def _is_deepseek_reasoning_model(model: str) -> bool:
-    """Check if model is a DeepSeek reasoning/thinking model."""
-    lower = model.lower()
-    return "deepseek" in lower and ("v4" in lower or "reasoner" in lower)
-
-
-def _ensure_reasoning_content(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Ensure all assistant messages have reasoning_content for DeepSeek thinking mode.
-
-    DeepSeek API requires reasoning_content on every assistant message when
-    thinking mode is enabled, even if the original response had no thinking.
-    """
-    patched = []
-    for msg in messages:
-        if msg.get("role") == "assistant" and "reasoning_content" not in msg:
-            msg = {**msg, "reasoning_content": ""}
-        patched.append(msg)
-    return patched
-
-
-async def litellm_chat(
-    messages: list[dict[str, Any]],
-    model: str,
-    api_base: str | None,
-    api_key: str | None,
-    tools: list[dict] | None = None,
-) -> dict:
-    """Call model via LiteLLM with optional tool calling."""
-    is_reasoning = _is_deepseek_reasoning_model(model)
-    send_messages = _ensure_reasoning_content(messages) if is_reasoning else messages
-    kwargs: dict = {
-        "model": model,
-        "messages": send_messages,
-        "temperature": 0.3,
-        "api_base": api_base or None,
-        "api_key": api_key or None,
-    }
-    if is_reasoning:
-        kwargs["thinking"] = {"type": "enabled"}
-    if tools:
-        kwargs["tools"] = tools
-        kwargs["tool_choice"] = "auto"
-    kwargs["timeout"] = kwargs.get("timeout", 120)  # 2 min timeout, prevent hanging
-    try:
-        response = await litellm.acompletion(**kwargs)
-    except Exception as e:
-        # Print full error details to stderr so user can see what happened
-        print(f"\n[LLM ERROR] {type(e).__name__}: {e}", file=sys.stderr)
-        raise
-    # Best-effort usage/cost accounting — failures must not break chat.
-    try:
-        from openagentic.cli import cost_tracker
-        cost_tracker.record(model, response)
-    except Exception:
-        pass
-    choice = response.choices[0]
-    msg = choice.message
-    tool_calls = []
-    for tc in (getattr(msg, "tool_calls", None) or []):
-        raw_args = tc.function.arguments if getattr(tc, "function", None) else "{}"
-        if isinstance(raw_args, dict):
-            args = json.dumps(raw_args, ensure_ascii=False)
-        else:
-            args = raw_args if isinstance(raw_args, str) else "{}"
-        tool_calls.append(
-            {
-                "id": getattr(tc, "id", None),
-                "type": "function",
-                "function": {
-                    "name": tc.function.name if getattr(tc, "function", None) else "",
-                    "arguments": args,
-                },
-            }
-        )
-    out_content = getattr(msg, "content", None)
-    if tool_calls and (out_content is None or out_content == ""):
-        out_content = None
-    else:
-        out_content = out_content or ""
-    raw_thinking = getattr(msg, "thinking", None) or getattr(msg, "reasoning_content", None)
-    thinking_str = "" if raw_thinking is None else str(raw_thinking)
-    return {
-        "message": {
-            "role": getattr(msg, "role", "assistant"),
-            "content": out_content,
-            "tool_calls": tool_calls,
-            "thinking": thinking_str,
-        }
-    }
+# 向后兼容别名
+_is_deepseek_reasoning_model = is_deepseek_reasoning_model
+_ensure_reasoning_content = ensure_reasoning_content

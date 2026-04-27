@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI):
     说明：
     - 开发环境会调用 create_all 兜底建表，便于本地快速跑通；
     - 生产环境应使用 Alembic 迁移，不依赖 create_all；
-    - 关闭时显式释放数据库引擎，避免连接残留。
+    - 启动时启动渠道长连接（飞书 WebSocket 等），关闭时释放。
     """
     logger.info("Starting OpenAgentic", version=__version__, env=SETTINGS.APP_ENV)
 
@@ -49,7 +49,15 @@ async def lifespan(app: FastAPI):
             await conn.run_sync(Base.metadata.create_all)
         logger.info("Database tables created (dev mode)")
 
+    # 启动渠道长连接（飞书 WebSocket 等）
+    from extensions.channels import start_channels
+    await start_channels()
+
     yield
+
+    # 关闭渠道长连接
+    from extensions.channels import stop_channels
+    await stop_channels()
 
     await engine.dispose()
     logger.info("OpenAgentic shutdown complete")
@@ -109,16 +117,49 @@ def create_app() -> FastAPI:
         """Stub for frontend compatibility — will be replaced in Phase 2."""
         return []
 
-    @app.get("/api/channels")
-    async def list_channels_compat():
-        """Stub for frontend compatibility."""
-        return []
-
     @app.get("/api/presence")
     async def get_presence():
         return {"status": "online"}
 
+    # ---------- 渠道集成：飞书 + 企业微信 webhook 路由 ----------
+    _setup_channel_routes(app)
+
     return app
+
+
+def _setup_channel_routes(app: FastAPI) -> None:
+    """注册飞书/企业微信渠道 webhook 路由（与 core 完全解耦）。
+
+    渠道由环境变量自动发现——未配置则静默跳过，零开销。
+    agent 回调通过 ConversationEngine（共享底座）处理消息。
+    """
+    from openagentic.agent.engine import ConversationEngine
+    from openagentic.identity import DEFAULT_SYSTEM_PROMPT
+    from extensions.channels import register_channel_routes, set_agent_callback
+    from extensions.channels.base import IncomingMessage
+
+    _channel_engine = ConversationEngine(
+        model=SETTINGS.LITELLM_DEFAULT_MODEL,
+        api_key=SETTINGS.OPENAI_API_KEY or "",
+        tools=[],
+        system_prompt=DEFAULT_SYSTEM_PROMPT + (
+            "\n当前通过飞书/企业微信渠道接入。"
+        ),
+    )
+
+    async def _channel_agent_callback(msg: IncomingMessage) -> str:
+        try:
+            messages = [
+                {"role": "system", "content": _channel_engine.system_prompt},
+                {"role": "user", "content": msg.text},
+            ]
+            return await _channel_engine.chat(messages) or "（未返回内容）"
+        except Exception:
+            logger.exception("Channel agent execution failed for %s", msg.platform)
+            return "抱歉，处理消息时遇到错误，请稍后重试。"
+
+    set_agent_callback(_channel_agent_callback)
+    register_channel_routes(app)
 
 
 app = create_app()

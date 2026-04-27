@@ -244,12 +244,15 @@ PostgreSQL 16 + pgvector
 src/openagentic/
 ├── main.py              # 应用工厂、lifespan
 ├── config.py / deps.py
+├── identity.py          # 全局 Agent 身份与行为准则（CLI/飞书/企微共享）
 ├── cli/                 # CLI ReAct（repl、react、tools、providers、model_router 等）
 ├── core/
 │   ├── auth/            # JWT + bcrypt
 │   ├── chat/            # 会话+消息+SSE
 │   └── llm/             # LiteLLM 网关 + provider 配置
-├── agent/               # Agent CRUD + ReAct 执行器 + 工具注册表
+├── agent/               # Agent CRUD + ReAct + 工具注册表
+│   ├── engine.py        # ConversationEngine——LLM+工具循环共享底座
+│   └── llm.py           # litellm_chat 抽象（DeepSeek thinking 兼容）
 ├── mcp/                 # MCP HTTP JSON-RPC 客户端
 ├── workflow/            # DAG 工作流引擎
 ├── knowledge/           # RAG：知识库 + 向量检索 + 重排序
@@ -259,8 +262,15 @@ src/openagentic/
 ├── observability/       # structlog 配置 + Prometheus + RequestContextMiddleware
 └── db/                  # session、Base
 ui/                      # Web 前端（React + Vite + Tailwind + Zustand）
-extensions/              # 实验性客户端壳子
-└── android/             # Android 客户端（仅图标，无功能实现）
+extensions/              # 扩展模块（与 core 完全解耦）
+├── channels/            # 飞书 + 企业微信渠道集成
+│   ├── base.py          # Channel 抽象接口 + 生命周期
+│   ├── feishu.py        # 飞书渠道（SDK WebSocket + 卡片 + CLI）
+│   ├── wecom.py         # 企业微信渠道（XML 解密 + CLI）
+│   └── router.py        # 动态路由工厂
+└── android/             # Android 客户端（图标已统一为原子 logo）
+scripts/
+└── run_feishu_ws.py     # 飞书独立运行脚本（不依赖 PostgreSQL）
 tests/
 ├── test_*.py            # 根级：Agent、workflow、knowledge、MCP、认证、聊天、记忆、迁移等
 ├── cli/                 # CLI 编码、slash 命令、交互边界
@@ -601,6 +611,72 @@ users ─┬─ api_keys              # JWT 认证
 - `/plan`（做成 `planner` SKILL 更优雅）
 - 跨端联动 `/desktop` `/mobile` `/chrome`、商业化 `/upgrade` `/passes`、第三方集成 `/install-github-app`、基础设施大工程 `/sandbox` `/heapdump`、依赖未建系统 `/loop` `/rewind`、多模态 `/voice`
 - 行为类（`/batch` `/simplify` `/security-review` `/debug` 等）→ 统一走 SKILL.md 路线，不做硬编码 slash
+
+### Phase 5.6：企业微信 + 飞书 渠道集成（已上线）
+
+让 OpenAgentic 以飞书/企业微信为交互界面——用户发消息 → agent 处理 → 回复消息。同时支持 agent 调用飞书/企微 CLI 操作文档、日历、多维表格等。
+
+#### 架构设计
+
+```
+extensions/channels/          # 渠道层（与 core 完全解耦）
+├── __init__.py               # 注册中心，环境变量自动发现
+├── base.py                   # Channel 抽象接口 + IncomingMessage
+├── feishu.py                 # 飞书渠道：SDK WebSocket + 卡片 + CLI
+├── wecom.py                  # 企业微信渠道：XML 解密 + CLI
+└── router.py                 # 动态路由工厂（GET/POST webhook）
+
+scripts/
+└── run_feishu_ws.py          # 独立运行脚本，不依赖 PostgreSQL
+
+src/openagentic/
+├── agent/
+│   ├── engine.py             # NEW ConversationEngine（共享底座）
+│   ├── llm.py                # NEW litellm_chat 抽象（从 cli/llm 提取）
+│   └── ...
+└── identity.py               # NEW 全局 Agent 身份与行为准则
+```
+
+**关键设计决策**：
+
+| 决策 | 选择 | 理由 |
+|------|------|------|
+| 收消息 | WebSocket 长连接（飞书 SDK） | 无需公网 URL；`lark-oapi` 内部处理 token/重连 |
+| 发消息 | SDK 直发（优先）/ CLI（备选） | SDK 毫秒级，CLI 有子进程开销 |
+| 不走 MCP | 拒绝 | 常驻进程运维负担 > 收益；WebSocket + SDK 已覆盖 |
+| 渠道隔离 | `extensions/channels/` | 环境变量激活，未配置零开销 |
+| LLM 调用 | `ConversationEngine`（`agent/engine.py`） | CLI / 飞书 / 企微 / HTTP API 共享同一底座 |
+| 回复形式 | 交互卡片（"思考中..." → 原地替换） | SDK 直发卡片，`update_card` 实现渐进式反馈 |
+
+#### 已完成
+
+| # | 任务 | 说明 |
+|---|------|------|
+| 1 | Channel 抽象基类 | `extensions/channels/base.py` — 生命周期 `start()`/`stop()` |
+| 2 | 飞书渠道 | WebSocket 长连接 + 交互卡片 + SDK 直发 + CLI 备选 |
+| 3 | 企业微信渠道 | XML 验签/解密 + `wecom-cli` 发送 |
+| 4 | FastAPI 渠道路由 | webhook 端点 + 生命周期集成 |
+| 5 | ConversationEngine | 共享底座：LLM 调用 + 工具循环，各渠道复用 |
+| 6 | Agent 身份准则 | `identity.py` — `build_system_prompt()` 统一入口 |
+| 7 | 飞书独立运行脚本 | `scripts/run_feishu_ws.py` — 不依赖 PostgreSQL |
+| 8 | 端到端验证 | 飞书消息 → 卡片思考 → AI 回复 → 原地替换 ✅ |
+| 9 | 工具集成 | `run_command` + `read_file` + `lark-cli`（日历/文档/表格） |
+| 10 | DeepSeek thinking 兼容 | `reasoning_content` 空 content 引擎兜底处理 |
+
+#### TODO
+
+| # | 任务 | 优先级 | 备注 |
+|---|------|--------|------|
+| 1 | 企业微信端到端验证 | P1 | 需企微开发者账号 |
+| 2 | 企微独立运行脚本 | P2 | 参照 `run_feishu_ws.py` |
+| 3 | Markdown 表格自动转卡片 component | P2 | `lark_md` 不支持表格，需转 `column_set` |
+| 4 | 飞书流式卡片（打字机效果） | P3 | 参考 `hermes-feishu-streaming-card` |
+| 5 | 钉钉渠道集成 | P3 | 待钉钉 CLI 成熟 |
+
+#### 当前不做
+
+- MCP 协议通道
+- 多租户飞书/企微 app 绑定
 
 ### Phase 6：前后端闭环（暂缓）
 
