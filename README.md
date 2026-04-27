@@ -1,130 +1,12 @@
 # OpenAgentic
 
-**企业级 Agent 平台 · 中国可私有化部署 · AI 原生 SOP 工作流编排**
-
-不是又一个 Claude Code 克隆。不是又一个多 LLM 路由器。是把「开发者 CLI + 业务 API + 工作流引擎 + 知识库」收敛到同一份私有化部署里，给一个组织用的 Agent 中台。
+开源 Agent 平台：CLI + HTTP API + Workflow DAG + 知识库 RAG，基于 FastAPI + PostgreSQL/pgvector + LiteLLM。
 
 | 资源 | 链接 |
 |------|------|
 | 官网 | [openagentic-ai.github.io](https://openagentic-ai.github.io) |
 | 仓库 | [github.com/openagentic-ai/open-agentic](https://github.com/openagentic-ai/open-agentic) |
 | 许可证 | MIT |
-
-## 产品定位
-
-### 一句话
-
-**Claude Code 是开发者工具，n8n 是工作流工具，OpenAgentic 把两者能力收敛到一份私有化部署里，外加「中国可用 + 行业 SOP 模板」。**
-
-### 四个入口、一套后端
-
-| 入口 | 谁用 | 解决什么 |
-|---|---|---|
-| **CLI** | 开发者 / 内部技术人员 | 终端协作（对标 Claude Code 但**仅补"行业基线"**，不追平 70+ 命令） |
-| **HTTP REST API** | 业务系统 / 集成商 | 把 Agent 能力嵌进现有 IT 系统 |
-| **Workflow 引擎** | 业务 / 运营人员 | 把企业 SOP 编排成 AI 流水线（DAG + 连接器 + 审批） |
-| **Knowledge Base / RAG** | 知识员工 | 私有数据问答 + 检索增强 |
-
-四个入口共用同一套：多租户隔离 / 审计日志 / 多 provider 路由 / 可观测性 / 文件式四层记忆。
-
-### 我们是什么
-
-**大厂的 Agent 是把"它的能力"装到客户面前；OpenAgentic 是把"客户的 SOP"装在中间，谁的能力都能调。**
-
-### 为什么不是大厂 Agent
-
-大厂 Agent 的本质——**"以我为中心"**：
-
-- 字节 ArkClaw → 飞书优先、豆包优先、火山引擎优先
-- 阿里 Agent → 钉钉优先、通义优先、阿里云优先
-- 腾讯 Agent → 企微优先、混元优先、腾讯云优先
-- 百度 Agent → 文心优先
-
-但真实企业呢？一家公司可能：内部沟通用钉钉，和供应商对接用企微，和外资合作用飞书，给政府报告用邮件，同时用着阿里云 ECS、字节 CDN、腾讯 IM。**没有一家企业活在单一生态里。**
-
-大厂 Agent 解决的是"我家生态内部的效率"，企业最痛的恰恰是**"跨生态的 SOP 串联"**——这是大厂出于本能不会做好的事，因为做好了等于让客户出生态。
-
-OpenAgentic 是**中立的企业 SOP 编排层**——飞书/钉钉/企微/邮件/Webhook 全接，谁的能力都调，不站任何一家队。「中立」本身就是卖点：**我的 SOP 不被任何大厂绑架。**
-
-### 我们不是什么
-
-- **不是 Claude Code 的克隆**——CLI 是入口之一，只补"行业基线能力"，不追平命令数
-- **不是 LLM 路由器**（LiteLLM / OneAPI 已经做了）——多 provider 是手段不是卖点
-- **不是 SaaS**——核心交付形态是**私有化部署**
-- **不是 2C 产品**——0 到 1 阶段不打消费市场
-- **不站任何生态的队**——OpenClaw/ArkClaw/Linclaw/QClaw/DuClaw/MiClaw/CoPaw/Xiaoyi Claw 都是站某个生态/某个底座的队。OpenAgentic 是**「我谁都不站」**
-
-### 目标客户画像
-
-**通用市场**：**任何有标准化 SOP 的行业都是战场**——政府、金融、制造、物流、医疗、零售、能源、教育、咨询……只要业务有"流程"两个字，AI 就能渗透。
-
-**典型客户特征**（不分行业）：
-- 数据敏感 / 合规要求高 / 必须私有化部署
-- 现有 IT 系统众多，业务流程已成型，要在原系统上加 AI 而非重做
-- 想用 AI 但不能把数据和业务发给境外 SaaS
-
-**典型用例**（跨行业）：
-- 审批 / 报告 / 数据处理 / 合规审查 / 工单分流等 SOP 用 AI 加速 50%+
-- 内部知识库 + 业务系统接口的统一 Agent 入口
-- 替代部分外包人力（数据标注、报告撰写、初审、初级客服）
-
-**首批共建客户来源**（节奏问题，不是定位问题）：
-- 优先选 SOP 痛点显著、合规私有化要求高、有真实触达渠道的行业切入
-- 沉淀首批客户案例后横向打开其他 SOP 密集行业
-
-### 核心差异化（vs 主要竞品）
-
-| 维度 | Claude Code | OpenClaw 类<br>（CLI 克隆） | **ArkClaw**<br>（字节） | n8n / Dify | **OpenAgentic** |
-|---|---|---|---|---|---|
-| 产品形态 | 开发者 CLI | 开发者 CLI | 飞书生态 Agent | 工作流平台 | **平台**（CLI + API + Workflow + KB） |
-| 生态立场 | 中立 | 中立 | **飞书/豆包/火山引擎优先** | 中立 | **中立——谁都不站** |
-| 中国可用 | ❌ 模型境外 | ⚠️ 模型自带 | ✅ 飞书深度集成 | ⚠️ 部分有限 | ✅ 接 DeepSeek / Qwen / Doubao / 私有 Ollama |
-| 私有化部署 | ❌ | ✅ | ❌（SaaS 绑定） | ✅ | ✅ |
-| 跨 IM 通道 | ❌ | ❌ | ❌（仅飞书） | ⚠️ | ✅ 飞书/钉钉/企微/邮件/Webhook 全接 |
-| 多租户 | ❌ | ❌ | ⚠️（飞书租户体系） | ✅(SaaS) / ❌(自托管) | ✅ 行级隔离 + tenant context |
-| AI 原生工作流 | ⚠️ | ❌ | ⚠️（飞书审批流） | ⚠️(加 LLM 节点) | ✅ DAG + 模板渲染 + 工具 + RAG 一体 |
-| 行业 SOP 模板 | ❌ | ❌ | ❌ | ⚠️(通用) | 🚧 通用原型 + 行业模板共建 |
-| 多 provider | ❌(仅 Claude) | ⚠️ | ❌（仅豆包） | ⚠️ | ✅ 20 个 |
-| Skills / SOP 复用 | ✅(创新) | ⚠️(克隆) | ❌ | ⚠️ | ✅ Claude Code 风格 SKILL.md |
-| 客户自由度 | 高 | 高 | **低（锁定飞书生态）** | 高 | **高（不锁任何生态）** |
-
-**vs OpenClaw 类**：差异是**「平台 vs 工具」**。OpenClaw 装进客户内网还是开发者终端工具；OpenAgentic 装进客户内网是 Agent 中台——CLI 给开发者、HTTP 给业务系统、Workflow 给运营、KB 给知识员工，**一份部署服务整个组织**。
-
-**vs n8n / Dify**：n8n 是把 LLM 当成工作流的一个节点；OpenAgentic 是**整体 AI 原生**——RAG / Agent / Workflow / Memory 共享语义层，不是事后拼接。
-
-### 当前底气评估（对客户必须诚实）
-
-| 能力 | 状态 | 对客户的话 |
-|---|---|---|
-| 私有化部署 | ✅ Docker Compose 一条命令起 | 真能部署，已验证 |
-| 多 provider | ✅ 20 个 | 接得动主流模型 |
-| RAG | ✅ pgvector + 重排 | 基础可用 |
-| Workflow DAG 引擎 | 🟡 引擎在，连接器空 | **平台架子有，业务节点还得手填** |
-| 多租户 | 🟡 行级隔离，Org 级未做 | 单组织 OK，多组织共享一份待补 |
-| 行业模板 | ❌ 空 | **0 模板，第一个客户必须共建** |
-| 人工审批节点 | ❌ 无 | 当前不能做需要审批的 SOP |
-| 可视化编辑器 | ❌ 无 | 当前业务人员改不动工作流 |
-| 节点连接器（HTTP/飞书/钉钉/企微/DB/邮件） | ❌ 无 | 当前只能调 LLM 和内置工具 |
-
-**销售层规则**：上面 ❌/🟡 必须诚实告诉客户，不吹。0 到 1 阶段，**第一个客户就是产品的合伙人**——共建模板、提需求、踩坑、协议 6 个月共创。
-
-### 战略主轴（路线判断）
-
-#### 核心立场：中立编排层
-
-**OpenAgentic 不站任何大厂生态。** 飞书/钉钉/企微/邮件/Webhook 全接，谁的能力都调。大厂 Agent 是"以我为中心"把自家能力装到客户面前；OpenAgentic 是把客户的 SOP 装在中间——客户用什么 IM、用什么云、用什么模型，我们接什么。这是认知差异化，也是 Phase 7 连接器的战略意义。
-
-#### 双线并进
-
-- **底座线（CLI 验证）**：用 CLI 把 Agent + Workflow + KB + Memory + 多 provider + 工具调用的完整范式**先跑通**。底座稳了，往后推平台基本不用回炉。
-- **平台线（Workflow 企业化）**：底座稳定后投入主力做企业级能力（连接器、审批、模板、可视化、版本回滚），这是真正的护城河。
-
-#### 优先级排序（按差异化护城河强度）
-
-1. **Phase 7 — Workflow 企业化**（主轴）：**飞书/钉钉/企微/邮件/Webhook 全接，不偏不倚** + 审批节点 + 模板库 + 可视化 + 版本+回滚。**别人不做、客户真要、你能做**的赛道。中立编排层的工程落地。
-2. **Phase 8 — 行业 SOP 模板库**（横向扩张）：**任何有 SOP 情景的行业都做**。首批靠最熟领域共建沉淀通用原型，再横向复制到金融/制造/物流/医疗/零售/教育等任意 SOP 密集行业。
-3. **Phase 5.5 — CLI 补行业基线**（辅线，但**底座验证场**）：仅做"不做就 broken"的命令（`/compact` `/context` `/cost` `/permissions` `write_file diff`）。**真正价值在于**用 CLI 验证 Agent+Workflow+KB+Memory 范式跑得通，70+ 命令对标已放弃。
-4. **Phase 6 — 前后端闭环 / Android**（暂缓）：CLI 优先，UI/Android 等首批客户共建后由真实需求驱动。
 
 ## 最近更新
 
@@ -134,12 +16,18 @@ OpenAgentic 是**中立的企业 SOP 编排层**——飞书/钉钉/企微/邮�
 
 ## 目录
 
-- [产品定位](#产品定位)
 - [实现进度](#实现进度)
 - [快速启动](#快速启动)
 - [CLI 模式](#cli-模式)
 - [API 端点](#api-端点)
 - [架构](#架构)
+  - [请求生命周期](#请求生命周期)
+  - [CLI ReAct 循环](#cli-react-循环)
+  - [四层记忆系统](#四层记忆系统)
+  - [Skills 系统](#skills-系统)
+  - [数据库概要](#数据库概要)
+  - [Workflow DAG 引擎](#workflow-dag-引擎)
+  - [设计决策](#设计决策)
 - [路线图](#路线图)
 - [开发与测试](#开发与测试)
 - [常见问题](#常见问题)
@@ -154,16 +42,12 @@ OpenAgentic 是**中立的企业 SOP 编排层**——飞书/钉钉/企微/邮�
 | **3 Workflow** | ✅ | DAG 校验（结构/唯一 id/支持类型/无环）+ 拓扑序执行；节点级 `retries` / `timeout_sec`；`{{input.x}}` `{{nodes.<id>}}` 模板渲染；软取消 + 协程 cancel 双通道；结构化 trace（每节点 status/attempt/output/error） |
 | **4 Knowledge/RAG** | ✅ | KB CRUD、文档分块+向量检索+重排、`knowledge_search` 工具 |
 | **4.5 四层记忆** | ✅ 文件版 | Working/Core/Episodic/Procedural，`~/.openagentic/memory/` |
-| **5 多租户+可观测** | ✅ 单租户级 | 行级 user_id 隔离 ✓；tenant/request_id contextvar ✓；Prometheus `/metrics` ✓；structlog 注入 request_id+tenant_id ✓。组织(Org)级隔离与跨服务 correlation 留作未来扩展，**计费/配额已撤回（属上游 LLM 网关职责）** |
-| **5.5 CLI 补行业基线**（辅线） | 🟡 推进中 | 已落地：`/compact` `/context` `/btw` + procedural 自动注入 + **P0 三件**（`/cost` / `write_file` diff / `/permissions`）；待做（P1）：`/diff` / `/review` / 3 个内置 SKILL；70+ 命令对标已**克制放弃** |
-| **6 前后端闭环 / Android** | ⏸ 暂缓 | UI 8 页面完成；Devices/Sessions/Channels 后端 stub；Android 仅图标接入；等客户共建后再补 |
-| **7 Workflow 企业化**（主轴） | 🔲 计划中 | **核心差异化护城河**：节点连接器 / 人工审批 / 模板库 / 可视化编辑器 / 版本+回滚 / 节点级 SLA |
-| **8 行业 SOP 模板**（横向扩张） | 🔲 计划中 | **任何有 SOP 情景的行业都做**；通用原型：审批型 / 报告生成 / 分类路由 / 质检合规 / 流水线处理 |
+| **5 多租户+可观测** | ✅ 单租户级 | 行级 user_id 隔离 ✓；tenant/request_id contextvar ✓；Prometheus `/metrics` ✓；structlog 注入 request_id+tenant_id ✓ |
+| **5.5 CLI 增强** | 🟡 推进中 | 已落地：`/compact` `/context` `/btw` + procedural 自动注入 + `/cost` / `write_file` diff / `/permissions` |
+| **6 前后端闭环** | ⏸ 暂缓 | UI 8 页面完成；Devices/Sessions/Channels 后端 stub；Android 仅图标接入 |
+| **7 Workflow 扩展** | 🔲 计划中 | 节点连接器 / 人工审批 / 模板库 / 可视化编辑器 / 版本+回滚 / 节点级 SLA |
 
-> **战略主轴（2026-04-26 调整）**：差异化护城河在 Phase 7（Workflow 企业化）+ Phase 8（行业 SOP 模板）。CLI 是辅线，仅补"行业基线能力"（不做就 broken 的部分），不再追平 Claude Code 70+ 命令。
-> Android 客户端骨架在 `extensions/android/`，仅完成应用图标接入（mipmap 5 档密度 + adaptive icon + 白底），无功能实现。
-
-### 已知 Web 端缺口（暂不修）
+### 已知 Web 端缺口
 
 - `POST /api/knowledge/documents/upload` 前端调用、后端不存在（前端期望默认 KB+文件 multipart，后端要求 `kb_id`+JSON 文本）
 - Skills 页面 169 行 UI 就绪，无任何后端 CRUD
@@ -193,13 +77,13 @@ OpenAgentic 是**中立的企业 SOP 编排层**——飞书/钉钉/企微/邮�
 - `react.py` `tool_call.id` 缺失时自动生成 UUID fallback（兼容 DeepSeek 等不返回 id 的端点）
 - `--no-provider-check` + `OPENAGENTIC_SKIP_PROVIDER_CHECK` 跳过 API key 强制配置向导
 - `react.py` `repl.py` 4 处 `except Exception: pass` 替换为 `logger.warning(..., exc_info=True)`
-- **Phase 5.5 P0 三件**全部落地：`/cost`（per-model token+USD）、`write_file` 覆盖时 unified diff 预览、`/permissions`（allow/ask/deny + 路径/前缀白/黑名单）
+- `/cost`（per-model token+USD）、`write_file` 覆盖时 unified diff 预览、`/permissions`（allow/ask/deny + 路径/前缀白/黑名单）全部落地
 - **root 命令强制确认**：`sudo` / `doas` / `pkexec` / `su` token 级匹配（避免 `sudoku` 误伤），即使 policy=allow 或命中 allow_prefixes 也强制 Y/N
 - **代码瘦身**：`repl.py` 949 → 434 行，提取 `cli/slash_commands.py`（567 行）承接所有 `_handle_*` 处理器与 UI 原语；`main_loop` 535 → 408 行，`_execution_consumer` 325 → 198 行，全项目 .py 文件均 ≤ 800 行
 
 ### 测试覆盖
 
-237 passed, 2 skipped — 覆盖 CLI 编码、P0 三件（`/cost` / `write_file` diff / `/permissions`）、root 命令强制确认、LLM provider 配置、记忆系统、知识库、工作流、MCP、Agent、认证、聊天、迁移脚本、运维烟雾、数据库会话、可观测性、Skills 系统、租户上下文。
+237 passed, 2 skipped — 覆盖 CLI 编码、`/cost` / `write_file` diff / `/permissions`、root 命令强制确认、LLM provider 配置、记忆系统、知识库、工作流、MCP、Agent、认证、聊天、迁移脚本、运维烟雾、数据库会话、可观测性、Skills 系统、租户上下文。
 
 ## 快速启动
 
@@ -374,9 +258,9 @@ src/openagentic/
 ├── tenant/              # 请求级 tenant_id / request_id contextvar
 ├── observability/       # structlog 配置 + Prometheus + RequestContextMiddleware
 └── db/                  # session、Base
-ui/                      # 参考 Web 前端（React + Vite + Tailwind + Zustand）— 与 src/ 平级，作为"双主仓"，桌面端 Tauri 壳子规划共用此源码
-extensions/              # 非 Web 客户端壳子（共建驱动 / 实验性，共用同一套 HTTP API，非独立产品线）
-└── android/             # Android 客户端（仅图标 mipmap 5 档+adaptive + UI 静态预览，无功能；共建驱动）
+ui/                      # Web 前端（React + Vite + Tailwind + Zustand）
+extensions/              # 实验性客户端壳子
+└── android/             # Android 客户端（仅图标，无功能实现）
 tests/
 ├── test_*.py            # 根级：Agent、workflow、knowledge、MCP、认证、聊天、记忆、迁移等
 ├── cli/                 # CLI 编码、slash 命令、交互边界
@@ -411,38 +295,170 @@ tests/
 | 前端 | React + Vite + TailwindCSS + Zustand |
 | 容器 | Docker Compose |
 
-### 客户端入口策略
+### 请求生命周期
 
-> **核心认知**：客户端是「接入入口」，不是「产品线」。后端能力（Phase 7 Workflow 企业化 + Phase 8 行业模板）才是护城河。所有客户端共用同一套 HTTP API + JWT，**thin shell over backend**——壳子轻、能力共享，避免把 1 份精力切成 N 份做没护城河的多端 UI。
->
-> 与产品定位一致："不是 2C 产品 / 必须私有化 / 不站任何大厂生态队"。所以**小程序不做**（微信生态站队 + 2C 通路），**公有云 SaaS 不做**（与私有化定位互斥）。
+```
+Incoming Request
+  → CORS (CORSMiddleware)
+    → RequestContextMiddleware
+        • 提取/生成 X-Request-ID（UUID hex），写入 contextvar，回带响应头
+        • 解码 Authorization JWT 提取 sub → tenant_id contextvar
+      → Prometheus Instrumentator（method/path_template/status 三维标签）
+        → FastAPI route
+          → get_current_user（HTTPBearer → jose.jwt → DB lookup → 401）
+            → Service 层（所有查询强制过滤 user_id）
+              → DB session（asyncpg pool=20+10）
+                → Response
+```
 
-| 入口 | 状态 | 形态 | 何时投入 |
-|---|---|---|---|
-| **CLI** | ✅ 已做 | `src/openagentic/cli/`，对标 Claude Code 行业基线 | 辅线，Phase 5.5 收尾即克制 |
-| **Web UI** | 🟡 8 页面框架 + 后端部分 stub | `ui/`（React + Vite + Tailwind + Zustand）— **位于仓库 root，与 `src/` 平级**，是参考前端而非 `extensions/` 子项 | 客户私有化部署后业务/运营人员主入口；Phase 7 可视化编辑器（React Flow）落在这里 |
-| **桌面 app（Windows / macOS）** | 🔲 不开工 | **Tauri 直接包 `ui/`**（不用 Electron——壳子轻 10x；Tauri 项目放 `extensions/desktop/`） | 仅当客户明确要求"内网员工不开浏览器、要桌面图标"才做，1 周量级 |
-| **Android** | 🟡 仅图标 + UI 预览 | `extensions/android/`（Kotlin） | 共建驱动——等真实客户提"移动审批/工单查看"再补功能 |
-| **iOS** | 🔲 不开工 | 计划 `extensions/ios/`（Swift 原生，多端共用 HTTP API） | 共建驱动——苹果开发者账号 $99/年 + 中国区 ICP+算法备案，在客户买单前别开账号 |
-| **私有云 SaaS** | 🔲 计划 | **不是公有云 SaaS**——是给"自己没机房 / 不要装机但仍要数据隔离"的客户提供独立租户云实例（一客户一套部署 / 独立 DB / 独立域名） | Phase 7 + Phase 8 跑出 3-5 个共建客户后启动；本质是私有化部署的"托管化"，不是多租户共享数据库 |
-| **小程序（微信 / 支付宝 / 抖音）** | ❌ 不做 | — | 与"不站任何大厂生态队 + 私有化 + 非 2C"三条核心定位均冲突 |
-| **公有云 SaaS（多租户共享 DB）** | ❌ 不做（0→1 阶段） | — | 与私有化定位互斥；客户数据敏感性是核心卖点，自己先违背=废掉差异化 |
+- **contextvar 传递**：`tenant_id` 和 `request_id` 在整个调用栈中通过 contextvar 传播，structlog 每行日志自动注入
+- **不强制认证**：中间件仅解码 JWT 不拦截——认证在路由级 `Depends(get_current_user)` 执行
+- **Prometheus 排除**：`/health` `/metrics` 自身不统计，label 不含 `tenant_id`（控制基数）
 
-#### 私有云 SaaS 的具体形态（区分于公有云）
+### CLI ReAct 循环
 
-| 维度 | 公有云 SaaS（不做） | **私有云 SaaS（计划）** |
-|---|---|---|
-| 数据隔离 | 行级/Org 级，多租户共享 DB | **物理隔离**，一客户一套独立 DB + 独立域名 |
-| 客户购买 | 按账号订阅 | 按租户实例订阅（含部署 + 升级 + 运维 SLA） |
-| 部署位置 | 我们的云账号 | 我们托管的云账号 **或** 客户云账号（VPC peering） |
-| 数据出境 | ❌ 客户数据进我们 DB | ✅ 客户数据仍在隔离实例，运维不查询业务数据 |
-| 与"私有化"关系 | 互斥 | **是私有化的托管形态**——客户不要机房但要数据隔离 |
+CLI 采用 **Producer-Consumer 并发模型**：
 
-**判断标准**：私有云 SaaS 是给"金融 / 政府 / 头部国企以下、但仍重视数据合规"的中型客户准备的中间档。Phase 7/8 跑出共建客户后再开工，避免过早投入运维基础设施。
+```
+prompt_toolkit (生产者)              asyncio consumer (消费者)
+       │                                      │
+       ├─ 用户输入 → asyncio.Queue ──────────→├─ 取消息
+       │                                      ├─ slash 命令？→ 直接处理，不调 LLM
+       │                                      ├─ 用户消息：
+       │                                      │   1. automodel triage（SIMPLE/COMPLEX）
+       │                                      │   2. episodic_search(用户输入, top-3) → 注入 messages[1]
+       │                                      │   3. procedural_search(用户输入, top-3) → 注入 messages[1]
+       │                                      │   4. working_memory_compressible? → compress()
+       │                                      │   5. litellm_chat(messages + TOOLS) ← 带 spinner 动画
+       │                                      │   6. 返回 content → render markdown → done
+       │                                      │   7. 返回 tool_calls → 逐个执行 → 回填 tool result → goto 5
+       │                                      │   8. done tool → render → return
+       │                                      └─ 最多 1000 轮迭代
+       └─ Ctrl+C → 取消当前 react task（不退 CLI）
+```
+
+**关键路径**：
+
+- **权限门控**（`read_file` / `run_command` / `write_file` / `delete_file`）：
+  ```
+  policy=deny → REFUSED
+  hit deny_paths/deny_prefixes → REFUSED
+  hit allow_paths/allow_prefixes → ALLOWED（跳过确认）
+  policy=allow → ALLOWED（跳过确认）
+  policy=ask → 弹出 Y/N 确认
+  ```
+  特例：`sudo` / `doas` / `pkexec` / `su` token 级匹配，无论策略一律强制 Y/N
+
+- **`write_file` diff 预览**：覆盖时在 confirm 提示中展示 unified diff（>80 行截断，二进制降级为字节数预览）
+
+- **压缩触发**：`chars/3` 估算 token 数（CJK 保守），超 6000 token 阈值自动压缩；保留 system prompt + 最近 8 条消息，旧消息 LLM 摘要为 3-6 点，以 `[Conversation Summary]` system message 插入
+
+### 四层记忆系统
+
+存储根：`~/.openagentic/memory/`
+
+```
+~/.openagentic/memory/
+├── MEMORY.md                    # 自动重建的索引入口（每次写入后更新）
+├── core/
+│   ├── user_profile/            # 用户画像（*.md，frontmatter + body）
+│   ├── project_fact/            # 项目事实
+│   ├── preference/              # 偏好设置
+│   └── reference/               # 参考信息
+├── episodes/                    # 对话摘要（YYYY-MM-DD-slug-uuid.md）
+└── procedures/                  # 可复用步骤（safe_name.md）
+```
+
+**注入时机与机制**：
+
+| 层 | 注入时机 | 机制 |
+|----|---------|------|
+| **Working** | 每轮 LLM 调用前 | `chars/3` 估算 token → 超 6000 阈值触发 `compress_working_memory()`，旧消息 LLM 摘要为 3-6 点，累积合并已有 `[Conversation Summary]` |
+| **Core** | 启动时 | `list_core(limit=20)` 按 importance desc 排序，注入 system prompt 顶部 `## Persistent Core Memory` 区块 |
+| **Episodic** | 每轮用户输入后 | `search_episodes(user_input, top_k=3)` 关键词匹配，注入 `messages[1]`（紧跟 system prompt） |
+| **Procedural** | 每轮用户输入后 | `search_procedures(user_input, top_k=3)` 关键词匹配（词干匹配 3x 加权），注入 `messages[1]` |
+
+**MEMORY.md 索引**：每次 `save_core_memory` / `delete_core_memory` / `save_episode` / `save_procedure` 后自动重建全量索引。这是人类可读的入口，也是 Claude Code 兼容的记忆格式。
+
+**当前局限**：文件版，无向量检索。未来计划迁移 PostgreSQL + pgvector 做语义检索。
+
+### Skills 系统
+
+Skills 是 **文件式 SOP 模板**——不是工具，是给模型看的领域操作指南。
+
+**存储格式**：`~/.openagentic/skills/<slug>/SKILL.md`
+
+```markdown
+---
+name: git-commit           # 必填，须等于目录名（kebab-case）
+description: 提交代码时用  # 必填，含触发条件
+allowed-tools: [...]       # 可选，限定可用工具列表
+---
+
+# git-commit
+
+## 何时使用
+...
+
+## 操作步骤
+...
+```
+
+**注入策略**：
+- **启动时**：`build_skills_section()` 扫描 `~/.openagentic/skills/`，仅注入元数据（name + description + 路径，~50 token/skill）
+- **运行时**：模型判定任务匹配某 skill → 调用 `read_file` 加载完整 SKILL.md → 按指南执行
+- **热加载**：`/skills reload` 重新扫描并重建 system prompt，无需重启
+
+**生命周期**：
+- 首次启动：`ensure_seeded()` 从 `src/openagentic/skills/builtin/` 复制 3 个内置 skill 到 `~/.openagentic/skills/`（`.seeded` 标记防止重复）
+- 用户自定义：`/skills new <name>` 创建模板 → 手动编辑 SKILL.md → `/skills reload`
+- **不覆盖原则**：如果用户目录已存在同名 slug，内置 skill 不覆盖
+
+内置 3 个：`git-commit`（生成 conventional commit）、`code-review`（系统化代码审查，含 severity 分级）、`debug-trace`（结构化调试：复现 → trace → 定位 → 假设 → 修复）。
+
+### 数据库概要
+
+6 大域，所有业务表带 `user_id` FK 实现行级多租户：
+
+```
+users ─┬─ api_keys              # JWT 认证
+       ├─ conversations ─┬─ messages     # 对话（含 reasoning_content 列）
+       ├─ agents ────────── agent_executions   # Agent 执行记录（JSON steps + trace）
+       ├─ workflows ─────── workflow_executions # Workflow 执行（JSONB definition/input/output/node_states）
+       └─ knowledge_bases ─┬─ documents ─┬─ chunks   # RAG（pgvector Vector(768)）
+```
+
+| 域 | 核心表 | 关键字段 |
+|----|-------|---------|
+| 认证 | `users` `api_keys` | UUID PK, `email`(unique), `hashed_password`, bcrypt |
+| 对话 | `conversations` `messages` | `role` enum(user/system/assistant/tool), `reasoning_content`, `token_count_input/output`, `cost_usd` |
+| Agent | `agents` `agent_executions` | `tools` JSON, `config` JSON, `steps` JSON, `status` enum |
+| Workflow | `workflows` `workflow_executions` | `definition` JSONB, `input_data`/`output_data` JSON, `node_states` JSON(trace+cancel), `status` enum(pending/running/completed/failed/cancelled) |
+| 知识库 | `knowledge_bases` `documents` `chunks` | `embedding` Vector(768), `chunk_size`/`chunk_overlap`, `metadata_` JSON |
+| 迁移 | 4 个 Alembic revisions | 初始→workflow→knowledge(pgvector)→reasoning_content |
+
+- **多租户**：应用层 `user_id` 过滤，非 RLS；`tenant_id` contextvar 等价 `user_id`
+- **WorkflowExecution 特殊**：`node_states` 一个 JSONB 同时承载 trace 数组和 `_cancel_requested` 软标志
+- **Chunk 无 TimestampMixin**：仅 `created_at`，无 `updated_at`
+
+### 设计决策
+
+| 决策 | 选择 | 理由 |
+|------|------|------|
+| 架构风格 | 模块化单体 | Phase 0-5 单进程部署足够，`agent/` `workflow/` `knowledge/` `mcp/` 独立包边界清晰；未来可按包拆微服务 |
+| LLM 网关 | LiteLLM | 17+ provider 统一为 `model` 字符串 + 配置，换模型只改配置不写代码；社区维护成本低 |
+| 异步栈 | SQLAlchemy async + asyncpg | 全链路 async 避免 IO 阻塞事件循环，asyncpg 原生 PostgreSQL 二进制协议性能优于 psycopg2 |
+| 记忆存储 | 文件版（frontmatter+md）先于 DB+pgvector | 零依赖启动、人类可读可编辑、与 Claude Code MEMORY.md 格式兼容；向量检索版留待 Phase 未来 |
+| 模板渲染 | 字符串替换而非 Jinja | Workflow DAG 场景 `{{input.x}}` `{{nodes.id}}` 够用，复杂逻辑走 `tool` 节点封装，避免引擎膨胀 |
+| DAG 执行 | 串行先于并行 | 先保证正确性和结构化 trace；同层 `asyncio.gather` 留 Phase 7 |
+| 取消机制 | 双通道（软标志 + 协程 cancel） | 软标志覆盖"节点边界优雅停"，`asyncio.Task.cancel()` 覆盖"长跑节点立即停" |
+| Skills | SKILL.md 文件式而非硬编码 slash | 行为类功能（review/commit/debug）统一为可编辑 SOP 文档，模型按需 read_file 加载全文，避免命令膨胀 |
+| MCP | HTTP JSON-RPC 客户端（非 stdio） | 先支持远程 MCP server，stdio 本地 server 后续按需补 |
+| 重排序 | CrossEncoder（`rerank_model`） | 向量检索后对 top-N 做精排，提升 RAG 准确率；轻量级模型不依赖外部服务 |
 
 ### Workflow DAG 引擎
 
-> 这是 OpenAgentic 平台主轴的运行时基础。当前实现是「轻量 DAG 引擎」——足以跑通节奏，但企业级能力（连接器/审批/可视化/版本回滚）在 Phase 7 才会补齐。读者如果在做选型，请把这一节和 [当前底气评估](#当前底气评估对客户必须诚实) 对照看。
+轻量 DAG 引擎；节点连接器 / 审批 / 可视化 / 版本回滚等扩展见 [Phase 7](#phase-7workflow-扩展)。
 
 #### 定义格式（`workflows.definition`）
 
@@ -469,8 +485,6 @@ tests/
 | `value` | 把字面量/渲染后字符串作为输出 | `value` |
 | `tool`  | 调用工具注册表中的工具 | `tool_name`、`arg`（透传给工具的 input/query/command） |
 | `llm`   | 走 LiteLLM 网关 chat completion | `prompt`（必填）、`system_prompt`、`model` |
-
-> Phase 7 会扩展为「节点连接器」（HTTP / DB / SMTP / 飞书 / 钉钉 / 企微 / 邮件 / Webhook / 文件系统）+ 人工审批节点。当前只有上面 3 种是上游的硬依赖。
 
 #### 校验（`validate_definition`）
 
@@ -522,9 +536,9 @@ tests/
 {"node_id": "answer",                       "status": "cancelled", "reason": "cancel_requested"}
 ```
 
-通过 `GET /api/workflow-runs/{run_id}` 整体回看，目前**没有 SSE/流式 trace 推送**——这是 Phase 7 可观测性升级的待办。
+通过 `GET /api/workflow-runs/{run_id}` 整体回看，目前**没有 SSE/流式 trace 推送**——见 Phase 7 待办。
 
-#### 当前不做（与 Phase 7 路线图对齐）
+#### 当前不支持
 
 - 同层并行执行 / 调度器（DAG 引擎刻意串行）
 - 条件边 / 分支跳转（`EdgeDefinition.condition` 字段已留位但 runtime 未消费）
@@ -532,7 +546,6 @@ tests/
 - 节点连接器（HTTP/DB/IM/SMTP/文件）
 - 人工审批节点（暂停 → 通知 → 续跑）
 - 版本管理 / 灰度 / 回滚
-- 节点级 SLA + 失败告警接 IM
 
 ## 路线图
 
@@ -551,171 +564,95 @@ tests/
 | **Episodic** | `~/.openagentic/memory/episodes/` | 每轮 ReAct 自动检索 top-3，`/clear` 自动存档 |
 | **Procedural** | `~/.openagentic/memory/procedures/` | 模型显式调用 `procedural_save`/`procedural_search`，未自动注入 |
 
-### P1/P2 待办（已合并入 Phase 5.5）
-
-→ 见下方 [Phase 5.5：CLI 对标 Claude Code](#phase-55cli-对标-claude-code)
-
 ### Phase 5：多租户 + 可观测
 
 - [x] 行级 `user_id` 隔离（已存在于 db schema）
 - [x] 请求级 tenant context（`tenant/` contextvar，`tenant_id == user_id`）
 - [x] Prometheus `/metrics`（method/path_template/status 三维标签，`/health` `/metrics` 自身排除）
 - [x] structlog 自动注入 `request_id` 与 `tenant_id`，`X-Request-ID` 中间件透传/生成
-- [ ] 组织(Org)级隔离（需新表 `organizations`、`user_organizations`，全路由 scope 改造，大改动，按需启动）
+- [ ] 组织(Org)级隔离（需新表 `organizations`、`user_organizations`，全路由 scope 改造）
 - [ ] 跨服务 correlation（LiteLLM 调用、DB query 注入 request_id；目前仅 HTTP 入站层）
-- ~~用量统计 / 计费 / 配额~~（已撤回——属上游 LLM 网关 / LiteLLM Proxy 职责，agent 应用层不重复造）
 
-### Phase 5.5：CLI 对标 Claude Code（已重新分类，辅线）
+### Phase 5.5：CLI 增强
 
-> **战略调整（2026-04-26）**：放弃 70+ 命令对标。Claude Code 的命令分三类对待——**行业基线 / 风格选择 / 打不过 + 低价值**。CLI 是辅线，主轴投入 Phase 7。
-
-#### A. 行业基线（不做就 broken，必做）
-
-| 任务 | 状态 | 优先级 | 备注 |
-|---|---|---|---|
-| `/compact` `/context` `/btw` | ✅ | — | 已完成（D1 简单组） |
-| Procedural memory 自动注入 ReAct | ✅ | — | 已完成（镜像 episodic） |
-| `/cost` | ✅ | — | 已落地：per-model token + USD 估算（litellm.completion_cost），`/clear` 自动重置 |
-| `write_file` diff 预览（覆盖时 unified diff） | ✅ | — | 已落地：覆盖时在 confirm 提示中展示 unified diff（>80 行截断，二进制降级） |
-| `/permissions`（allow/ask/deny + 路径白名单） | ✅ | — | 已落地：4 个 gated tool（read/run/write/delete），`~/.openagentic/permissions.json`，路径与命令前缀双白/黑名单 |
-| `/diff`（包 `git diff` + rich 染色） | 🔲 | P1 | 半小时活 |
-| `/review`（喂 git diff + code-review skill） | 🔲 | P1 | 1 小时活 |
-| 3 个内置 SKILL：`security-review` / `simplify` / `batch` | 🔲 | P1 | 写 SKILL.md，下次启动自动播种 |
-| 全套烟测（所有新命令 + 3 SKILL 通过 LLM 触发验证） | 🔲 | P2 | 收尾 |
-
-#### B. 风格选择（Claude Code 的具体设计，不一定最优）
-
-| 任务 | 决策 | 理由 |
-|---|---|---|
-| `/copy` | ❌ 不做 | 终端自带复制（鼠标选择 / Cmd+C），重复造轮子 |
-| `/plan` | ❌ 不做单独命令 | 做成 `planner` SKILL 更优雅，避免命令膨胀 |
-| `/resume` `/rename` `/branch`（会话持久化） | 🔲 重新设计 | **不学** Claude Code 的 SQLite 方案，沿用文件式（一致 episodic 那套），更轻 |
-
-#### C. 推迟（CLI 用户低频，资源转 Phase 7）
-
-- `/memory` `/export` `/debug`（CLI nice to have，不影响交付）
-- `/agents` `/mcp`（HTTP 模块对接，CLI 高频度低）
-
-#### D. 不做（打不过 / 不适用 / 商业化无关）
-
-- 跨端联动：`/desktop` `/mobile` `/chrome` `/teleport` `/remote-control`
-- 商业化：`/upgrade` `/passes` `/extra-usage` `/stickers`
-- 第三方集成：`/install-github-app` `/install-slack-app` `/web-setup`
-- 基础设施大工程：`/sandbox` `/heapdump` `/doctor`
-- 依赖未建系统：`/loop` `/rewind`（需 checkpoint 系统）
-- 多模态：`/voice`
-- 行为类（`/batch` `/simplify` `/security-review` `/debug` 等）→ **统一走 SKILL.md 路线**，不做硬编码 slash
-
-#### 已完成（Phase 5.5 累计）
+#### 已完成
 
 - [x] `/skills` 命令 + Skills 系统（Claude Code 风格 SKILL.md，3 个内置）
 - [x] Ctrl+C 中断单轮 react（保留会话）
 - [x] `--no-provider-check` 跳过 API key 强制配置向导
 - [x] `/compact` `/context` `/btw` 三命令
 - [x] Procedural memory 自动注入
+- [x] `/cost`（per-model token + USD 估算）
+- [x] `write_file` 覆盖时 unified diff 预览
+- [x] `/permissions`（allow/ask/deny + 路径/前缀白/黑名单）
 
-### Phase 7：Workflow 企业化（主轴 / 核心差异化）
+#### 待办
 
-> **战略意义**：差异化护城河的真正来源。从「平台架子」走到「企业可用」。这是别人不做、客户真要、你能做的赛道。
->
-> **判断**：CLI 路线（Phase 5.5）做完基线即克制。资源主投到这里。
-
-#### 核心能力清单（按优先级）
-
-| 任务 | 优先级 | 说明 | 验收 |
-|---|---|---|---|
-| **节点连接器** | **P0** | HTTP / 数据库（PG/MySQL/MongoDB）/ SMTP / **飞书** / 钉钉 / 企微 / 邮件 / Webhook / 文件系统 | 没连接器=玩具，必须先做；所有 IM 通道平等对待，不偏不倚 |
-| **人工审批节点** | **P0** | 工作流暂停 → 通知（钉钉/企微/邮件）→ 用户操作 → 继续 / 终止 | 企业 SOP 必有人工，无审批=不能上业务 |
-| **数据流串联**（KB ↔ Workflow ↔ Agent） | **P0** | 节点可读写 KB；Agent 可被 Workflow 调；Workflow 输出可入 KB | AI 流水线整体性的体现 |
-| **Workflow 模板库** | P1 | 模板 = YAML + 配套 KB + 配套 SKILL，行业模板优先（见 Phase 8） | 沉淀 5-10 个可复用模板 |
-| **可视化编辑器**（React Flow） | P1 | 业务人员能拖拽改流程，不用写 YAML | UI 层落地 |
-| **版本管理 + 灰度 + 回滚** | P2 | workflow_v1/v2，企业上线必须可回滚 | 表设计 + 路由策略 |
-| **节点级 SLA + 失败告警** | P2 | Prometheus 已有基础，扩到节点维度；告警接钉钉/企微 | 可观测性升级 |
-| **重试 / DLQ 策略** | P2 | 节点失败后的处理选项（重试 N 次、转人工、DLQ） | 企业容错要求 |
-
-#### DAG 引擎层 TODO（Phase 7 配套 / 引擎本体）
-
-> 这一组属于 DAG 引擎本身的能力补完，不是"企业级"层的事，但客户上 SOP 后大概率会撞上。按"撞上概率"排序：
-
-| 任务 | 优先级 | 说明 | 撞上场景 |
-|---|---|---|---|
-| 条件边（消费 `EdgeDefinition.condition`） | **P0** | 字段已留位，runtime 没消费；先支持 `{{nodes.x}} == "approved"` 这类基础表达式 | 任何审批型 SOP——通过/打回是分支，不是顺序 |
-| 同层节点并行执行 | P1 | 当前严格串行（`for node_id in order`），同入度=0 节点应可 `asyncio.gather` | 报告生成 SOP——多个数据源并行查询 |
-| `value` / `tool` / `llm` 之外加 `branch` / `loop` 节点 | P1 | 显式分支与有界循环，避免逼用户用条件边硬拼 | 分类路由 SOP—— for-each 客户工单批处理 |
-| 子工作流节点（`subflow` type） | P1 | 一个 workflow 调另一个 workflow 作为节点 | 模板复用——审批型 SOP 嵌进报告生成 SOP |
-| SSE / WebSocket 流式 trace | P1 | 当前要轮询 `GET /workflow-runs/{id}` 拿状态 | 可视化编辑器要实时高亮当前节点 |
-| Run 级 retries（不只节点级） | P2 | 整图重跑（幂等性由用户保证） | 失败重启场景 |
-| 节点输入 / 输出 schema 声明 + 校验 | P2 | 当前 config 是裸 dict，连接器一多 schema 漂移 | 可视化编辑器要据 schema 给字段提示 |
-| 调度器（cron / event trigger） | P2 | 当前只能手动 POST run | 巡检报告 / 周报 SOP——必须定时触发 |
-| 同 workflow 并发控制 | P2 | 当前一个 workflow 可同时多 run，无锁 | 单例工作流（如全局对账）必撞 |
-| Trace 持久化分离 | P3 | 现在 trace 写在 `node_states` 一个 JSONB，长 trace 会膨胀 | 大流量后查询性能问题 |
-
-#### 不做清单
-
-- 复杂 BPMN 标准（XML 那套）→ 用更轻的 DAG + 节点类型
-- 跨工作流复杂事务 / Saga → 第一阶段用最终一致性
-- 实时流（Kafka 接入）→ 不是当前客户的高频痛点
-- Jinja / 表达式引擎 → 模板渲染刻意保持「字符串替换」级别，复杂逻辑走 `tool` 节点
-
-### Phase 8：行业 SOP 模板库（横向扩张）
-
-> **战略意义**：把"通用平台"变成"行业方案"。**任何有标准化 SOP 的行业都是战场**——这是 OpenAgentic 的应有之义，不要早早自我设限到某一个行业。
->
-> **节奏**：与 Phase 7 并行。每完成一个 Phase 7 能力就立刻在某个模板上验证。**首批客户来源是节奏问题，不是定位问题**。
-
-#### 候选行业（按 SOP 密集度，不分先后）
-
-| 行业 | SOP 痛点示例 |
-|---|---|
-| **政府 / 公共数据** | 数据质量审查、报告撰写、合规出境审查、群众诉求工单分流 |
-| **金融** | 反洗钱审查、信贷材料初审、合规报告生成、客户工单分类 |
-| **制造** | 工单派发、QC 报告、供应商资质审查、设备故障初诊 |
-| **物流 / 供应链** | 异常单据处理、报关材料审查、客户咨询自动化 |
-| **医疗** | 初诊问诊辅助、医保审核、病历整理、文献查询 |
-| **零售 / 电商** | 商品描述生成、客户工单、退换货初审、库存异常分析 |
-| **能源 / 公用事业** | 工单调度、设备巡检报告、安全合规审查 |
-| **教育** | 作业批改、学情分析、家长沟通自动化、教研材料整理 |
-| **咨询 / 法律** | 合同初审、研究材料整理、报告草稿、法规变更追踪 |
-| **任何"有 SOP 情景"的行业** | 见上面任意类比 |
-
-#### 通用 SOP 模板原型（跨行业可复用）
-
-每个模板 = Workflow YAML + 配套 KB + 配套 SKILL。
-
-| 模板 | 通用结构 | 跨行业复用度 |
+| 任务 | 优先级 | 备注 |
 |---|---|---|
-| **审批型 SOP** | 数据查询 → LLM 初审 → 人工复核 → 入库/打回/通知 | ★★★★★（金融审单 / 政府审批 / 合同审查 / 医保审核都是它） |
-| **报告生成 SOP** | 数据查询 → 模板填充 → LLM 草稿 → 人工审批 → 推送 | ★★★★★（月报 / 周报 / 行业研究 / 项目汇报全适用） |
-| **分类路由 SOP** | LLM 分类 → 路由规则 → 通知接收人 → 跟踪反馈 | ★★★★★（工单 / 邮件 / 投诉 / 群众诉求） |
-| **质检 / 合规 SOP** | KB 查规则 → 数据比对 → LLM 报告 → 人工复核 | ★★★★（合规 / 质检 / 安全 / 数据合规） |
-| **流水线处理 SOP** | 触发 → 多步处理 → 入库 → 通知 | ★★★（数据预处理 / 文档转换 / 批量任务） |
+| `/diff`（包 `git diff` + rich 染色） | P1 | 半小时活 |
+| `/review`（喂 git diff + code-review skill） | P1 | 1 小时活 |
+| 3 个内置 SKILL：`security-review` / `simplify` / `batch` | P1 | 写 SKILL.md，下次启动自动播种 |
+| 全套烟测（所有新命令 + 3 SKILL 通过 LLM 触发验证） | P2 | 收尾 |
 
-**抽象原则**：先沉淀**通用结构**（5 个原型覆盖 80% SOP 场景），再为每个行业做配套 KB + SKILL 的微定制。一份引擎，N 行业落地。
+#### 不做
 
-#### 首批共建客户路径（节奏）
+- `/copy`（终端自带复制）
+- `/plan`（做成 `planner` SKILL 更优雅）
+- 跨端联动 `/desktop` `/mobile` `/chrome`、商业化 `/upgrade` `/passes`、第三方集成 `/install-github-app`、基础设施大工程 `/sandbox` `/heapdump`、依赖未建系统 `/loop` `/rewind`、多模态 `/voice`
+- 行为类（`/batch` `/simplify` `/security-review` `/debug` 等）→ 统一走 SKILL.md 路线，不做硬编码 slash
 
-- 优先选 SOP 痛点显著、合规私有化要求高、有真实触达渠道的行业切入
-- 协议形式：6 个月共创，第一份模板共建
-- 沉淀完毕后即横向打开金融 / 制造 / 物流 / 医疗 / 零售 / 教育 / 咨询等任意 SOP 密集行业
-- **不限定行业不等于不聚焦**——聚焦"通用 SOP 原型 + 私有化部署 + 中国可用"，而非聚焦某一个行业
-
-### Phase 6：前后端闭环 / 多端入口（暂缓）
-
-> **战略调整**：CLI 优先 + Workflow 优先。UI / 桌面 / 移动端推到客户共建之后，由真实需求驱动。**工作流可视化编辑器（React Flow）已转 Phase 7**，那里才是它该在的位置。
->
-> **多端铺开判断与边界**：见上方 [客户端入口策略](#客户端入口策略)。**做：CLI / Web / 桌面 Tauri / Android / iOS / 私有云 SaaS**（thin shell over HTTP API，按客户共建节奏开工）。**不做：小程序 / 公有云 SaaS**（与"不站大厂生态队 + 必须私有化 + 非 2C"定位冲突）。
+### Phase 6：前后端闭环（暂缓）
 
 #### 已完成
 - [x] `ui/` 8 页面框架（Sessions、Settings、Skills、Channels、Devices 等）
 - [x] CLI Skills 系统（文件式 Claude Code 风格，前端 SkillsPage 暂未对接）
 
-#### 暂缓（等客户共建后再做）
+#### 暂缓
 - [ ] Devices / Sessions / Channels 后端（当前为 stub）
 - [ ] 知识库上传 API 前后端对齐
 - [ ] 前端 SkillsPage 接入 CLI Skills（需把后端 skills 暴露 HTTP API）
 - [ ] Android 客户端功能实现（仅完成应用图标接入）
 
+### Phase 7：Workflow 扩展（计划中）
+
+#### 核心能力
+
+| 任务 | 优先级 | 说明 |
+|---|---|---|
+| 节点连接器 | P0 | HTTP / 数据库（PG/MySQL/MongoDB）/ SMTP / 飞书 / 钉钉 / 企微 / 邮件 / Webhook / 文件系统 |
+| 人工审批节点 | P0 | 工作流暂停 → 通知（钉钉/企微/邮件）→ 用户操作 → 继续 / 终止 |
+| 数据流串联（KB ↔ Workflow ↔ Agent） | P0 | 节点可读写 KB；Agent 可被 Workflow 调；Workflow 输出可入 KB |
+| Workflow 模板库 | P1 | 模板 = YAML + 配套 KB + 配套 SKILL |
+| 可视化编辑器（React Flow） | P1 | 拖拽改流程，不用写 YAML |
+| 版本管理 + 灰度 + 回滚 | P2 | workflow_v1/v2 + 路由策略 |
+| 节点级 SLA + 失败告警 | P2 | Prometheus 扩到节点维度；告警接钉钉/企微 |
+| 重试 / DLQ 策略 | P2 | 节点失败后的处理选项 |
+
+#### DAG 引擎层 TODO
+
+| 任务 | 优先级 | 说明 |
+|---|---|---|
+| 条件边（消费 `EdgeDefinition.condition`） | P0 | 字段已留位 runtime 没消费；先支持 `{{nodes.x}} == "approved"` 这类基础表达式 |
+| 同层节点并行执行 | P1 | 当前严格串行（`for node_id in order`），同入度=0 节点应可 `asyncio.gather` |
+| `value` / `tool` / `llm` 之外加 `branch` / `loop` 节点 | P1 | 显式分支与有界循环 |
+| 子工作流节点（`subflow` type） | P1 | 一个 workflow 调另一个 workflow 作为节点 |
+| SSE / WebSocket 流式 trace | P1 | 当前要轮询 `GET /workflow-runs/{id}` 拿状态 |
+| Run 级 retries（不只节点级） | P2 | 整图重跑（幂等性由用户保证） |
+| 节点输入 / 输出 schema 声明 + 校验 | P2 | 当前 config 是裸 dict |
+| 调度器（cron / event trigger） | P2 | 当前只能手动 POST run |
+| 同 workflow 并发控制 | P2 | 当前一个 workflow 可同时多 run，无锁 |
+| Trace 持久化分离 | P3 | 现在 trace 写在 `node_states` 一个 JSONB |
+
+#### 不做
+
+- 复杂 BPMN 标准（XML 那套）→ 用更轻的 DAG + 节点类型
+- 跨工作流复杂事务 / Saga → 第一阶段用最终一致性
+- 实时流（Kafka 接入）
+- Jinja / 表达式引擎 → 模板渲染保持「字符串替换」级别，复杂逻辑走 `tool` 节点
+
 ### 四层记忆 → DB 版（未来）
+
 - [ ] CoreMemory / Episode / Procedure 迁移到 PostgreSQL + pgvector
 - [ ] 语义检索（768-dim，IVFFlat cosine）
 - [ ] 时间衰减 + 重要性加权排序
