@@ -61,11 +61,27 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "lark_cli",
-            "description": "操作飞书：查日程、读文档、查多维表格、发消息等。"
-                           "常用操作：calendar +agenda(今日日程), calendar +create(创建日程), "
-                           "doc +read(读文档), base +records(查多维表格), "
-                           "im +chat-messages-list(查聊天记录)。"
-                           "将用户意图翻译为 lark-cli 命令参数即可。",
+            "description": "飞书全能工具，覆盖几乎所有飞书 API。"
+                           "将用户意图翻译为 lark-cli 命令参数即可。"
+                           "── 日程 ── calendar +agenda(今日日程) / +create(创建) / +update(修改) / +delete(删除) / events instance_view(查询时段内事件)"
+                           "── 文档 ── docs +create(创建文档) / +fetch(读内容) / +update(修改) / +search(搜索) / +media-insert(插入图片/文件) / +media-download(下载媒体)"
+                           "── 多维表格 ── base +record-list(查记录) / +record-search(搜索) / +record-batch-create(批量创建) / +record-batch-update(批量更新) / +record-delete(删除) / +record-upsert(创建或更新) / +table-create(建表) / +field-create(加字段) / +form-create(创建表单) / +workflow-create(创建工作流) / +dashboard-create(创建仪表盘)"
+                           "── 消息 ── im +messages-send(发消息) / +messages-reply(回复) / +chat-create(建群) / +chat-messages-list(查聊天记录) / +chat-search(搜索群) / +messages-search(搜索消息)"
+                           "── 审批 ── approval instances(审批实例管理) / tasks(审批任务管理)"
+                           "── 通讯录 ── contact +search-user(搜索用户)"
+                           "── 云盘 ── drive(文件上传/下载/权限管理)"
+                           "── 邮箱 ── mail(邮件读写/草稿/联系人)"
+                           "── 任务 ── task(任务/任务列表CRUD)"
+                           "── 知识库 ── wiki(空间/节点管理)"
+                           "── 表格 ── sheets(电子表格读写)"
+                           "── 幻灯片 ── slides(创建/修改/读内容)"
+                           "── 会议纪要 ── minutes(搜索/读内容)"
+                           "── 视频会议 ── vc +search(搜索会议) / +notes(查询笔记) / +recording(查询录制)——只读"
+                           "── 白板 ── whiteboard(创建/编辑)"
+                           "── 考勤 ── attendance(查询打卡记录)"
+                           "── OKR ── okr(目标/关键结果/对齐)"
+                           "── 通用 API ── lark-cli api GET/POST /open-apis/xxx(所有未封装API的兜底)"
+                           "⚠️ 不要假设不能做——先用 lark-cli 试试，几乎所有飞书 API 都能调。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -169,8 +185,7 @@ async def ai_reply(user_text: str, chat_id: str) -> str:
     engine = ConversationEngine(
         model=model, api_key=api_key, api_base=api_base, tools=TOOLS,
         system_prompt=build_system_prompt([
-            "当前通过飞书渠道接入，可直接执行命令、读写文件、操作飞书资源（日程/文档/多维表格等）。"
-            "格式限制：飞书卡片不支持 Markdown 表格——遇到表格数据用列表或缩进文本代替，不要用 |---|---| 语法。",
+            "当前通过飞书渠道接入。格式限制：飞书卡片不支持 Markdown 表格——遇到表格数据用列表或缩进文本代替，不要用 |---|---| 语法。",
         ]),
         executor=execute_tool,
         max_iterations=MAX_TOOL_ITERATIONS,

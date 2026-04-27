@@ -10,9 +10,9 @@
 
 ## 最近更新
 
+- **2026-04-28**：飞书渠道能力全开——`lark_cli` 工具覆盖 22 个 API 模块（日程/文档/多维表格/审批/消息/通讯录/云盘/邮箱/任务/知识库/电子表格/幻灯片/会议纪要/视频会议/白板/考勤/OKR 等），131 个权限 scope；Agent 身份准则含完整能力清单与隐私铁律；全项目隐私泄露排查通过
 - **237 passed, 2 skipped** 测试覆盖（新增 75 条）
 - 新增测试模块：`tests/db/`、`tests/observability/`、`tests/skills/`、`tests/tenant/`、`tests/config/`、`tests/deps/`、`tests/entry/`
-- 全量源文件中文行内注释补全
 
 ## 目录
 
@@ -31,6 +31,8 @@
 - [路线图](#路线图)
 - [开发与测试](#开发与测试)
 - [常见问题](#常见问题)
+- [隐私政策](#隐私政策)
+- [贡献指南](#贡献指南)
 
 ## 实现进度
 
@@ -660,8 +662,11 @@ src/openagentic/
 | 6 | Agent 身份准则 | `identity.py` — `build_system_prompt()` 统一入口 |
 | 7 | 飞书独立运行脚本 | `scripts/run_feishu_ws.py` — 不依赖 PostgreSQL |
 | 8 | 端到端验证 | 飞书消息 → 卡片思考 → AI 回复 → 原地替换 ✅ |
-| 9 | 工具集成 | `run_command` + `read_file` + `lark-cli`（日历/文档/表格） |
+| 9 | 工具集成 | `run_command` + `read_file` + `lark-cli`（22 模块：日程/文档/多维表格/审批/消息/通讯录/云盘/邮箱/任务/知识库/表格/幻灯片/会议纪要/视频会议/白板/考勤/OKR/通用 API 等） |
 | 10 | DeepSeek thinking 兼容 | `reasoning_content` 空 content 引擎兜底处理 |
+| 11 | 飞书权限全开 | 131 个权限 scope，企业自建应用最大权限集 |
+| 12 | Agent 身份准则 | `identity.py` — 完整能力清单 + 隐私铁律（禁止泄露搭建者信息） |
+| 13 | 全项目隐私排查 | 测试数据去个人化、源代码零硬编码密钥、`.env` gitignored |
 
 #### TODO
 
@@ -781,6 +786,38 @@ pip-audit
 5. **`ModuleNotFoundError: No module named 'openagentic'`**：未 `pip install -e .`，在仓库根目录执行后重试
 6. **`openagentic` 命令找不到**：同上，或直接用 `python -m openagentic.cli`
 7. **pip 提示 `Ignoring invalid distribution ~...`**：删除 `.venv/lib/site-packages` 中以 `~` 开头的损坏目录后重装
+
+## 隐私政策
+
+OpenAgentic 以隐私优先为设计原则。
+
+### 数据收集
+
+**OpenAgentic 不收集、不上传、不遥测任何用户数据。** 项目不含任何埋点、分析 SDK、崩溃报告或使用统计收集逻辑。
+
+### 数据存储
+
+- 所有数据（对话记录、Agent 配置、知识库、记忆）仅存储在用户自有的 PostgreSQL 数据库中
+- API 密钥、飞书 App Secret 等凭据仅存储在用户本地的 `.env` 文件和 `.openagentic/model_providers.json` 中，均被 `.gitignore` 排除
+- 四层记忆系统存储在 `~/.openagentic/memory/`（本地文件系统）
+
+### 飞书渠道
+
+- 飞书机器人通过 WebSocket 长连接直接对接飞书官方服务，不经过任何第三方服务器
+- 消息处理全程在用户自有服务器完成，消息内容不会被转发或存储到外部系统
+- Agent 身份准则内置隐私铁律：**绝对禁止在自我介绍或任何回复中透露搭建者姓名、个人信息、服务器配置、部署位置**
+
+### 责任边界
+
+- OpenAgentic 是自部署软件，用户对其部署环境中的数据安全和访问控制负全责
+- 建议定期轮换 API 密钥和飞书 App Secret
+- 若将实例开放给第三方使用，请自行建立用户隐私协议
+
+### 开源承诺
+
+本项目以 MIT 许可证开源，所有代码可审计。隐私政策的变更将在本文件中体现。
+
+---
 
 ## 贡献指南
 

@@ -101,10 +101,10 @@ class TestMemoryManager:
         assert "world" in content
 
     def test_chinese_content(self, mgr: MemoryManager):
-        mgr.save_core_memory("用户名", "蔡昊伦", "user_profile", 1.0)
-        results = mgr.search_core("蔡昊伦")
+        mgr.save_core_memory("用户名", "张三", "user_profile", 1.0)
+        results = mgr.search_core("张三")
         assert len(results) == 1
-        assert results[0].value == "蔡昊伦"
+        assert results[0].value == "张三"
 
 
 class TestTokenEstimation:
