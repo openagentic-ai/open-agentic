@@ -1,7 +1,7 @@
 """模块说明（中文）：`src/openagentic/knowledge/service.py`。\n\n该文件承载核心业务逻辑，供路由层复用。\n"""
 
 import uuid
-import logging
+import structlog
 from typing import Any
 
 from sqlalchemy import select
@@ -13,7 +13,7 @@ from openagentic.knowledge.embedder import embed_texts
 from openagentic.knowledge.search import ensure_vector_indexes, similarity_search
 from openagentic.knowledge.schemas import BatchDocumentUploadItem
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 async def create_knowledge_base(
@@ -141,7 +141,7 @@ async def add_document(
         # 任何处理异常都标记 failed，避免“处理中”状态悬挂。
         doc.status = "failed"
         await db.flush()
-        logger.exception("Failed to process document %s", doc.id)
+        logger.exception("Failed to process document", document_id=str(doc.id))
         raise
 
     return doc

@@ -362,9 +362,9 @@ async def execute_tool(
         decision, reason = _perm.decide(name, args)
     except Exception as exc:
         # Permissions must never break tool execution — log and treat as ask.
-        import logging as _logging
-        _logging.getLogger(__name__).warning(
-            "permissions.decide failed for %s: %s", name, exc, exc_info=True,
+        import structlog as _structlog
+        _structlog.get_logger(__name__).warning(
+            "permissions.decide failed", tool=name, error=str(exc), exc_info=True,
         )
         decision, reason = _perm.DECISION_ASK, ""
 

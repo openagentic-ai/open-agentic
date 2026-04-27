@@ -11,12 +11,12 @@ calls `reset()`.
 
 from __future__ import annotations
 
-import logging
+import structlog
 from dataclasses import dataclass, field
 from threading import Lock
 from typing import Any
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 @dataclass
@@ -57,7 +57,7 @@ def record(model: str, response: Any) -> None:
             cost = float(litellm.completion_cost(completion_response=response) or 0.0)
             cost_known = cost > 0
         except Exception as exc:
-            logger.debug("completion_cost failed for %s: %s", model, exc)
+            logger.debug("completion_cost failed", model=model, error=str(exc))
 
         with _lock:
             entry = _state.by_model.setdefault(model, _ModelTotals())
@@ -69,7 +69,7 @@ def record(model: str, response: Any) -> None:
             if cost_known:
                 entry.cost_known = True
     except Exception as exc:  # never break chat
-        logger.warning("cost_tracker.record failed: %s", exc, exc_info=True)
+        logger.warning("cost_tracker.record failed", error=str(exc), exc_info=True)
 
 
 def summary() -> dict[str, Any]:

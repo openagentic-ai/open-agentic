@@ -67,32 +67,46 @@ class SkillsManager:
     # -- discovery ---------------------------------------------------------
 
     def ensure_seeded(self) -> list[str]:
-        """首次启动复制内置 skill 到用户目录。
+        """启动时复制未种入的内置 skill 到用户目录。
 
         返回新种入的 slug 列表（用于打印日志）。
-        若 .seeded 标记已存在则不再复制；用户删除内置 skill 不会被自动恢复。
+        .seeded 文件记录已种入的 slug（每行一个），新内置 skill 会被增量追加；
+        用户手动删除内置 skill 不会被自动恢复（slug 仍在 .seeded 中）。
         """
         self.root.mkdir(parents=True, exist_ok=True)
         marker = self.root / _SEED_MARKER_NAME
-        seeded: list[str] = []
-        if marker.exists():
-            return seeded
         if not _BUILTIN_DIR.is_dir():
-            return seeded
+            return []
 
+        # 读取已种入列表（兼容旧版 "seeded\n" 格式）
+        already: set[str] = set()
+        if marker.exists():
+            raw = marker.read_text(encoding="utf-8").strip()
+            if raw == "seeded":
+                # 旧版标记：扫描已有目录推断
+                already = {d.name for d in self.root.iterdir() if d.is_dir()}
+            else:
+                already = {line.strip() for line in raw.split("\n") if line.strip()}
+
+        seeded: list[str] = []
         for src in sorted(_BUILTIN_DIR.iterdir()):
             if not src.is_dir():
                 continue
             slug = src.name
             if not is_valid_slug(slug):
                 continue
+            if slug in already:
+                continue
             dst = self.root / slug
             if dst.exists():
-                continue  # 用户已有同名，不覆盖
+                # 用户已有同名目录，标记为已种入但不覆盖
+                already.add(slug)
+                continue
             shutil.copytree(src, dst)
+            already.add(slug)
             seeded.append(slug)
 
-        marker.write_text("seeded\n", encoding="utf-8")
+        marker.write_text("\n".join(sorted(already)) + "\n", encoding="utf-8")
         return seeded
 
     def list_skills(self) -> list[Skill]:

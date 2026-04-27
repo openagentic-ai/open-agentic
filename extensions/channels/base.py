@@ -17,13 +17,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
+import structlog
 import subprocess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
-logger = logging.getLogger("openagentic.channels.base")
+logger = structlog.get_logger("openagentic.channels.base")
 
 
 @dataclass
@@ -124,7 +124,7 @@ class Channel(ABC):
         所有子类的 CLI 调用统一走这个方法，不直接操作 subprocess。
         """
         cmd = [self.cli_binary(), *args]
-        logger.debug("CLI invoke: %s", " ".join(cmd))
+        logger.debug("CLI invoke", cmd=" ".join(cmd))
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -166,7 +166,7 @@ class Channel(ABC):
             self._cli_checked = proc.returncode == 0
         except FileNotFoundError:
             self._cli_checked = False
-            logger.warning("%s not found, channel %s degraded", self.cli_binary(), self.config.platform)
+            logger.warning("CLI not found, channel degraded", cli=self.cli_binary(), platform=self.config.platform)
         return self._cli_checked
 
     def _try_parse_json(self, text: str) -> Any:

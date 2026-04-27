@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
+import structlog
 import sys
 import uuid
 from typing import Any
@@ -24,7 +24,7 @@ from openagentic.memory.manager import (
     compress_working_memory,
 )
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 _console = Console(file=_patchable_stdout)
 
 _SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
@@ -42,7 +42,7 @@ def _ensure_tool_call_id(tc: dict[str, Any], assistant_msg: dict[str, Any]) -> s
             and not entry.get("id")
         ):
             entry["id"] = new_id
-    logger.warning("tool_call missing id, generated fallback %s", new_id)
+    logger.warning("tool_call missing id, generated fallback", fallback_id=new_id)
     return new_id
 
 
@@ -119,7 +119,7 @@ async def react_loop(
                 ctx += f"{i}. {ep['title']}\n   {ep['summary'][:300]}\n\n"
             messages.insert(1, {"role": "system", "content": ctx})
     except Exception as exc:
-        logger.warning("episodic memory injection failed: %s", exc, exc_info=True)
+        logger.warning("episodic memory injection failed", error=str(exc), exc_info=True)
 
     # ── Procedural memory injection: search reusable procedures matching user_input ──
     try:
@@ -130,7 +130,7 @@ async def react_loop(
                 ctx += f"{i}. {p['name']}\n   {p['content'][:300]}\n\n"
             messages.insert(1, {"role": "system", "content": ctx})
     except Exception as exc:
-        logger.warning("procedural memory injection failed: %s", exc, exc_info=True)
+        logger.warning("procedural memory injection failed", error=str(exc), exc_info=True)
 
     # ── Working memory compression: compress if over token budget ──
     if working_memory_compressible(messages):
@@ -142,7 +142,7 @@ async def react_loop(
                 api_key=api_key,
             )
         except Exception as exc:
-            logger.warning("working memory compression failed: %s", exc, exc_info=True)
+            logger.warning("working memory compression failed", error=str(exc), exc_info=True)
 
     last_tool_name = ""
     last_result_preview = ""

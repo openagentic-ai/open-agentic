@@ -8,14 +8,17 @@ dispatches by name.
 from __future__ import annotations
 
 import asyncio
-import logging
+import structlog
 import shutil
+import subprocess
+import sys
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.application.current import get_app
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.formatted_text import HTML
 from rich.console import Console
+from rich.syntax import Syntax
 
 from openagentic.cli._patchable_stdout import _patchable_stdout
 from openagentic.cli.auth import platform_authenticate_sync
@@ -23,7 +26,7 @@ from openagentic.cli.model_router import route_model
 from openagentic.cli.providers import find_profile
 from openagentic.cli.react import react_loop
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 _console = Console(file=_patchable_stdout)
 
 # Sentinel pushed onto the input queue to tell the consumer to exit cleanly.
@@ -34,6 +37,7 @@ SLASH_COMMANDS = [
     "/provider-config", "/automodel", "/clear",
     "/skills",
     "/compact", "/context", "/btw", "/cost", "/permissions",
+    "/diff", "/review",
     "/login-platform", "/logout-platform", "/quit",
 ]
 
@@ -268,7 +272,7 @@ def _handle_clear(messages: list[dict], rebuild_system_message) -> None:
             if summary_lines:
                 mgr.save_episode(title, "\n".join(summary_lines[-10:]), ["conversation"])
         except Exception as exc:
-            logger.warning("auto-save episode on /clear failed: %s", exc, exc_info=True)
+            logger.warning("auto-save episode on /clear failed", error=str(exc), exc_info=True)
     messages.clear()
     messages.append({"role": "system", "content": ""})
     rebuild_system_message()
@@ -380,8 +384,8 @@ def _apply_automodel_defaults(provider: str, model: str) -> str:
         return cheap
     except Exception as exc:
         logger.warning(
-            "automodel auto-config persist failed (provider=%s): %s",
-            provider, exc, exc_info=True,
+            "automodel auto-config persist failed",
+            provider=provider, error=str(exc), exc_info=True,
         )
         return model
 
@@ -487,6 +491,104 @@ async def _run_react_turn(
     return model
 
 
+def _handle_diff(args: str) -> None:
+    """Wrap `git diff` with rich syntax highlighting.
+
+    Supports optional path and flags:
+        /diff                  → unstaged changes (working tree vs index)
+        /diff --staged         → staged changes (index vs HEAD)
+        /diff <path>           → filter to specific file/directory
+        /diff --staged <path>  → combine flags and path
+    """
+    cmd = ["git", "diff"]
+    # 用户可追加任意 git diff 参数（如 --staged / --cached / HEAD~1）
+    if args.strip():
+        cmd.extend(args.strip().split())
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=30,
+        )
+    except FileNotFoundError:
+        _console.print("  [red]git not found. Is git installed?[/red]")
+        return
+    except subprocess.TimeoutExpired:
+        _console.print("  [red]git diff timed out (30s).[/red]")
+        return
+
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        if stderr:
+            from rich.markup import escape
+            _console.print(f"  [red]git diff failed:[/red] {escape(stderr)}")
+        return
+
+    output = result.stdout
+    if not output.strip():
+        _console.print("  [dim]No changes (working tree clean).[/dim]")
+        return
+
+    _console.print()
+    # rich Syntax 自动给 diff 着色（+绿/-红/@@青）
+    syntax = Syntax(output, "diff", theme="monokai", line_numbers=False)
+    _console.print(syntax)
+    _console.print()
+
+
+async def _handle_review(
+    args: str,
+    queue: asyncio.Queue,
+) -> None:
+    """Gather `git diff` and inject a code-review request into the conversation.
+
+    The diff is formatted as a user message that triggers the code-review skill:
+        /review                  → review unstaged changes
+        /review --staged         → review staged changes
+        /review <path>           → review specific file/dir
+        /review --staged <path>  → combine flags and path
+    """
+    cmd = ["git", "diff"]
+    if args.strip():
+        cmd.extend(args.strip().split())
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=30,
+        )
+    except FileNotFoundError:
+        _console.print("  [red]git not found. Is git installed?[/red]")
+        return
+    except subprocess.TimeoutExpired:
+        _console.print("  [red]git diff timed out (30s).[/red]")
+        return
+
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        if stderr:
+            from rich.markup import escape
+            _console.print(f"  [red]git diff failed:[/red] {escape(stderr)}")
+        return
+
+    output = result.stdout
+    if not output.strip():
+        _console.print("  [dim]No changes to review (working tree clean).[/dim]")
+        return
+
+    # 截断超大 diff（>500 行），避免撑爆 context
+    lines = output.split("\n")
+    if len(lines) > 500:
+        truncated = "\n".join(lines[:500])
+        truncated += f"\n\n... (truncated {len(lines) - 500} lines, showing first 500)"
+        output = truncated
+
+    prompt = (
+        "Please review the following changes using the code-review skill:\n\n"
+        f"```diff\n{output}\n```"
+    )
+    await queue.put(prompt)
+    _console.print(
+        f"  [green]diff injected[/green] [dim]({len(lines)} lines, triggering code-review)[/dim]"
+    )
+
+
 # ---------------------------------------------------------------------------
 # UI primitives — completer, help text, prompt/toolbar renderers
 # ---------------------------------------------------------------------------
@@ -519,6 +621,9 @@ def print_help() -> None:
     )
     _console.print(
         "  /compact  /context  /btw <text>  /cost"
+    )
+    _console.print(
+        "  /diff [path]  /review [path]"
     )
     _console.print(
         "  /permissions [set|allow-path|deny-path|allow-prefix|deny-prefix|reset]"

@@ -6,9 +6,27 @@ from collections.abc import AsyncGenerator
 import litellm
 
 from openagentic.core.llm.provider_config import get_provider_store
+from openagentic.tenant import get_current_request_id, get_current_tenant_id
 
 # Configure LiteLLM
 litellm.drop_params = True
+
+
+def _litellm_kwargs(model: str | None = None) -> dict:
+    """Build common litellm kwargs with provider resolution + request tracing."""
+    model, api_base, api_key = get_provider_store().resolve_runtime(model)
+    kwargs: dict = {"model": model, "api_base": api_base, "api_key": api_key}
+    # 跨服务 correlation：注入 request_id/tenant_id 到 LiteLLM 调用
+    extra_headers = {}
+    request_id = get_current_request_id()
+    if request_id:
+        extra_headers["x-request-id"] = request_id
+    tenant_id = get_current_tenant_id()
+    if tenant_id:
+        extra_headers["x-tenant-id"] = str(tenant_id)
+    if extra_headers:
+        kwargs["extra_headers"] = extra_headers
+    return kwargs
 
 
 async def chat_completion(
@@ -18,14 +36,12 @@ async def chat_completion(
     max_tokens: int | None = None,
 ) -> dict:
     """Non-streaming chat completion."""
-    model, api_base, api_key = get_provider_store().resolve_runtime(model)
+    kwargs = _litellm_kwargs(model)
     response = await litellm.acompletion(
-        model=model,
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,
-        api_base=api_base,
-        api_key=api_key,
+        **kwargs,
     )
     choice = response.choices[0]
     usage = response.usage
@@ -52,15 +68,13 @@ async def chat_completion_stream(
     max_tokens: int | None = None,
 ) -> AsyncGenerator[str, None]:
     """Streaming chat completion, yields SSE-formatted events."""
-    model, api_base, api_key = get_provider_store().resolve_runtime(model)
+    kwargs = _litellm_kwargs(model)
     response = await litellm.acompletion(
-        model=model,
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,
         stream=True,
-        api_base=api_base,
-        api_key=api_key,
+        **kwargs,
     )
 
     full_content = ""

@@ -7,12 +7,12 @@ LLM 调用抽象——从 cli/llm.py 提取，供 CLI / 渠道 / HTTP API 共享
 from __future__ import annotations
 
 import json
-import logging
+import structlog
 from typing import Any
 
 import litellm
 
-logger = logging.getLogger("openagentic.agent.llm")
+logger = structlog.get_logger("openagentic.agent.llm")
 
 
 def is_deepseek_reasoning_model(model: str) -> bool:

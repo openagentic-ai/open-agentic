@@ -20,8 +20,8 @@ Webhook 处理流程：
 from __future__ import annotations
 
 import hashlib
-import logging
 import os
+import structlog
 import struct
 import time
 import xml.etree.ElementTree as ET
@@ -30,7 +30,7 @@ from typing import Any
 
 from extensions.channels.base import Channel, ChannelConfig, IncomingMessage
 
-logger = logging.getLogger("openagentic.channels.wecom")
+logger = structlog.get_logger("openagentic.channels.wecom")
 
 
 def _env(name: str, default: str = "") -> str:
@@ -143,7 +143,7 @@ class WeComChannel(Channel):
         )
 
         if returncode != 0:
-            logger.error("wecom-cli send failed (rc=%d): %s", returncode, stderr or stdout)
+            logger.error("wecom-cli send failed", rc=returncode, error=stderr or stdout)
             return False
         return True
 

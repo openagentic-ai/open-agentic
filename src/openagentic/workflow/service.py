@@ -21,6 +21,11 @@ VAR_PATTERN = re.compile(r"\{\{\s*([^}]+)\s*\}\}")
 TRACE_KEY = "trace"
 CANCEL_KEY = "_cancel_requested"
 
+# 条件边表达式解析：{{nodes.x}} == "value" / {{nodes.x}} != "value" / {{nodes.x}}
+_COND_EQ_RE = re.compile(r"^\{\{\s*([^}]+)\s*\}\}\s*==\s*[\"']([^\"']*)[\"']$")
+_COND_NE_RE = re.compile(r"^\{\{\s*([^}]+)\s*\}\}\s*!=\s*[\"']([^\"']*)[\"']$")
+_COND_TRUTHY_RE = re.compile(r"^\{\{\s*([^}]+)\s*\}\}$")
+
 
 async def list_workflows(db: AsyncSession, user_id: uuid.UUID) -> list[Workflow]:
     result = await db.execute(
@@ -263,6 +268,18 @@ async def _execute_definition(
             break
 
         node = nodes[node_id]
+
+        # 条件边检查：入边条件全部为 False 时跳过此节点
+        should_skip, skip_reason = _should_skip_node(node_id, definition, outputs)
+        if should_skip:
+            trace.append({
+                "node_id": node_id,
+                "node_type": node["type"],
+                "status": "skipped",
+                "reason": skip_reason,
+            })
+            continue
+
         rendered = _render_value(
             node.get("config", {}),
             {"input": input_payload, "nodes": outputs},
@@ -383,4 +400,76 @@ def _resolve_expr(context: dict[str, Any], expr: str) -> Any:
         else:
             return None
     return cur
+
+
+def _evaluate_condition(condition: str, context: dict[str, Any]) -> bool:
+    """评估条件边表达式，支持三种形式：
+
+    - ``{{nodes.x}} == "value"``  → 字符串相等
+    - ``{{nodes.x}} != "value"``  → 字符串不等
+    - ``{{nodes.x}}``             → 真值检查（非 None / 非空字符串）
+
+    注意：先做模式匹配再求值，避免模板渲染把表达式变成字面字符串。
+    """
+    cond = condition.strip()
+
+    # 1. 精确匹配：== "value"（先匹配模式，再从 context 取实际值比较）
+    m = _COND_EQ_RE.match(cond)
+    if m:
+        val = _resolve_expr(context, m.group(1))
+        return str(val) == m.group(2) if val is not None else False
+
+    # 2. 精确匹配：!= "value"
+    m = _COND_NE_RE.match(cond)
+    if m:
+        val = _resolve_expr(context, m.group(1))
+        return str(val) != m.group(2) if val is not None else True
+
+    # 3. 真值表达式：{{nodes.x}}
+    m = _COND_TRUTHY_RE.match(cond)
+    if m:
+        val = _resolve_expr(context, m.group(1))
+        return val is not None and val != "" and val != "None" and val != "False"
+
+    # 4. 兜底：模板渲染后做真值判断（支持含字面量的混合表达式）
+    rendered = _render_template(cond, context)
+    if rendered != cond:
+        return bool(rendered) and rendered not in ("None", "False", "")
+    return False
+
+
+def _should_skip_node(
+    node_id: str,
+    definition: dict[str, Any],
+    outputs: dict[str, Any],
+) -> tuple[bool, str]:
+    """判断节点是否应被跳过（条件边未满足）。
+
+    返回 (should_skip, reason)。
+    - 若所有入边都有 condition 且全部为 False → 跳过
+    - 若至少有一条入边无条件或条件为 True → 执行
+    """
+    edges = definition.get("edges", [])
+    incoming = [e for e in edges if e.get("to") == node_id]
+    if not incoming:
+        return False, ""  # 入度为 0 的节点（如 input）始终执行
+
+    context = {"nodes": outputs}
+    has_unconditional = False
+    any_true = False
+    reasons: list[str] = []
+    for edge in incoming:
+        cond = edge.get("condition")
+        if not cond:
+            has_unconditional = True
+            break
+        if _evaluate_condition(cond, context):
+            any_true = True
+            break
+        else:
+            reasons.append(f"{edge['from']}→{node_id}: {cond}=False")
+
+    if has_unconditional or any_true:
+        return False, ""
+    return True, "; ".join(reasons)
 

@@ -16,12 +16,12 @@ CLI / 飞书 / 企微 / HTTP API 全部走这一条链路，不做平台适配�
 from __future__ import annotations
 
 import json
-import logging
+import structlog
 from typing import Any, Callable, Awaitable
 
 from openagentic.agent.llm import litellm_chat
 
-logger = logging.getLogger("openagentic.agent.engine")
+logger = structlog.get_logger("openagentic.agent.engine")
 
 # 工具执行器签名：async (tool_name: str, arguments: dict) -> str
 ToolExecutor = Callable[[str, dict], Awaitable[str]]
@@ -107,7 +107,7 @@ class ConversationEngine:
                 return content
             return ""
 
-        logger.warning("ConversationEngine max iterations reached (%d)", self.max_iterations)
+        logger.warning("ConversationEngine max iterations reached", max_iterations=self.max_iterations)
         return "工具调用次数过多，已中止。请简化你的请求。"
 
     async def _execute_tool(self, tc: dict, messages: list[dict]) -> str:
@@ -123,7 +123,7 @@ class ConversationEngine:
             allowed = await self.guard(func_name, func_args)
             if allowed is not True:
                 reason = allowed if isinstance(allowed, str) else "工具调用被拒绝"
-                logger.warning("Tool guard blocked %s: %s", func_name, reason)
+                logger.warning("Tool guard blocked", tool=func_name, reason=reason)
                 return reason
 
         # 执行
@@ -131,7 +131,7 @@ class ConversationEngine:
             try:
                 return await self.executor(func_name, func_args)
             except Exception as e:
-                logger.exception("Tool executor failed for %s", func_name)
+                logger.exception("Tool executor failed", tool=func_name)
                 return f"工具执行错误：{e}"
 
         return f"工具 {func_name} 未配置执行器"

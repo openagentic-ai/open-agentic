@@ -46,3 +46,98 @@ async def test_execute_node_tool_and_value():
     )
     assert tool_output == "ping"
 
+
+# ---------------------------------------------------------------------------
+# 条件边 (condition edge) — Phase 7 P0
+# ---------------------------------------------------------------------------
+
+
+def test_evaluate_condition_equals():
+    ctx = {"nodes": {"approval": "approved"}}
+    assert service._evaluate_condition(  # noqa: SLF001
+        '{{nodes.approval}} == "approved"', ctx
+    ) is True
+    assert service._evaluate_condition(  # noqa: SLF001
+        '{{nodes.approval}} == "rejected"', ctx
+    ) is False
+
+
+def test_evaluate_condition_not_equals():
+    ctx = {"nodes": {"status": "pending"}}
+    assert service._evaluate_condition(  # noqa: SLF001
+        '{{nodes.status}} != "done"', ctx
+    ) is True
+    assert service._evaluate_condition(  # noqa: SLF001
+        '{{nodes.status}} != "pending"', ctx
+    ) is False
+
+
+def test_evaluate_condition_truthy():
+    ctx = {"nodes": {"result": "ok"}}
+    assert service._evaluate_condition("{{nodes.result}}", ctx) is True  # noqa: SLF001
+    # 空字符串为 falsy
+    ctx2 = {"nodes": {"result": ""}}
+    assert service._evaluate_condition("{{nodes.result}}", ctx2) is False  # noqa: SLF001
+
+
+def test_evaluate_condition_nonexistent():
+    ctx = {"nodes": {}}
+    assert service._evaluate_condition(  # noqa: SLF001
+        "{{nodes.missing}}", ctx
+    ) is False
+
+
+def test_should_skip_node_unconditional_edge():
+    """无条件边的节点始终执行。"""
+    definition = {
+        "nodes": [{"id": "input", "type": "value"}, {"id": "step2", "type": "tool"}],
+        "edges": [{"from": "input", "to": "step2"}],
+    }
+    skip, reason = service._should_skip_node("step2", definition, {})  # noqa: SLF001
+    assert skip is False
+    assert reason == ""
+
+
+def test_should_skip_node_when_condition_false():
+    """所有入边条件为 False 时跳过。"""
+    definition = {
+        "nodes": [{"id": "check", "type": "llm"}, {"id": "action", "type": "tool"}],
+        "edges": [{"from": "check", "to": "action", "condition": '{{nodes.check}} == "yes"'}],
+    }
+    skip, reason = service._should_skip_node(  # noqa: SLF001
+        "action", definition, {"check": "no"}
+    )
+    assert skip is True
+    assert "check→action" in reason
+
+
+def test_should_skip_node_when_condition_true():
+    """条件为 True 时不跳过。"""
+    definition = {
+        "nodes": [{"id": "check", "type": "llm"}, {"id": "action", "type": "tool"}],
+        "edges": [{"from": "check", "to": "action", "condition": '{{nodes.check}} == "yes"'}],
+    }
+    skip, _ = service._should_skip_node(  # noqa: SLF001
+        "action", definition, {"check": "yes"}
+    )
+    assert skip is False
+
+
+def test_should_skip_node_mixed_edges():
+    """有至少一条无条件入边时，即使条件边为 False 也执行。"""
+    definition = {
+        "nodes": [
+            {"id": "check", "type": "llm"},
+            {"id": "fallback", "type": "value"},
+            {"id": "action", "type": "tool"},
+        ],
+        "edges": [
+            {"from": "check", "to": "action", "condition": '{{nodes.check}} == "yes"'},
+            {"from": "fallback", "to": "action"},  # 无条件边
+        ],
+    }
+    skip, _ = service._should_skip_node(  # noqa: SLF001
+        "action", definition, {"check": "no"}
+    )
+    assert skip is False  # fallback 无条件边保证执行
+

@@ -8,7 +8,7 @@ primitives live in :mod:`openagentic.cli.slash_commands`.
 from __future__ import annotations
 
 import asyncio
-import logging
+import structlog
 import sys
 
 from prompt_toolkit import PromptSession
@@ -43,8 +43,10 @@ from openagentic.cli.slash_commands import (
     _handle_compact,
     _handle_context,
     _handle_cost,
+    _handle_diff,
     _handle_login_platform,
     _handle_permissions,
+    _handle_review,
     _handle_skills_cmd,
     _make_prompt_msg,
     _make_toolbar,
@@ -52,7 +54,7 @@ from openagentic.cli.slash_commands import (
     print_help,
 )
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 _console = Console(file=_patchable_stdout)
 
 
@@ -119,7 +121,7 @@ async def main_loop(
                 f"  [dim]seeded {len(seeded)} builtin skill(s): {', '.join(seeded)}[/dim]"
             )
     except Exception as exc:  # 播种失败不该阻断 CLI 启动
-        logger.warning("skills seeding failed: %s", exc, exc_info=True)
+        logger.warning("skills seeding failed", error=str(exc), exc_info=True)
 
     def rebuild_system_message() -> None:
         base = compose_cli_system_message(
@@ -377,6 +379,14 @@ async def main_loop(
                     _console.print("  [red]Usage: /btw <text>[/red]")
                     continue
                 _handle_btw(messages, note)
+                continue
+
+            if user_input == "/diff" or user_input.startswith("/diff "):
+                _handle_diff(user_input[len("/diff"):])
+                continue
+
+            if user_input == "/review" or user_input.startswith("/review "):
+                await _handle_review(user_input[len("/review"):], queue)
                 continue
 
             if user_input == "/config":

@@ -11,14 +11,14 @@ Channel 注册中心：按环境变量发现已配置的渠道，生成 FastAPI 
 
 from __future__ import annotations
 
-import logging
+import structlog
 
 from fastapi import FastAPI
 
 from extensions.channels.base import Channel, ChannelConfig, IncomingMessage
 from extensions.channels.router import build_channel_router
 
-logger = logging.getLogger("openagentic.channels")
+logger = structlog.get_logger("openagentic.channels")
 
 # 全局渠道注册表：{platform: Channel}
 _registry: dict[str, Channel] = {}
@@ -101,7 +101,7 @@ async def start_channels() -> None:
         try:
             await channel.start(agent_cb=_agent_callback)
         except Exception:
-            logger.exception("Failed to start channel: %s", platform)
+            logger.exception("Failed to start channel", platform=platform)
 
 
 async def stop_channels() -> None:
@@ -114,7 +114,7 @@ async def stop_channels() -> None:
         try:
             await channel.stop()
         except Exception:
-            logger.exception("Failed to stop channel: %s", platform)
+            logger.exception("Failed to stop channel", platform=platform)
 
 
 __all__ = [

@@ -10,9 +10,9 @@
 
 ## 最近更新
 
-- **2026-04-28**：飞书渠道能力全开——`lark_cli` 工具覆盖 22 个 API 模块（日程/文档/多维表格/审批/消息/通讯录/云盘/邮箱/任务/知识库/电子表格/幻灯片/会议纪要/视频会议/白板/考勤/OKR 等），131 个权限 scope；Agent 身份准则含完整能力清单与隐私铁律；全项目隐私泄露排查通过
-- **237 passed, 2 skipped** 测试覆盖（新增 75 条）
-- 新增测试模块：`tests/db/`、`tests/observability/`、`tests/skills/`、`tests/tenant/`、`tests/config/`、`tests/deps/`、`tests/entry/`
+- **2026-04-28**：Phase 5.5 P1 全部落地（`/diff` `/review` 3 SKILL）；Workflow 条件边 runtime 实现；`ChannelAIService` 提取共享底座 + 企微独立运行脚本；全项目统一 structlog + 日志落盘 `log/`；飞书表格策略：模型直接调 `lark_cli` 创建多维表格；`run_feishu_ws.py` 瘦身
+- **255 passed, 2 skipped** 测试覆盖
+- 新增测试模块：`tests/db/`、`tests/observability/`、`tests/skills/`、`tests/tenant/`、`tests/config/`、`tests/deps/`、`tests/entry/`、`tests/smoke/test_phase55_p1.py`
 
 ## 目录
 
@@ -45,7 +45,7 @@
 | **4 Knowledge/RAG** | ✅ | KB CRUD、文档分块+向量检索+重排、`knowledge_search` 工具 |
 | **4.5 四层记忆** | ✅ 文件版 | Working/Core/Episodic/Procedural，`~/.openagentic/memory/` |
 | **5 多租户+可观测** | ✅ 单租户级 | 行级 user_id 隔离 ✓；tenant/request_id contextvar ✓；Prometheus `/metrics` ✓；structlog 注入 request_id+tenant_id ✓ |
-| **5.5 CLI 增强** | 🟡 推进中 | 已落地：`/compact` `/context` `/btw` + procedural 自动注入 + `/cost` / `write_file` diff / `/permissions` |
+| **5.5 CLI 增强** | ✅ | `/compact` `/context` `/btw` `/cost` `/permissions` `/diff` `/review` + procedural 自动注入 + `write_file` diff + 6 个内置 SKILL |
 | **6 前后端闭环** | ⏸ 暂缓 | UI 8 页面完成；Devices/Sessions/Channels 后端 stub；Android 仅图标接入 |
 | **7 Workflow 扩展** | 🔲 计划中 | 节点连接器 / 人工审批 / 模板库 / 可视化编辑器 / 版本+回滚 / 节点级 SLA |
 
@@ -60,8 +60,8 @@
 
 - **20 个 LLM provider**：OpenAI / Anthropic / DeepSeek / XAI / Gemini / Mistral / Cohere / Groq / OpenRouter / Moonshot / Zhipu / MiniMax / Volcengine / Baidu / Tencent / Nvidia / Together / Fireworks / Qwen / Ollama
 - **12 个工具**：`run_command` `read_file` `write_file` `delete_file` `done` + 7 个 memory 工具
-- **17 个 slash 命令**：`/model` `/providers` `/automodel` `/clear` `/login-platform` `/skills` `/compact` `/context` `/btw` `/cost` `/permissions` 等
-- **Skills 系统**（Claude Code 风格）：`~/.openagentic/skills/<slug>/SKILL.md`，frontmatter+markdown，启动时 metadata 注入 system prompt（每条 ~50 token），全文按需 `read_file` 加载。内置 3 个：`git-commit` / `code-review` / `debug-trace`。`/skills` 列表，`/skills <name>` 看详情，`/skills new <name>` 建模板，`/skills reload` 热加载
+- **19 个 slash 命令**：`/model` `/providers` `/automodel` `/clear` `/login-platform` `/skills` `/compact` `/context` `/btw` `/cost` `/permissions` `/diff` `/review` 等
+- **Skills 系统**（Claude Code 风格）：`~/.openagentic/skills/<slug>/SKILL.md`，frontmatter+markdown，启动时 metadata 注入 system prompt（每条 ~50 token），全文按需 `read_file` 加载。内置 6 个：`git-commit` / `code-review` / `debug-trace` / `security-review` / `simplify` / `batch`。`/skills` 列表，`/skills <name>` 看详情，`/skills new <name>` 建模板，`/skills reload` 热加载
 - **写/删文件确认门**：异步确认，REFUSED 由模型重规划；**root 命令**（`sudo` / `doas` / `pkexec` / `su`）即使 policy=allow 也强制 Y/N 确认
 - **`/permissions` 策略**：4 个 gated tool（read/run/write/delete）按 `allow / ask / deny` 三档管控，支持文件路径白/黑名单与 `run_command` 前缀白/黑名单，存于 `~/.openagentic/permissions.json`
 - **`/cost` 会话成本**：per-model token + USD 估算（litellm.completion_cost），`/clear` 自动重置
@@ -583,7 +583,7 @@ users ─┬─ api_keys              # JWT 认证
 - [x] Prometheus `/metrics`（method/path_template/status 三维标签，`/health` `/metrics` 自身排除）
 - [x] structlog 自动注入 `request_id` 与 `tenant_id`，`X-Request-ID` 中间件透传/生成
 - [ ] 组织(Org)级隔离（需新表 `organizations`、`user_organizations`，全路由 scope 改造）
-- [ ] 跨服务 correlation（LiteLLM 调用、DB query 注入 request_id；目前仅 HTTP 入站层）
+- [x] 跨服务 correlation（LiteLLM 注入 `x-request-id` / `x-tenant-id`；DB 通过 structlog 关联）
 
 ### Phase 5.5：CLI 增强
 
@@ -601,11 +601,11 @@ users ─┬─ api_keys              # JWT 认证
 #### 待办
 
 | 任务 | 优先级 | 备注 |
-|---|---|---|
-| `/diff`（包 `git diff` + rich 染色） | P1 | 半小时活 |
-| `/review`（喂 git diff + code-review skill） | P1 | 1 小时活 |
-| 3 个内置 SKILL：`security-review` / `simplify` / `batch` | P1 | 写 SKILL.md，下次启动自动播种 |
-| 全套烟测（所有新命令 + 3 SKILL 通过 LLM 触发验证） | P2 | 收尾 |
+|---|---|---|---|
+| ~~`/diff`（包 `git diff` + rich 染色）~~ | ~~P1~~ | ✅ 已落地 |
+| ~~`/review`（喂 git diff + code-review skill）~~ | ~~P1~~ | ✅ 已落地 |
+| ~~3 个内置 SKILL：`security-review` / `simplify` / `batch`~~ | ~~P1~~ | ✅ 已落地（内置 skill 增至 6 个） |
+| 全套烟测（所有新命令 + 3 SKILL 通过 LLM 触发验证） | P2 | 单元测试已补齐，LLM 端到端待后续 |
 
 #### 不做
 
@@ -673,8 +673,8 @@ src/openagentic/
 | # | 任务 | 优先级 | 备注 |
 |---|------|--------|------|
 | 1 | 企业微信端到端验证 | P1 | 需企微开发者账号 |
-| 2 | 企微独立运行脚本 | P2 | 参照 `run_feishu_ws.py` |
-| 3 | Markdown 表格自动转卡片 component | P2 | `lark_md` 不支持表格，需转 `column_set` |
+| 2 | ~~企微独立运行脚本~~ | ~~P2~~ | ✅ 已落地（`scripts/run_wecom_ws.py`，复用 `ChannelAIService`） |
+| 3 | ~~Markdown 表格自动转卡片 component~~ | ~~P2~~ | ✅ 已落地（`feishu_card_utils.py`，含卡片 JSON 构建抽象） |
 | 4 | 飞书流式卡片（打字机效果） | P3 | 参考 `hermes-feishu-streaming-card` |
 | 5 | 钉钉渠道集成 | P3 | 待钉钉 CLI 成熟 |
 
@@ -714,7 +714,7 @@ src/openagentic/
 
 | 任务 | 优先级 | 说明 |
 |---|---|---|
-| 条件边（消费 `EdgeDefinition.condition`） | P0 | 字段已留位 runtime 没消费；先支持 `{{nodes.x}} == "approved"` 这类基础表达式 |
+| ~~条件边（消费 `EdgeDefinition.condition`）~~ | ~~P0~~ | ✅ 已落地——支持 `==` / `!=` / 真值判断，跳过 trace 记录 |
 | 同层节点并行执行 | P1 | 当前严格串行（`for node_id in order`），同入度=0 节点应可 `asyncio.gather` |
 | `value` / `tool` / `llm` 之外加 `branch` / `loop` 节点 | P1 | 显式分支与有界循环 |
 | 子工作流节点（`subflow` type） | P1 | 一个 workflow 调另一个 workflow 作为节点 |
@@ -742,7 +742,7 @@ src/openagentic/
 ## 开发与测试
 
 ```bash
-# 全量测试（237 passed, 2 skipped）
+# 全量测试（255 passed, 2 skipped）
 pytest -q
 
 # CLI 与交互边界

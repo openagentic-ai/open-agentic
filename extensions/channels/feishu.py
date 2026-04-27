@@ -23,15 +23,17 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import logging
 import os
 import threading
 import time
 from typing import Any, Callable, Awaitable
 
-from extensions.channels.base import Channel, ChannelConfig, IncomingMessage
+import structlog
 
-logger = logging.getLogger("openagentic.channels.feishu")
+from extensions.channels.base import Channel, ChannelConfig, IncomingMessage
+from extensions.channels.feishu_card_utils import build_thinking_card, build_answer_card
+
+logger = structlog.get_logger("openagentic.channels.feishu")
 
 # agent 回调签名
 AgentCallback = Callable[[IncomingMessage], Awaitable[str]]
@@ -203,20 +205,7 @@ class FeishuChannel(Channel):
                 .app_id(self.config.app_id) \
                 .app_secret(self.config.app_secret) \
                 .build()
-            card = {
-                "config": {"update_multi": True},
-                "header": {
-                    "title": {"tag": "plain_text", "content": "OpenAgentic"},
-                    "template": "wathet",
-                },
-                "elements": [
-                    {"tag": "div", "text": {"tag": "lark_md", "content": "思考中..."}},
-                    {"tag": "hr"},
-                    {"tag": "note", "elements": [
-                        {"tag": "plain_text", "content": "企业级 AI Agent 平台"}
-                    ]},
-                ],
-            }
+            card = build_thinking_card()
             req = CreateMessageRequest.builder() \
                 .receive_id_type("chat_id") \
                 .request_body(CreateMessageRequestBody.builder()
@@ -251,20 +240,7 @@ class FeishuChannel(Channel):
                 .app_id(self.config.app_id) \
                 .app_secret(self.config.app_secret) \
                 .build()
-            card = {
-                "config": {"update_multi": True},
-                "header": {
-                    "title": {"tag": "plain_text", "content": "OpenAgentic"},
-                    "template": "wathet",
-                },
-                "elements": [
-                    {"tag": "div", "text": {"tag": "lark_md", "content": markdown}},
-                    {"tag": "hr"},
-                    {"tag": "note", "elements": [
-                        {"tag": "plain_text", "content": "企业级 AI Agent 平台 · 可私有化部署"}
-                    ]},
-                ],
-            }
+            card = build_answer_card(markdown)
             req = PatchMessageRequest.builder() \
                 .message_id(message_id) \
                 .request_body(PatchMessageRequestBody.builder()
@@ -281,11 +257,13 @@ class FeishuChannel(Channel):
             return False
 
     async def send_message(self, chat_id: str, text: str) -> bool:
-        """发送文本消息到指定会话——优先走 SDK 直发，备选 lark-cli。"""
+        """发送文本消息到指定会话——优先走 SDK 直发，备选 lark-cli。
+
+        发送前自动将 Markdown/ASCII 表格替换为纯文本列表格式。
+        """
         if not chat_id:
             logger.error("Feishu send_message: empty chat_id")
             return False
-        # 优先走 SDK（快），失败再走 CLI（慢但可靠）
         if await self._send_via_sdk(chat_id, text):
             return True
         return await self._send_via_cli(chat_id, text)

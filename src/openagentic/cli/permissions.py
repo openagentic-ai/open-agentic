@@ -18,13 +18,13 @@ Decision pipeline for each tool call:
 from __future__ import annotations
 
 import json
-import logging
+import structlog
 import os
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # The four tools we gate. Memory tools / "done" don't touch the user's machine
 # and stay outside the policy surface.
@@ -105,7 +105,7 @@ def load() -> PermissionsConfig:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         logger.warning(
-            "permissions config unreadable (%s): %s — using defaults", path, exc,
+            "permissions config unreadable — using defaults", path=str(path), error=str(exc),
         )
         return _build_default()
 

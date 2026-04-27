@@ -22,7 +22,7 @@
 
 from __future__ import annotations
 
-import logging
+import structlog
 from typing import Any, Callable, Awaitable
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -30,7 +30,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 
 from extensions.channels.base import Channel, IncomingMessage
 
-logger = logging.getLogger("openagentic.channels.router")
+logger = structlog.get_logger("openagentic.channels.router")
 
 # agent 回调签名：async (IncomingMessage) -> str
 # 由 main.py 注入，在其内部管理 DB session
@@ -88,7 +88,7 @@ def _make_webhook_handler(channel: Channel, agent_cb: AgentCallback | None):
         # -- 标准 JSON 消息体验签 -----------------------------------------
         if "xml" not in content_type and not (body and body.startswith(b"<xml>")):
             if not await channel.verify_webhook(body, headers):
-                logger.warning("Webhook signature verification failed for %s", platform)
+                logger.warning("Webhook signature verification failed", platform=platform)
                 raise HTTPException(status_code=403, detail="Signature verification failed")
 
         # -- 解析消息 -----------------------------------------------------
@@ -96,12 +96,15 @@ def _make_webhook_handler(channel: Channel, agent_cb: AgentCallback | None):
 
         # 跳过 URL 验证占位消息
         if incoming.text == "__url_verification__":
-            logger.info("URL verification placeholder for %s, skipping agent", platform)
+            logger.info("URL verification placeholder, skipping agent", platform=platform)
             return {"status": "ok", "note": "url_verification_handled"}
 
         logger.info(
-            "Channel message: platform=%s sender=%s chat=%s text=%.200s",
-            incoming.platform, incoming.sender_id, incoming.chat_id, incoming.text,
+            "Channel message",
+            platform=incoming.platform,
+            sender=incoming.sender_id,
+            chat=incoming.chat_id,
+            text=incoming.text[:200],
         )
 
         # -- 路由到 agent ------------------------------------------------
@@ -110,7 +113,7 @@ def _make_webhook_handler(channel: Channel, agent_cb: AgentCallback | None):
             try:
                 reply_text = await agent_cb(incoming)
             except Exception:
-                logger.exception("Agent callback failed for %s message", platform)
+                logger.exception("Agent callback failed", platform=platform)
                 reply_text = "处理消息时出错，请稍后重试。"
         else:
             reply_text = "（agent 未就绪）"
@@ -119,9 +122,9 @@ def _make_webhook_handler(channel: Channel, agent_cb: AgentCallback | None):
         if reply_text.strip() and incoming.chat_id:
             sent = await channel.send_message(incoming.chat_id, reply_text)
             if not sent:
-                logger.error("Failed to send reply via %s to chat %s", platform, incoming.chat_id)
+                logger.error("Failed to send reply", platform=platform, chat_id=incoming.chat_id)
         else:
-            logger.info("Empty reply or no chat_id, skipping send for %s", platform)
+            logger.info("Empty reply or no chat_id, skipping send", platform=platform)
 
         return {"status": "ok"}
 
@@ -146,7 +149,7 @@ async def _handle_get_verification(channel: Channel, request: Request) -> Respon
         logger.warning("WeCom GET verification missing echostr")
         return PlainTextResponse("missing echostr", status_code=400)
 
-    logger.info("WeCom URL verification: echostr=%.20s...", echostr)
+    logger.info("WeCom URL verification", echostr=echostr[:20])
 
     # 使用渠道特有的 echostr 解密方法
     try:

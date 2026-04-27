@@ -13,8 +13,11 @@ from openagentic.cli.platform_adapter import CLI_PLATFORM
 from openagentic.cli.providers import DEFAULT_MODEL
 from openagentic.cli.repl import main_loop
 from openagentic.config import SETTINGS
+from openagentic.observability.logging import configure_logging
 
 load_dotenv()
+# 全项目统一 structlog → 控制台 + log/openagentic.log
+configure_logging(level=SETTINGS.APP_LOG_LEVEL)
 
 
 def main() -> None:
