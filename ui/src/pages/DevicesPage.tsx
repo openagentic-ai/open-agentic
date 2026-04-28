@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useAppStore } from '../store/appStore'
 
 export interface DeviceNode {
   id: string
   name: string
-  type: 'camera' | 'screen' | 'location' | 'notification' | 'system'
+  type: string
   enabled: boolean
   available: boolean
   capabilities: DeviceCapability[]
@@ -17,64 +18,26 @@ export interface DeviceCapability {
 }
 
 export function DevicesPage() {
-  const [nodes, setNodes] = useState<DeviceNode[]>([
-    {
-      id: 'camera',
-      name: '相机',
-      type: 'camera',
-      enabled: true,
-      available: true,
-      capabilities: [
-        { id: 'camera.snap', name: '相机拍照', description: '使用设备相机拍摄照片', enabled: true },
-        { id: 'camera.clip', name: '相机录像', description: '使用设备相机录制视频', enabled: true },
-      ],
-    },
-    {
-      id: 'screen',
-      name: '屏幕录制',
-      type: 'screen',
-      enabled: true,
-      available: true,
-      capabilities: [
-        { id: 'screen.record', name: '屏幕录制', description: '录制屏幕内容', enabled: true },
-        { id: 'screen.screenshot', name: '屏幕截图', description: '截取屏幕内容', enabled: true },
-      ],
-    },
-    {
-      id: 'location',
-      name: '定位',
-      type: 'location',
-      enabled: true,
-      available: true,
-      capabilities: [
-        { id: 'location.get', name: '获取定位', description: '获取设备当前地理位置', enabled: true },
-      ],
-    },
-    {
-      id: 'notification',
-      name: '通知推送',
-      type: 'notification',
-      enabled: true,
-      available: true,
-      capabilities: [
-        { id: 'notification.send', name: '发送通知', description: '向设备发送通知', enabled: true },
-      ],
-    },
-    {
-      id: 'system',
-      name: '系统命令',
-      type: 'system',
-      enabled: true,
-      available: true,
-      capabilities: [
-        { id: 'system.run', name: '执行命令', description: '在设备上执行系统命令', enabled: true },
-        { id: 'system.notify', name: '系统通知', description: '发送系统级通知', enabled: true },
-      ],
-    },
-  ])
+  const { gatewayUrl } = useAppStore()
+  const [nodes, setNodes] = useState<DeviceNode[]>([])
+  const [loading, setLoading] = useState(true)
 
   const [activeNode, setActiveNode] = useState<string | null>(null)
   const [logs, setLogs] = useState<string[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`${gatewayUrl}/api/devices`)
+      .then(r => r.json())
+      .then(data => {
+        if (!cancelled) {
+          setNodes(data.nodes || [])
+          setLoading(false)
+        }
+      })
+      .catch(() => setLoading(false))
+    return () => { cancelled = true }
+  }, [gatewayUrl])
 
   const toggleNode = (nodeId: string) => {
     setNodes(prev => prev.map(node => 
@@ -118,6 +81,9 @@ export function DevicesPage() {
     <div className="flex h-full">
       <div className="w-80 border-r border-gray-200 dark:border-gray-700 p-4 overflow-y-auto">
         <h2 className="text-lg font-semibold mb-4">设备节点</h2>
+        {loading ? (
+          <div className="text-center py-8 text-gray-500">加载中...</div>
+        ) : (
         <div className="space-y-3">
           {nodes.map(node => (
             <div
@@ -155,6 +121,7 @@ export function DevicesPage() {
             </div>
           ))}
         </div>
+        )}
       </div>
 
       <div className="flex-1 p-6 overflow-y-auto">

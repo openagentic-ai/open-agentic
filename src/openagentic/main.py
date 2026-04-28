@@ -23,11 +23,13 @@ configure_logging(
 )
 
 # 导入全部模型，让 Alembic autogenerate 能完整感知 metadata。
-from openagentic.core.auth.models import User, ApiKey  # noqa: F401
-from openagentic.core.chat.models import Conversation, Message  # noqa: F401
-from openagentic.agent.models import Agent, AgentExecution  # noqa: F401
-from openagentic.workflow.models import Workflow, WorkflowExecution  # noqa: F401
-from openagentic.knowledge.models import KnowledgeBase, Document, Chunk  # noqa: F401
+# 这些 import 必须在 configure_logging() 之后，因为模型模块会间接触发 logger 实例化。
+from openagentic.core.auth.models import User, ApiKey  # noqa: E402, F401
+from openagentic.core.chat.models import Conversation, Message  # noqa: E402, F401
+from openagentic.agent.models import Agent, AgentExecution  # noqa: E402, F401
+from openagentic.workflow.models import Workflow, WorkflowExecution  # noqa: E402, F401
+from openagentic.knowledge.models import KnowledgeBase, Document, Chunk  # noqa: E402, F401
+from openagentic.channels.models import ChannelConfig  # noqa: E402, F401
 
 logger = structlog.get_logger()
 
@@ -104,6 +106,10 @@ def create_app() -> FastAPI:
     from openagentic.workflow.router import router as workflow_router
     from openagentic.knowledge.router import router as knowledge_router
     from openagentic.memory.router import router as memory_router
+    from openagentic.skills.router import router as skills_router
+    from openagentic.core.chat.sessions_router import router as sessions_router
+    from openagentic.channels.router import router as channels_mgmt_router
+    from openagentic.devices.router import router as devices_router
 
     app.include_router(auth_router)
     app.include_router(chat_router)
@@ -112,12 +118,10 @@ def create_app() -> FastAPI:
     app.include_router(workflow_router)
     app.include_router(knowledge_router)
     app.include_router(memory_router)
-
-    # 向后兼容的历史接口占位（旧前端依赖），后续可逐步替换为真实实现。
-    @app.get("/api/sessions")
-    async def list_sessions_compat():
-        """Stub for frontend compatibility — will be replaced in Phase 2."""
-        return []
+    app.include_router(skills_router)
+    app.include_router(sessions_router)
+    app.include_router(channels_mgmt_router)
+    app.include_router(devices_router)
 
     @app.get("/api/presence")
     async def get_presence():

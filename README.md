@@ -10,9 +10,8 @@
 
 ## 最近更新
 
-- **2026-04-28**：Phase 7 Workflow 引擎改造 1.1+1.2 落地（suspended 状态 + 挂起信号槽 + runtime 挂起逻辑）；`feishu` / `wecom` / `approval` / `human_input` 4 个新节点类型；45 条 workflow 测试
-- **255 passed, 2 skipped** 测试覆盖
-- 新增测试模块：`tests/db/`、`tests/observability/`、`tests/skills/`、`tests/tenant/`、`tests/config/`、`tests/deps/`、`tests/entry/`、`tests/smoke/test_phase55_p1.py`
+- **2026-04-28**：Phase 6 前后端闭环落地——知识库上传 API 对齐、Skills/Channels/Sessions/Devices 后端 CRUD 全补齐、前端全部接入真实 API；Phase 7 Workflow 引擎改造 1.1+1.2（suspended 状态 + 挂起信号槽 + runtime 挂起）；`feishu` / `wecom` / `approval` / `human_input` 4 个新节点类型
+- **284 passed, 2 skipped** 测试覆盖
 
 ## 目录
 
@@ -46,15 +45,8 @@
 | **4.5 四层记忆** | ✅ 文件版 | Working/Core/Episodic/Procedural，`~/.openagentic/memory/` |
 | **5 多租户+可观测** | ✅ 单租户级 | 行级 user_id 隔离 ✓；tenant/request_id contextvar ✓；Prometheus `/metrics` ✓；structlog 注入 request_id+tenant_id ✓ |
 | **5.5 CLI 增强** | ✅ | `/compact` `/context` `/btw` `/cost` `/permissions` `/diff` `/review` + procedural 自动注入 + `write_file` diff + 6 个内置 SKILL |
-| **6 前后端闭环** | ⏸ 暂缓 | UI 8 页面完成；Devices/Sessions/Channels 后端 stub；Android 仅图标接入 |
+| **6 前后端闭环** | ✅ | 知识库上传 API 对齐；Skills/Channels/Sessions/Devices 全 CRUD 上线；前端全部接入真实 API；Android 客户端可用 |
 | **7 Workflow 扩展** | 🔄 进行中 | 节点连接器 / 人工审批 / 模板库 / 可视化编辑器 / 版本+回滚 / 节点级 SLA |
-
-### 已知 Web 端缺口
-
-- `POST /api/knowledge/documents/upload` 前端调用、后端不存在（前端期望默认 KB+文件 multipart，后端要求 `kb_id`+JSON 文本）
-- Skills 页面 169 行 UI 就绪，无任何后端 CRUD
-- Devices/Sessions/Channels 后端为 Stub 或空
-- 记忆系统未暴露到 FastAPI（仅 CLI 可用）
 
 ### CLI 当前能力
 
@@ -85,7 +77,7 @@
 
 ### 测试覆盖
 
-237 passed, 2 skipped — 覆盖 CLI 编码、`/cost` / `write_file` diff / `/permissions`、root 命令强制确认、LLM provider 配置、记忆系统、知识库、工作流、MCP、Agent、认证、聊天、迁移脚本、运维烟雾、数据库会话、可观测性、Skills 系统、租户上下文。
+282 passed, 4 skipped — 覆盖 CLI 编码、`/cost` / `write_file` diff / `/permissions`、root 命令强制确认、LLM provider 配置、记忆系统、知识库、工作流、MCP、Agent、认证、聊天、迁移脚本、运维烟雾、数据库会话、可观测性、Skills 系统、租户上下文。
 
 ## 快速启动
 
@@ -225,11 +217,21 @@ REPL 采用 Producer-Consumer 并发模型。模型执行长任务时，**按一
 
 ### 知识库
 - `GET/POST /api/knowledge`、`POST /{kb_id}/documents`、`POST /{kb_id}/search`、`POST /{kb_id}/optimize-index`
+- `POST /api/knowledge/documents/upload`（multipart 文件上传）、`GET /api/knowledge/documents`、`DELETE /api/knowledge/documents/{id}`
+- `POST /api/knowledge/search`（跨知识库检索）
 
 ### 记忆系统
 - `GET /api/memory/core`、`GET /api/memory/core/search?q=`、`POST /api/memory/core`、`DELETE /api/memory/core/{key}`
 - `GET /api/memory/episodes/search?q=`、`POST /api/memory/episodes`
 - `GET /api/memory/procedures/search?q=`、`POST /api/memory/procedures`
+
+### Skills
+- `GET /api/skills`、`GET /api/skills/{slug}`、`POST /api/skills`
+
+### Sessions & Channels & Devices
+- `GET/POST /api/sessions`、`DELETE /api/sessions/{id}`
+- `GET/POST /api/channels`、`DELETE /api/channels/{id}`
+- `GET /api/devices`
 
 ### 其他
 - `GET /health`、`GET /api/models`
@@ -253,18 +255,20 @@ src/openagentic/
 ├── config.py / deps.py
 ├── identity.py          # 全局 Agent 身份与行为准则（CLI/飞书/企微共享）
 ├── cli/                 # CLI ReAct（repl、react、tools、providers、model_router 等）
+├── channels/            # 渠道配置 DB 模型 + 管理 CRUD
 ├── core/
 │   ├── auth/            # JWT + bcrypt
-│   ├── chat/            # 会话+消息+SSE
+│   ├── chat/            # 会话+消息+SSE + sessions 兼容路由
 │   └── llm/             # LiteLLM 网关 + provider 配置
+├── devices/             # 设备节点与能力目录
 ├── agent/               # Agent CRUD + ReAct + 工具注册表
 │   ├── engine.py        # ConversationEngine——LLM+工具循环共享底座
 │   └── llm.py           # litellm_chat 抽象（DeepSeek thinking 兼容）
 ├── mcp/                 # MCP HTTP JSON-RPC 客户端
 ├── workflow/            # DAG 工作流引擎
 ├── knowledge/           # RAG：知识库 + 向量检索 + 重排序
-├── memory/              # 四层记忆系统（文件版）
-├── skills/              # CLI skills（Claude Code 风格 SKILL.md，含 builtin/）
+├── memory/              # 四层记忆系统（文件版 + REST API）
+├── skills/              # CLI skills（Claude Code 风格 SKILL.md，含 builtin/ + REST API）
 ├── tenant/              # 请求级 tenant_id / request_id contextvar
 ├── observability/       # structlog 配置 + Prometheus + RequestContextMiddleware
 └── db/                  # session、Base
@@ -275,7 +279,7 @@ extensions/              # 扩展模块（与 core 完全解耦）
 │   ├── feishu.py        # 飞书渠道（SDK WebSocket + 卡片 + CLI）
 │   ├── wecom.py         # 企业微信渠道（XML 解密 + CLI）
 │   └── router.py        # 动态路由工厂
-└── android/             # Android 客户端（图标已统一为原子 logo）
+└── android/             # Android 客户端（聊天/Settings/多语言/SSE，完整可用）
 scripts/
 └── run_feishu_ws.py     # 飞书独立运行脚本（不依赖 PostgreSQL）
 tests/
@@ -692,17 +696,17 @@ src/openagentic/
 - MCP 协议通道
 - 多租户飞书/企微 app 绑定
 
-### Phase 6：前后端闭环（暂缓）
+### Phase 6：前后端闭环（已完成）
 
-#### 已完成
 - [x] `ui/` 8 页面框架（Sessions、Settings、Skills、Channels、Devices 等）
-- [x] CLI Skills 系统（文件式 Claude Code 风格，前端 SkillsPage 暂未对接）
-
-#### 暂缓
-- [ ] Devices / Sessions / Channels 后端（当前为 stub）
-- [ ] 知识库上传 API 前后端对齐
-- [ ] 前端 SkillsPage 接入 CLI Skills（需把后端 skills 暴露 HTTP API）
-- [ ] Android 客户端功能实现（仅完成应用图标接入）
+- [x] CLI Skills 系统（文件式 Claude Code 风格）
+- [x] Skills REST API（`GET/POST /api/skills`），前端 SkillsPage 接入真实数据
+- [x] Sessions CRUD（映射 Conversation 模型），前端 SessionsPage 对接
+- [x] Channels 管理 CRUD（`ChannelConfig` DB 模型 + `GET/POST/DELETE /api/channels`）
+- [x] Devices REST API（`GET /api/devices`），前端 DevicesPage 动态加载
+- [x] 知识库上传 API 前后端对齐（`POST /api/knowledge/documents/upload` multipart + `GET /api/knowledge/documents` + `DELETE /api/knowledge/documents/{id}` + `POST /api/knowledge/search`）
+- [x] 记忆系统 REST API（`/api/memory/` 完整 CRUD）
+- [x] Android 客户端（ChatScreen + Settings + 多语言 + SSE 流式，完整可用）
 
 ### Phase 7：飞书 / 企微原生工作流（重新聚焦）
 
@@ -823,12 +827,11 @@ CREATE TABLE workflow_triggers (
 - [ ] CoreMemory / Episode / Procedure 迁移到 PostgreSQL + pgvector
 - [ ] 语义检索（768-dim，IVFFlat cosine）
 - [ ] 时间衰减 + 重要性加权排序
-- [ ] `/api/memory/` REST API
 
 ## 开发与测试
 
 ```bash
-# 全量测试（255 passed, 2 skipped）
+# 全量测试（282 passed, 4 skipped）
 pytest -q
 
 # CLI 与交互边界
@@ -911,5 +914,5 @@ OpenAgentic 以隐私优先为设计原则。
 
 - **分支策略**：从 `main` 拉 feature 分支，提交前跑全量测试与静态检查
 - **代码规范**：Python（Ruff + MyPy）、前端（ESLint + Prettier）
-- **测试要求**：新增功能需附带测试；pytest 全量 237 条必须通过
+- **测试要求**：新增功能需附带测试；pytest 全量 282 条必须通过
 - **PR 流程**：描述清楚改了啥、为什么、如何验证；CI 绿灯后请求 review

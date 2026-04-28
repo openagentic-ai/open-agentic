@@ -181,7 +181,7 @@ def setup_automodel_interactive(current_provider: str) -> bool:
         target = providers[0]
         _console.print(f"\n  Provider: [bold]{target['display_name']}[/bold]")
     else:
-        _console.print(f"\n  [bold]Providers with API keys:[/bold]")
+        _console.print("\n  [bold]Providers with API keys:[/bold]")
         for i, p in enumerate(providers, 1):
             mark = " [green]<-[/green]" if p["id"] == current_provider else ""
             configured = " [dim](automodel configured)[/dim]" if p["has_automodel"] else ""
@@ -198,7 +198,7 @@ def setup_automodel_interactive(current_provider: str) -> bool:
         elif choice.isdigit() and 1 <= int(choice) <= len(providers):
             target = providers[int(choice) - 1]
         else:
-            _console.print(f"  [red]Invalid choice.[/red]")
+            _console.print("  [red]Invalid choice.[/red]")
             return False
 
     models = target["models"]
@@ -254,7 +254,7 @@ def setup_automodel_interactive(current_provider: str) -> bool:
     c_short = complex_model.split("/")[-1] if "/" in complex_model else complex_model
     s_short = simple_model.split("/")[-1] if "/" in simple_model else simple_model
     _console.print()
-    _console.print(f"  [green]Saved![/green]")
+    _console.print("  [green]Saved![/green]")
     _console.print(f"  {s_short} [dim](triage + simple tasks)[/dim]")
     _console.print(f"  {c_short} [dim](complex tasks)[/dim]")
     return True

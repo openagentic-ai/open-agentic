@@ -257,6 +257,20 @@ class ApiClient {
 
 export const apiClient = new ApiClient()
 
+export interface SkillInfo {
+  id: string
+  name: string
+  description: string
+  version: string
+  author?: string | null
+  category: string
+  tags: string[]
+  enabled: boolean
+  source: string
+  allowed_tools?: string[] | null
+  body?: string | null
+}
+
 export function useApi() {
   return {
     setBaseUrl: (url: string) => apiClient.setBaseUrl(url),
@@ -302,6 +316,20 @@ export function useApi() {
       list: (limit?: number) => apiClient.listKnowledgeDocuments(limit),
       delete: (id: string) => apiClient.deleteKnowledgeDocument(id),
       search: (query: string, topK?: number) => apiClient.searchKnowledge(query, topK),
+    },
+    skills: {
+      list: async (): Promise<ApiResponse<SkillInfo[]>> => {
+        return apiClient.request<SkillInfo[]>('/api/skills')
+      },
+      get: async (slug: string): Promise<ApiResponse<SkillInfo>> => {
+        return apiClient.request<SkillInfo>(`/api/skills/${slug}`)
+      },
+      create: async (slug: string): Promise<ApiResponse<SkillInfo>> => {
+        return apiClient.request<SkillInfo>('/api/skills', {
+          method: 'POST',
+          body: JSON.stringify({ slug }),
+        })
+      },
     },
   }
 }

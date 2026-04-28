@@ -1,6 +1,5 @@
 """Unit tests for Phase 3 workflow service helpers."""
 
-from unittest.mock import AsyncMock
 
 import pytest
 

@@ -2,7 +2,7 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openagentic.db.session import get_db
@@ -16,6 +16,7 @@ from openagentic.knowledge.schemas import (
     DocumentUpload,
     KnowledgeBaseCreate,
     KnowledgeBaseResponse,
+    KnowledgeDocumentResponse,
     SearchRequest,
     SearchResult,
     VectorIndexOptimizeResponse,
@@ -196,3 +197,130 @@ async def optimize_vector_index(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     return VectorIndexOptimizeResponse(applied=bool(indexes), indexes=indexes)
+
+
+# -- 前端 KnowledgeBasePage 兼容端点 -------------------------------------
+
+
+@router.post("/documents/upload", response_model=KnowledgeDocumentResponse)
+async def upload_document_multipart(
+    file: UploadFile = File(...),
+    title: str = Form(""),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """上传文档（multipart/form-data），自动使用用户默认知识库。
+
+    前端 KnowledgeBasePage 通过 FormData 发送 file + title，
+    此端点读取文件内容，写入默认 KB，返回前端期望的字段。
+    """
+    if not file.filename:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No file selected")
+
+    content_bytes = await file.read()
+    try:
+        content = content_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        content = content_bytes.decode("latin-1")
+
+    kb = await service.get_or_create_default_kb(db, user.id)
+    doc = await service.add_document(
+        db=db,
+        kb_id=kb.id,
+        user_id=user.id,
+        filename=file.filename,
+        content=content,
+        content_type=file.content_type or "application/octet-stream",
+    )
+    return KnowledgeDocumentResponse(
+        id=str(doc.id),
+        user_id=str(user.id),
+        title=title or file.filename,
+        filename=file.filename,
+        content_type=file.content_type or "application/octet-stream",
+        size_bytes=len(content_bytes),
+        status=doc.status,
+        chunk_count=doc.chunk_count,
+        created_at=doc.created_at,
+        updated_at=getattr(doc, "updated_at", None),
+    )
+
+
+@router.get("/documents", response_model=list[KnowledgeDocumentResponse])
+async def list_all_documents(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    limit: int = 100,
+):
+    """列出用户所有知识库的全部文档（前端简洁接口，无需指定 kb_id）。"""
+    all_docs: list[KnowledgeDocumentResponse] = []
+    kbs = await service.list_knowledge_bases(db, user.id)
+    for kb in kbs:
+        docs = await service.list_documents(db, kb.id, user.id)
+        for doc in docs:
+            all_docs.append(KnowledgeDocumentResponse(
+                id=str(doc.id),
+                user_id=str(user.id),
+                title=doc.filename,
+                filename=doc.filename,
+                content_type=doc.content_type,
+                status=doc.status,
+                chunk_count=doc.chunk_count,
+                created_at=doc.created_at,
+                updated_at=getattr(doc, "updated_at", None),
+            ))
+        if len(all_docs) >= limit:
+            break
+    return all_docs[:limit]
+
+
+@router.delete("/documents/{doc_id}", response_model=dict)
+async def delete_document_flat(
+    doc_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """删除文档（前端简洁接口，无需 kb_id）。"""
+    deleted = await service.delete_document(db, doc_id, user.id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    return {"ok": True}
+
+
+@router.post("/search", response_model=dict)
+async def search_all_knowledge(
+    payload: SearchRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """跨所有知识库检索（前端简洁接口，无需 kb_id）。
+
+    返回格式匹配前端 KnowledgeSearchResponse：{ results: [...] }
+    """
+    all_results: list[dict] = []
+    kbs = await service.list_knowledge_bases(db, user.id)
+    for kb in kbs:
+        try:
+            results = await service.search(
+                db=db, kb_id=kb.id, user_id=user.id,
+                query=payload.query, top_k=payload.top_k,
+                rerank=payload.rerank, rerank_top_n=payload.rerank_top_n,
+            )
+            all_results.extend(results)
+        except ValueError:
+            continue
+    # 按 score 降序
+    all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
+    top = all_results[:payload.top_k]
+    return {
+        "results": [
+            {
+                "document_id": r.get("document_id", ""),
+                "title": r.get("content", "")[:80],
+                "chunk_index": r.get("chunk_index", 0),
+                "content": r.get("content", ""),
+                "score": r.get("score", 0),
+            }
+            for r in top
+        ]
+    }

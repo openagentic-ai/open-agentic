@@ -111,3 +111,19 @@ class VectorIndexOptimizeResponse(BaseModel):
     """向量索引优化响应。"""
     applied: bool
     indexes: list[str]
+
+
+class KnowledgeDocumentResponse(BaseModel):
+    """前端兼容的文档响应（KnowledgeBasePage 期望的字段名）。"""
+    id: str
+    user_id: str | None = None
+    title: str
+    filename: str
+    content_type: str
+    size_bytes: int = 0
+    status: str
+    error_message: str | None = None
+    chunk_count: int = 0
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime | str
+    updated_at: datetime | str | None = None

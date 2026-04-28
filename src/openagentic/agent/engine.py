@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import structlog
-from typing import Any, Callable, Awaitable
+from typing import Callable, Awaitable
 
 from openagentic.agent.llm import litellm_chat
 

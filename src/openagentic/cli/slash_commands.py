@@ -11,7 +11,6 @@ import asyncio
 import structlog
 import shutil
 import subprocess
-import sys
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.application.current import get_app

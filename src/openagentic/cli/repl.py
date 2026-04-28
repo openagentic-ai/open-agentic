@@ -34,7 +34,6 @@ from openagentic.cli.providers import (
     select_provider_interactive,
 )
 from openagentic.cli.slash_commands import (
-    SLASH_COMMANDS,
     SlashCompleter,
     _SENTINEL_QUIT,
     _apply_automodel_defaults,
@@ -174,7 +173,7 @@ async def main_loop(
         _console.print(f"  [dim]endpoint: {env_base_url}[/dim]")
     if plat["email"] and plat["base"]:
         _console.print(f"  [dim]{plat['email']} @ {plat['base'].rstrip('/')}[/dim]")
-    _console.print(f"  [dim]Type /help for commands.[/dim]")
+    _console.print("  [dim]Type /help for commands.[/dim]")
     _console.print()
 
     # ── Input Producer: always accepts input, puts into queue ──

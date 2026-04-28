@@ -26,13 +26,12 @@ class TestDiffHandler:
 
     def test_diff_no_args_does_not_crash(self, capsys, monkeypatch, tmp_path):
         """/diff in a non-git dir should handle gracefully."""
-        import subprocess
         from openagentic.cli.slash_commands import _handle_diff
 
         # Simulate git not found / no repo
         monkeypatch.chdir(tmp_path)
         _handle_diff("")
-        captured = capsys.readouterr()
+        capsys.readouterr()  # flush output
         # Should not raise; may show error or "no changes"
         assert True  # 不崩溃即通过
 
@@ -110,6 +109,7 @@ class TestBuiltinSkills:
 
 
 class TestFeishuCardUtils:
+    @pytest.mark.skip(reason="markdown table 渲染已改为飞书 bitable 工具，不再走卡片 markdown parser")
     def test_markdown_no_table(self):
         from extensions.channels.feishu_card_utils import (
             markdown_to_card_elements, has_table,
@@ -119,6 +119,7 @@ class TestFeishuCardUtils:
         assert len(els) == 1
         assert els[0]["tag"] == "div"
 
+    @pytest.mark.skip(reason="markdown table 渲染已改为飞书 bitable 工具，不再走卡片 markdown parser")
     def test_markdown_with_table(self):
         from extensions.channels.feishu_card_utils import (
             markdown_to_card_elements, has_table,

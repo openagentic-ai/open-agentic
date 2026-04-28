@@ -1,6 +1,5 @@
 """Test structured logging configuration."""
 
-import logging
 
 import structlog
 

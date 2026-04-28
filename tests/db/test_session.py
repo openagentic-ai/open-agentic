@@ -55,7 +55,7 @@ class TestSessionFactory:
     async def test_get_db_rollback_on_error(self):
         """异常时 get_db 应执行 rollback（验证生成器不在 finally 崩溃）。"""
         gen = get_db()
-        session = await anext(gen)
+        await anext(gen)  # 推进生成器到 yield 点，确保 session 创建
         # 故意抛异常来搅动生成器的 except 路径；
         # 只要生成器能正常关闭就说明 rollback 逻辑不崩。
         try:

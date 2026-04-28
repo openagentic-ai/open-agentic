@@ -5,7 +5,6 @@ structlog 配置：每条日志自动带 `request_id` 与 `tenant_id`（如有�
 """
 
 import logging
-import os
 from pathlib import Path
 
 import structlog

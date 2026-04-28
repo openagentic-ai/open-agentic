@@ -1,9 +1,8 @@
 """Test CLI entry point bootstrap logic."""
 
 import sys
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-import pytest
 
 from openagentic_entry import main as entry_main
 

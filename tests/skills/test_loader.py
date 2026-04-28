@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from openagentic.skills.loader import (
-    ParsedSkill,
     SkillParseError,
     is_valid_slug,
     parse_skill_md,

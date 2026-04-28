@@ -4,9 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from openagentic.skills.loader import SkillParseError
 from openagentic.skills.manager import (
-    SKILLS_DIR,
     Skill,
     SkillError,
     SkillNotFound,
@@ -95,7 +93,7 @@ description: {description}
 
     def test_ensure_seeded_creates_marker(self, mgr: SkillsManager):
         """首次播种应创建 .seeded 标记文件。"""
-        seeded = mgr.ensure_seeded()
+        _ = mgr.ensure_seeded()
         # seeded 可能为空（若 builtin 目录不存在），但 marker 必须存在
         marker = mgr.root / ".seeded"
         assert marker.exists()

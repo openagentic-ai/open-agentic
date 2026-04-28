@@ -298,6 +298,28 @@ async def search(
     )
 
 
+async def get_or_create_default_kb(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+) -> KnowledgeBase:
+    """获取用户的默认知识库，若不存在则自动创建。"""
+    result = await db.execute(
+        select(KnowledgeBase)
+        .where(KnowledgeBase.user_id == user_id)
+        .order_by(KnowledgeBase.created_at.asc())
+        .limit(1)
+    )
+    kb = result.scalar_one_or_none()
+    if kb:
+        return kb
+    return await create_knowledge_base(
+        db=db,
+        user_id=user_id,
+        name="默认知识库",
+        description="自动创建的默认知识库",
+    )
+
+
 async def optimize_index(
     db: AsyncSession,
     kb_id: uuid.UUID,

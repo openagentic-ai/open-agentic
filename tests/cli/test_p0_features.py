@@ -7,9 +7,6 @@ Higher-level slash-command UX is exercised via integration paths in repl tests.
 from __future__ import annotations
 
 import asyncio
-import json
-import os
-from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 

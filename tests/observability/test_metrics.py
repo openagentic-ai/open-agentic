@@ -1,6 +1,5 @@
 """Test Prometheus metrics setup."""
 
-import pytest
 from fastapi import FastAPI
 
 from openagentic.observability.metrics import setup_metrics

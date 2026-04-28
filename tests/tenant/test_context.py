@@ -1,6 +1,5 @@
 """Test tenant contextvar operations."""
 
-import pytest
 
 from openagentic.tenant import (
     get_current_tenant_id,
