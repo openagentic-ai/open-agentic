@@ -168,9 +168,10 @@ async def _run_lark_cli(args: list[str]) -> str:
 
 
 class ChannelAIService:
-    """渠道共享 AI 服务：对话引擎 + 历史管理。
+    """渠道共享 AI 服务：对话引擎 + 四层记忆 + 历史管理。
 
     每个 chat_id 独立维护历史，支持多轮对话。
+    四层记忆（Working/Core/Episodic/Procedural）与 CLI 完全复用。
     """
 
     def __init__(
@@ -179,11 +180,11 @@ class ChannelAIService:
         extra_tools: list[dict] | None = None,
         channel_hints: list[str] | None = None,
     ):
-        model = os.getenv("OPENAGENTIC_MODEL") or os.getenv(
+        self._model = os.getenv("OPENAGENTIC_MODEL") or os.getenv(
             "LITELLM_DEFAULT_MODEL", "deepseek/deepseek-v4-flash"
         )
-        api_key = os.getenv("OPENAI_API_KEY")
-        api_base = os.getenv("OPENAI_BASE_URL") if model.startswith("openai/") else None
+        self._api_key = os.getenv("OPENAI_API_KEY")
+        self._api_base = os.getenv("OPENAI_BASE_URL") if self._model.startswith("openai/") else None
 
         tools = list(BASE_TOOLS)
         if extra_tools:
@@ -192,11 +193,20 @@ class ChannelAIService:
         from openagentic.identity import build_system_prompt
         system_prompt = build_system_prompt(list(channel_hints) if channel_hints else None)
 
+        # Core memory：启动时注入 system prompt
+        try:
+            from openagentic.cli.prompt import build_core_memory_section
+            core = build_core_memory_section(limit=20)
+            if core:
+                system_prompt += "\n" + core
+        except Exception as exc:
+            logger.warning("core memory injection failed", error=str(exc))
+
         from openagentic.agent.engine import ConversationEngine
         self.engine = ConversationEngine(
-            model=model,
-            api_key=api_key,
-            api_base=api_base,
+            model=self._model,
+            api_key=self._api_key,
+            api_base=self._api_base,
             tools=tools,
             system_prompt=system_prompt,
             executor=execute_tool,
@@ -205,13 +215,57 @@ class ChannelAIService:
         self._histories: dict[str, list[dict]] = {}
 
     async def reply(self, user_text: str, chat_id: str) -> str:
-        """处理一条用户消息，返回 AI 回复。"""
+        """处理一条用户消息，返回 AI 回复。
+
+        每轮自动注入 episodic + procedural memory，触发 working memory 压缩。
+        """
+        from openagentic.memory.manager import (
+            MemoryManager,
+            working_memory_compressible,
+            compress_working_memory,
+        )
         history = self._histories.setdefault(chat_id, [])
         messages = [
             {"role": "system", "content": self.engine.system_prompt},
             *history[-MAX_HISTORY:],
-            {"role": "user", "content": user_text},
         ]
+
+        # Episodic memory：搜索相关历史对话
+        try:
+            eps = MemoryManager().search_episodes(user_text, top_k=3)
+            if eps:
+                ctx = "## Relevant Past Experiences\n\n"
+                for i, ep in enumerate(eps, 1):
+                    ctx += f"{i}. {ep['title']}\n   {ep['summary'][:300]}\n\n"
+                messages.insert(1, {"role": "system", "content": ctx})
+        except Exception as exc:
+            logger.warning("episodic memory injection failed", error=str(exc))
+
+        # Procedural memory：搜索可复用步骤
+        try:
+            procs = MemoryManager().search_procedures(user_text, top_k=3)
+            if procs:
+                ctx = "## Relevant Procedures\n\n"
+                for i, p in enumerate(procs, 1):
+                    ctx += f"{i}. {p['name']}\n   {p['content'][:300]}\n\n"
+                messages.insert(1, {"role": "system", "content": ctx})
+        except Exception as exc:
+            logger.warning("procedural memory injection failed", error=str(exc))
+
+        messages.append({"role": "user", "content": user_text})
+
+        # Working memory compression
+        if working_memory_compressible(messages):
+            try:
+                messages[:] = await compress_working_memory(
+                    messages,
+                    model=self._model,
+                    api_base=self._api_base,
+                    api_key=self._api_key,
+                )
+            except Exception as exc:
+                logger.warning("working memory compression failed", error=str(exc))
+
         try:
             reply = await self.engine.chat(messages)
         except Exception as e:
