@@ -1,5 +1,7 @@
 """Unit tests for Phase 3 workflow service helpers."""
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from openagentic.workflow import service
@@ -47,9 +49,68 @@ async def test_execute_node_tool_and_value():
     assert tool_output == "ping"
 
 
-# ---------------------------------------------------------------------------
-# 条件边 (condition edge) — Phase 7 P0
-# ---------------------------------------------------------------------------
+# ---------- feishu / wecom 节点 ----------
+
+
+@pytest.mark.asyncio
+async def test_execute_node_feishu_calls_run_cli(monkeypatch):
+    """feishu 节点调用 lark-cli，返回 {stdout, stderr, returncode}。"""
+    async def fake_run_cli(binary, subcommand, args):
+        return {"stdout": "ok", "stderr": "", "returncode": 0}
+
+    monkeypatch.setattr(service, "_run_cli", fake_run_cli)
+
+    result = await service._execute_node(  # noqa: SLF001
+        "feishu", {"subcommand": "im send", "args": ["--receive-id", "ou_123", "--content", "hello"]}
+    )
+    assert result["stdout"] == "ok"
+    assert result["returncode"] == 0
+
+
+@pytest.mark.asyncio
+async def test_execute_node_wecom_calls_run_cli(monkeypatch):
+    """wecom 节点调用 wecom-cli。"""
+    async def fake_run_cli(binary, subcommand, args):
+        assert binary == "wecom-cli"
+        return {"stdout": "sent", "stderr": "", "returncode": 0}
+
+    monkeypatch.setattr(service, "_run_cli", fake_run_cli)
+
+    result = await service._execute_node(  # noqa: SLF001
+        "wecom", {"subcommand": "im send", "args": ["--chat-id", "room_1", "--content", "test"]}
+    )
+    assert result["stdout"] == "sent"
+
+
+@pytest.mark.asyncio
+async def test_execute_node_feishu_requires_subcommand():
+    """feishu 节点缺少 subcommand 抛错。"""
+    with pytest.raises(ValueError, match="subcommand"):
+        await service._execute_node("feishu", {})  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_execute_node_wecom_requires_subcommand():
+    """wecom 节点缺少 subcommand 抛错。"""
+    with pytest.raises(ValueError, match="subcommand"):
+        await service._execute_node("wecom", {})  # noqa: SLF001
+
+
+def test_validate_definition_accepts_feishu_and_wecom():
+    service.validate_definition({
+        "nodes": [
+            {"id": "start", "type": "value", "config": {"value": "go"}},
+            {"id": "fs", "type": "feishu", "config": {"subcommand": "im send", "args": ["--content", "test"]}},
+            {"id": "wc", "type": "wecom", "config": {"subcommand": "im send", "args": ["--content", "test"]}},
+        ],
+        "edges": [
+            {"from": "start", "to": "fs"},
+            {"from": "fs", "to": "wc"},
+        ],
+    })
+
+
+# ---------- 条件边 (condition edge) — Phase 7 P0 ----------
 
 
 def test_evaluate_condition_equals():

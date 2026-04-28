@@ -26,9 +26,16 @@ class NodeType(str, enum.Enum):
 class ExecutionStatus(str, enum.Enum):
     pending = "pending"
     running = "running"
+    suspended = "suspended"  # 节点级挂起，等飞书/企微回调或人工输入 → 唤醒后回 running
     completed = "completed"
     failed = "failed"
     cancelled = "cancelled"
+
+
+# 终态：到达后不再流转
+TERMINAL_STATUSES = frozenset(
+    {ExecutionStatus.completed, ExecutionStatus.failed, ExecutionStatus.cancelled}
+)
 
 
 # Backward-compatible alias kept for existing API/tests.

@@ -10,7 +10,7 @@
 
 ## 最近更新
 
-- **2026-04-28**：Phase 5.5 P1 全部落地（`/diff` `/review` 3 SKILL）；Workflow 条件边 runtime 实现；`ChannelAIService` 提取共享底座 + 企微独立运行脚本；全项目统一 structlog + 日志落盘 `log/`；飞书表格策略：模型直接调 `lark_cli` 创建多维表格；`run_feishu_ws.py` 瘦身
+- **2026-04-28**：Phase 7 Workflow 引擎改造 1.1+1.2 落地（suspended 状态 + 挂起信号槽 + runtime 挂起逻辑）；`feishu` / `wecom` / `approval` / `human_input` 4 个新节点类型；45 条 workflow 测试
 - **255 passed, 2 skipped** 测试覆盖
 - 新增测试模块：`tests/db/`、`tests/observability/`、`tests/skills/`、`tests/tenant/`、`tests/config/`、`tests/deps/`、`tests/entry/`、`tests/smoke/test_phase55_p1.py`
 
@@ -47,7 +47,7 @@
 | **5 多租户+可观测** | ✅ 单租户级 | 行级 user_id 隔离 ✓；tenant/request_id contextvar ✓；Prometheus `/metrics` ✓；structlog 注入 request_id+tenant_id ✓ |
 | **5.5 CLI 增强** | ✅ | `/compact` `/context` `/btw` `/cost` `/permissions` `/diff` `/review` + procedural 自动注入 + `write_file` diff + 6 个内置 SKILL |
 | **6 前后端闭环** | ⏸ 暂缓 | UI 8 页面完成；Devices/Sessions/Channels 后端 stub；Android 仅图标接入 |
-| **7 Workflow 扩展** | 🔲 计划中 | 节点连接器 / 人工审批 / 模板库 / 可视化编辑器 / 版本+回滚 / 节点级 SLA |
+| **7 Workflow 扩展** | 🔄 进行中 | 节点连接器 / 人工审批 / 模板库 / 可视化编辑器 / 版本+回滚 / 节点级 SLA |
 
 ### 已知 Web 端缺口
 
@@ -495,13 +495,18 @@ users ─┬─ api_keys              # JWT 认证
 }
 ```
 
-#### 节点类型（仅 3 种，刻意保持极简）
+#### 节点类型（8 种）
 
 | type   | 行为 | 关键 config |
 |--------|------|-------------|
 | `value` | 把字面量/渲染后字符串作为输出 | `value` |
 | `tool`  | 调用工具注册表中的工具 | `tool_name`、`arg`（透传给工具的 input/query/command） |
 | `llm`   | 走 LiteLLM 网关 chat completion | `prompt`（必填）、`system_prompt`、`model` |
+| `feishu` | 执行 `lark-cli` CLI 命令 | `subcommand`（必填）、`args`（数组） |
+| `wecom` | 执行 `wecom-cli` CLI 命令 | `subcommand`（必填）、`args`（数组） |
+| `approval` | 触发审批 → run 进 suspended → 等回调 | `channel`、`approval_code` |
+| `human_input` | 发卡片 → run 进 suspended → 等提交 | `channel`、`prompt`、`instance_key` |
+| `subflow` | 调用另一个 workflow（计划中） | — |
 
 #### 校验（`validate_definition`）
 
@@ -509,14 +514,14 @@ users ─┬─ api_keys              # JWT 认证
 
 - `nodes` 非空数组、`edges` 数组
 - 节点 `id` 非空且全局唯一
-- 节点 `type` ∈ {`value`, `tool`, `llm`}
+- 节点 `type` ∈ {`value`, `tool`, `llm`, `feishu`, `wecom`, `approval`, `human_input`}
 - `edges` 两端必须指向已存在节点
 - **拓扑排序必须能完整覆盖所有节点**——否则判定有环并 `400 Bad Request`
 
 #### 执行模型
 
 1. `POST /api/workflows/{id}/runs` 创建一条 `WorkflowExecution`（status=`pending`）并立即执行
-2. 状态机：`pending → running → completed | failed | cancelled`
+2. 状态机：`pending → running → (suspended → running)* → completed | failed | cancelled`
 3. 拓扑序**串行执行**节点；当前未做并行调度（同层节点不并发）
 4. 每个节点执行前先 `db.refresh(run)` 检查取消标志，命中即 break
 5. 节点 config 渲染 `{{input.…}}` / `{{nodes.<id>}}` 模板（递归遍历 dict/list/str）
@@ -558,10 +563,9 @@ users ─┬─ api_keys              # JWT 认证
 #### 当前不支持
 
 - 同层并行执行 / 调度器（DAG 引擎刻意串行）
-- 条件边 / 分支跳转（`EdgeDefinition.condition` 字段已留位但 runtime 未消费）
-- 子工作流 / 工作流互调
-- 节点连接器（HTTP/DB/IM/SMTP/文件）
-- 人工审批节点（暂停 → 通知 → 续跑）
+- 子工作流 / 工作流互调（`subflow` 节点计划中）
+- `approval` / `human_input` 节点的真正飞书审批/卡片回调集成（骨架已就绪，事件触发器待接）
+- WorkflowTrigger 表 + 事件驱动启动 workflow
 - 版本管理 / 灰度 / 回滚
 
 ## 路线图
@@ -700,42 +704,119 @@ src/openagentic/
 - [ ] 前端 SkillsPage 接入 CLI Skills（需把后端 skills 暴露 HTTP API）
 - [ ] Android 客户端功能实现（仅完成应用图标接入）
 
-### Phase 7：Workflow 扩展（计划中）
+### Phase 7：飞书 / 企微原生工作流（重新聚焦）
 
-#### 核心能力
+#### 战略定位
 
-| 任务 | 优先级 | 说明 |
+让 OpenAgentic Workflow DAG 与飞书 / 企业微信原生工作流双向打通，覆盖中小企业最真实的业务编排场景：审批流、多维表格联动、群消息触发、人工审批、定时报表。
+
+**不做泛连接器**（HTTP / SMTP / 钉钉 / 邮件 / 文件系统等留作社区贡献或客户付费定制）——聚焦飞书+企微做透，是与大厂生态绑定型 Agent 平台（火山+ArkClaw 等）形成差异化的核心战场。
+
+#### 交付路径：CLI 优先
+
+- **P0/P1 阶段全部用 CLI 跑通并验证**：通过 `openagentic` CLI + 飞书/企微独立运行脚本调试 workflow，不依赖 Web UI
+- **可视化编辑器（React Flow）严格留在 P1 后段**——避免精力被前端工程拉走
+- 所有新节点类型必须先有 CLI 调用样例与单元测试，再考虑前端接入
+
+#### 新增节点类型
+
+| 节点 type | 子动作 | 用途 |
 |---|---|---|
-| 节点连接器 | P0 | HTTP / 数据库（PG/MySQL/MongoDB）/ SMTP / 飞书 / 钉钉 / 企微 / 邮件 / Webhook / 文件系统 |
-| 人工审批节点 | P0 | 工作流暂停 → 通知（钉钉/企微/邮件）→ 用户操作 → 继续 / 终止 |
-| 数据流串联（KB ↔ Workflow ↔ Agent） | P0 | 节点可读写 KB；Agent 可被 Workflow 调；Workflow 输出可入 KB |
-| Workflow 模板库 | P1 | 模板 = YAML + 配套 KB + 配套 SKILL |
-| 可视化编辑器（React Flow） | P1 | 拖拽改流程，不用写 YAML |
-| 版本管理 + 灰度 + 回滚 | P2 | workflow_v1/v2 + 路由策略 |
-| 节点级 SLA + 失败告警 | P2 | Prometheus 扩到节点维度；告警接钉钉/企微 |
-| 重试 / DLQ 策略 | P2 | 节点失败后的处理选项 |
+| `feishu` | `send_msg` / `send_card` / `bitable_read` / `bitable_write` / `doc_read` / `doc_write` / `calendar_create` / `cli` | 飞书全能力节点，统一调 lark-cli 22 模块 |
+| `wecom` | `send_msg` / `send_card` / `cli` | 企微全能力节点 |
+| `approval` | provider: `feishu` / `wecom` | 触发飞书/企微原生审批 → run 进 suspended → 等回调 |
+| `human_input` | provider: `feishu` / `wecom` | 发卡片让指定用户填表单 → 等卡片提交 → 写回 nodes.<id> |
+| `subflow` | — | 一个 workflow 调用另一个 workflow（审批模板复用必需） |
 
-#### DAG 引擎层 TODO
+#### DAG 引擎核心改造
 
-| 任务 | 优先级 | 说明 |
-|---|---|---|
-| ~~条件边（消费 `EdgeDefinition.condition`）~~ | ~~P0~~ | ✅ 已落地——支持 `==` / `!=` / 真值判断，跳过 trace 记录 |
-| 同层节点并行执行 | P1 | 当前严格串行（`for node_id in order`），同入度=0 节点应可 `asyncio.gather` |
-| `value` / `tool` / `llm` 之外加 `branch` / `loop` 节点 | P1 | 显式分支与有界循环 |
-| 子工作流节点（`subflow` type） | P1 | 一个 workflow 调另一个 workflow 作为节点 |
-| SSE / WebSocket 流式 trace | P1 | 当前要轮询 `GET /workflow-runs/{id}` 拿状态 |
-| Run 级 retries（不只节点级） | P2 | 整图重跑（幂等性由用户保证） |
-| 节点输入 / 输出 schema 声明 + 校验 | P2 | 当前 config 是裸 dict |
-| 调度器（cron / event trigger） | P2 | 当前只能手动 POST run |
-| 同 workflow 并发控制 | P2 | 当前一个 workflow 可同时多 run，无锁 |
-| Trace 持久化分离 | P3 | 现在 trace 写在 `node_states` 一个 JSONB |
+**P0 必做**
 
-#### 不做
+| 任务 | 说明 |
+|---|---|
+| Run 状态机加 `suspended` | `pending → running → (suspended → running)* → completed/failed/cancelled` |
+| 节点级挂起 | `approval` / `human_input` 节点声明 `_waiting_for: {type, instance_key, callback_url}` 写入 `node_states`，runtime 把 run 置为 suspended，释放 worker |
+| 唤醒接口 | `POST /api/workflow-runs/{run_id}/resume`（内部接口，由飞书/企微事件 dispatcher 调用） |
+| 事件触发器 | `extensions/channels/` 接收飞书审批回调 / 卡片提交 / 多维表格变更 → 反查 `_waiting_for` 命中的 run_id → resume |
+| `WorkflowTrigger` 表 | 把"飞书事件 → 启动 workflow"做成数据，不写死代码 |
+| 同层并行执行 | `asyncio.gather` 同入度=0 节点并行（批量发消息/批量写多维表格必需） |
 
+**P1 重要**
+
+| 任务 | 说明 |
+|---|---|
+| 子工作流节点（`subflow`） | 审批/通知模板沉淀为可复用子流 |
+| Workflow 模板库 | 先做 10 个真场景模板（采购审批 / 月度报表 / 客户工单 / 合同会签 / 入职 SOP / 离职流程 / 周报汇总 / 客户回访 / 数据告警 / 知识问答） |
+| `branch` / `loop` 节点 | 显式分支与有界循环 |
+| SSE / WebSocket 流式 trace | 前端实时看节点状态（同时也给 CLI 用） |
+| 可视化编辑器（React Flow） | 严格 P1 后段，不优先 |
+
+**P2 锦上添花**
+
+| 任务 | 说明 |
+|---|---|
+| 版本管理 + 灰度 + 回滚 | workflow_v1/v2 + 路由策略 |
+| 节点级 SLA + 飞书告警 | Prometheus 扩到节点维度；告警发到飞书指定群 |
+| Run 级 retries | 整图重跑（幂等性由用户保证） |
+| 节点输入/输出 schema 声明 + 校验 | 当前 config 是裸 dict |
+| 调度器（cron / event trigger） | 当前只能手动 POST run |
+| 同 workflow 并发控制 | 当前一个 workflow 可同时多 run，无锁 |
+| Trace 持久化分离 | 现在 trace 写在 `node_states` 一个 JSONB |
+
+#### 数据库改动（最小化）
+
+```sql
+-- 新增：触发器映射
+CREATE TABLE workflow_triggers (
+  id UUID PRIMARY KEY,
+  workflow_id UUID REFERENCES workflows,
+  trigger_type VARCHAR(32),  -- 'feishu_approval' / 'feishu_bitable_change' / 'wecom_msg' / 'cron' ...
+  trigger_config JSONB,       -- {"app_token": "xxx", "table_id": "yyy"}
+  user_id UUID REFERENCES users,
+  enabled BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP,
+  updated_at TIMESTAMP
+);
+```
+
+`workflow_executions.node_states` 现有 JSONB 字段直接承载 `_waiting_for: {type, instance_code, node_id}`，**不加新列**。
+
+#### 不做（明确放弃，避免膨胀）
+
+- HTTP / 数据库连接器 / SMTP / 钉钉 / 邮件 / 文件系统等泛连接器 → 留给社区贡献或客户付费定制
 - 复杂 BPMN 标准（XML 那套）→ 用更轻的 DAG + 节点类型
 - 跨工作流复杂事务 / Saga → 第一阶段用最终一致性
 - 实时流（Kafka 接入）
 - Jinja / 表达式引擎 → 模板渲染保持「字符串替换」级别，复杂逻辑走 `tool` 节点
+
+#### 已落地
+
+- ✅ 条件边（消费 `EdgeDefinition.condition`）—— 支持 `==` / `!=` / 真值判断，跳过路径写入 trace
+- ✅ `ExecutionStatus.suspended` 状态 + `TERMINAL_STATUSES` 终态集合（`models.py`）
+- ✅ 挂起信号槽：`_waiting_for` / `_resume_payload` 两个 key 约定 + 6 个 helper，均操作 `node_states` JSONB **不加列**
+- ✅ DB 迁移 `add_suspended_workflow_status` — 防御性兼容两个枚举名
+- ✅ Runtime 挂起（1.2）：`_execute_definition` 检测挂起信号 → `set_waiting_for` + 持久化 outputs/trace → `run.status = suspended` → return early
+- ✅ `execute_run` 适配 suspended（不设 `completed_at`、不覆盖 `node_states`）
+- ✅ `feishu` 节点 — 包装 `lark-cli`（`subcommand` + `args`，支持 `{{input.x}}` / `{{nodes.x}}` 模板渲染）
+- ✅ `wecom` 节点 — 包装 `wecom-cli`
+- ✅ 45 条 workflow 测试（原 28 + 新增 17）
+
+#### 引擎改造 TODO（2026-04-28）
+
+| # | 任务 | 优先级 | 文件 | 说明 |
+|---|------|--------|------|------|
+| 1 | `POST /api/workflow-runs/{id}/resume` 接口 | P0 | `router.py` | 写 `_resume_payload` + 调 `execute_run`（resume 模式） |
+| 2 | `_execute_definition` resume 模式 | P0 | `service.py` | 从 `_outputs` 恢复已执行节点、从 `_waiting_for` 定位挂起节点、`pop_resume_payload` 作为节点输出、`clear_waiting_for` 后继续拓扑序 |
+| 3 | `execute_run` resume 检测 | P0 | `service.py` | `run.status == suspended` 时跳过 `node_states` 重置、只改 status 回 `running` |
+| 4 | 事件触发器反查 | P0 | `extensions/channels/` | 飞书审批回调 / 卡片提交 / 企微消息 → 按 `instance_key` 反查 `_waiting_for` 命中的 run → 调 resume 接口 |
+| 5 | `WorkflowTrigger` 表 + CRUD | P0 | `models.py` + `router.py` | 新表 `workflow_triggers`（字段见上文数据库改动），CRUD API：`POST/GET/DELETE /api/workflow-triggers` |
+| 6 | `approval` 节点真正发飞书审批 | P1 | `service.py` | 当前只返回挂起信号，需真正调 `lark-cli approval` 创建审批实例 + 记录 `instance_key` |
+| 7 | `human_input` 节点真正发卡片 | P1 | `service.py` | 当前只返回挂起信号，需真正发飞书/企微交互卡片 + 等回调 |
+| 8 | 同层并行执行 `asyncio.gather` | P1 | `service.py` | 同入度=0 节点并发，批量发消息/批量写多维表格必需 |
+| 9 | `subflow` 节点 | P1 | `service.py` + `models.py` | 一个 workflow 调用另一个，审批/通知模板复用 |
+| 10 | 10 个 Workflow 模板 | P1 | `templates/` 或 DB seed | 采购审批/月度报表/客户工单/合同会签/入职SOP/离职流程/周报汇总/客户回访/数据告警/知识问答 |
+| 11 | SSE/WebSocket 流式 trace | P1 | `router.py` | 前端/CLI 实时看节点状态 |
+| 12 | 可视化编辑器（React Flow） | P1 | `ui/` | 严格留到最后，不优先 |
 
 ### 四层记忆 → DB 版（未来）
 

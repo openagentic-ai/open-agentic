@@ -14,12 +14,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openagentic.agent.tools import default_registry
 from openagentic.core.llm.service import chat_completion
 from openagentic.db.session import async_session
-from openagentic.workflow.models import ExecutionStatus, Workflow, WorkflowExecution
+from openagentic.workflow.models import TERMINAL_STATUSES, ExecutionStatus, Workflow, WorkflowExecution
 from openagentic.workflow.schemas import WorkflowCreate, WorkflowUpdate
 
 VAR_PATTERN = re.compile(r"\{\{\s*([^}]+)\s*\}\}")
 TRACE_KEY = "trace"
 CANCEL_KEY = "_cancel_requested"
+# Phase 7 Sub-milestone 1.1：节点级挂起信号槽。
+# approval / human_input 节点声明 _waiting_for: {type, instance_key, node_id, ...} 写入 node_states，
+# runtime 把 run 状态置为 suspended 并 break。事件触发器（飞书/企微 webhook）按 instance_key 反查 → resume。
+WAITING_FOR_KEY = "_waiting_for"
+# resume 时由唤醒接口写入的载荷（例如 {"approved": true} / {"text": "用户输入"}），
+# runtime 在节点边界消费后 pop。
+RESUME_PAYLOAD_KEY = "_resume_payload"
+# Phase 7 Sub-milestone 1.2：挂起状态持久化键。
+# _execute_definition 在节点请求挂起时将已完成的 outputs 写入此键，resume 时从该键恢复。
+OUTPUTS_CACHE_KEY = "_outputs"
+# _execute_node 返回的挂起信号标志。
+SUSPEND_FLAG = "__suspend__"
 
 # 条件边表达式解析：{{nodes.x}} == "value" / {{nodes.x}} != "value" / {{nodes.x}}
 _COND_EQ_RE = re.compile(r"^\{\{\s*([^}]+)\s*\}\}\s*==\s*[\"']([^\"']*)[\"']$")
@@ -68,7 +80,7 @@ def validate_definition(definition: dict[str, Any]) -> None:
             raise ValueError("Each node must contain a non-empty id")
         if node_id in node_ids:
             raise ValueError(f"Duplicate node id: {node_id}")
-        if node_type not in {"value", "tool", "llm"}:
+        if node_type not in {"value", "tool", "llm", "approval", "human_input", "feishu", "wecom"}:
             raise ValueError(f"Unsupported node type: {node_type}")
         node_ids.append(node_id)
 
@@ -171,11 +183,61 @@ def _is_cancel_requested(run: WorkflowExecution) -> bool:
     return bool(getattr(run, "cancel_requested", False))
 
 
+def get_waiting_for(run: WorkflowExecution) -> dict[str, Any] | None:
+    """读取节点挂起信号槽。runtime 在节点边界检查；触发器按 instance_key 反查命中的 run。
+
+    返回示例：{"type": "feishu_approval", "instance_key": "RECxxxx", "node_id": "approve"}
+    若未挂起返回 None。
+    """
+    node_states = getattr(run, "node_states", None) or {}
+    waiting = node_states.get(WAITING_FOR_KEY)
+    return waiting if isinstance(waiting, dict) else None
+
+
+def set_waiting_for(run: WorkflowExecution, signal: dict[str, Any]) -> None:
+    """设置节点挂起信号槽。需要包含至少 type/instance_key/node_id。
+
+    调用方负责 await db.flush()。
+    """
+    if not isinstance(signal, dict):
+        raise TypeError("waiting_for signal must be a dict")
+    required = {"type", "instance_key", "node_id"}
+    missing = required - set(signal.keys())
+    if missing:
+        raise ValueError(f"waiting_for signal missing keys: {sorted(missing)}")
+    run.node_states = {**(run.node_states or {}), WAITING_FOR_KEY: signal}
+
+
+def clear_waiting_for(run: WorkflowExecution) -> dict[str, Any] | None:
+    """清除节点挂起信号槽并返回原值（用于 resume 时取出元数据）。"""
+    node_states = dict(run.node_states or {})
+    waiting = node_states.pop(WAITING_FOR_KEY, None)
+    run.node_states = node_states
+    return waiting if isinstance(waiting, dict) else None
+
+
+def set_resume_payload(run: WorkflowExecution, payload: dict[str, Any]) -> None:
+    """resume 接口写入唤醒载荷，runtime 在节点边界消费后 pop。"""
+    if not isinstance(payload, dict):
+        raise TypeError("resume payload must be a dict")
+    run.node_states = {**(run.node_states or {}), RESUME_PAYLOAD_KEY: payload}
+
+
+def pop_resume_payload(run: WorkflowExecution) -> dict[str, Any] | None:
+    """读取并移除 resume 载荷。runtime 唤醒后调用。"""
+    node_states = dict(run.node_states or {})
+    payload = node_states.pop(RESUME_PAYLOAD_KEY, None)
+    run.node_states = node_states
+    return payload if isinstance(payload, dict) else None
+
+
 async def execute_run(db: AsyncSession, run: WorkflowExecution, workflow: Workflow) -> WorkflowExecution:
     """执行单次 Run。
 
     状态流转：
     pending -> running -> completed/failed/cancelled
+    中途可进入 suspended（approval/human_input 节点触发），
+    resume 时从 suspended 回到 running。
     """
     run.status = ExecutionStatus.running
     run.started_at = datetime.now(timezone.utc)
@@ -193,10 +255,14 @@ async def execute_run(db: AsyncSession, run: WorkflowExecution, workflow: Workfl
         )
         if _is_cancel_requested(run):
             run.status = ExecutionStatus.cancelled
+        elif run.status == ExecutionStatus.suspended:
+            # _execute_definition 已将 run 置为 suspended 并持久化了 outputs/trace
+            pass
         else:
             run.status = ExecutionStatus.completed
-        run.output_data = {"result": output}
-        run.node_states = {**(run.node_states or {}), TRACE_KEY: trace}
+        if run.status != ExecutionStatus.suspended:
+            run.output_data = {"result": output}
+            run.node_states = {**(run.node_states or {}), TRACE_KEY: trace}
     except asyncio.CancelledError:
         # 外部协程取消（如任务终止）统一映射为 cancelled。
         run.status = ExecutionStatus.cancelled
@@ -205,7 +271,8 @@ async def execute_run(db: AsyncSession, run: WorkflowExecution, workflow: Workfl
         run.status = ExecutionStatus.failed
         run.node_states = {**(run.node_states or {}), "error": str(exc)}
     finally:
-        run.completed_at = datetime.now(timezone.utc)
+        if run.status in TERMINAL_STATUSES:
+            run.completed_at = datetime.now(timezone.utc)
         await db.flush()
     return run
 
@@ -297,6 +364,31 @@ async def _execute_definition(
                     _execute_node(node_type=node["type"], config=rendered),
                     timeout=timeout_sec,
                 )
+                # Phase 7 1.2：approval / human_input 节点返回挂起信号
+                if isinstance(output, dict) and output.pop(SUSPEND_FLAG, None):
+                    signal = {
+                        "type": output.pop("suspend_type", f"{node['type']}_suspend"),
+                        "instance_key": output.pop("instance_key", ""),
+                        "node_id": node_id,
+                    }
+                    signal.update(output)  # 携带其余元数据（channel/prompt 等）
+                    set_waiting_for(run, signal)
+                    trace.append({
+                        "node_id": node_id,
+                        "node_type": node["type"],
+                        "status": "suspended",
+                        "waiting_for": signal,
+                    })
+                    # 持久化已完成的 outputs + trace 供 resume 恢复
+                    run.node_states = {
+                        **(run.node_states or {}),
+                        TRACE_KEY: trace,
+                        OUTPUTS_CACHE_KEY: outputs,
+                    }
+                    run.status = ExecutionStatus.suspended
+                    await db.flush()
+                    return None, trace
+
                 outputs[node_id] = output
                 trace.append(
                     {
@@ -336,8 +428,24 @@ async def _execute_definition(
     return final_output, trace
 
 
+async def _run_cli(binary: str, subcommand: str, args: list) -> dict[str, Any]:
+    """执行 CLI 二进制，返回 {stdout, stderr, returncode}。"""
+    cmd = [binary] + subcommand.split() + [str(a) for a in args]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    return {
+        "stdout": stdout.decode("utf-8", errors="replace").strip(),
+        "stderr": stderr.decode("utf-8", errors="replace").strip(),
+        "returncode": proc.returncode,
+    }
+
+
 async def _execute_node(node_type: str, config: dict[str, Any]) -> Any:
-    """执行单个节点（value/tool/llm）。"""
+    """执行单个节点（value/tool/llm/approval/human_input/feishu/wecom）。"""
     if node_type == "value":
         return config.get("value")
 
@@ -365,6 +473,43 @@ async def _execute_node(node_type: str, config: dict[str, Any]) -> Any:
         messages.append({"role": "user", "content": str(prompt)})
         result = await chat_completion(messages=messages, model=model)
         return result["content"]
+
+    if node_type == "feishu":
+        subcommand = config.get("subcommand", "")
+        if not subcommand:
+            raise ValueError("feishu node requires config.subcommand")
+        args = config.get("args", [])
+        if isinstance(args, str):
+            args = [args]
+        return await _run_cli("lark-cli", subcommand, args)
+
+    if node_type == "wecom":
+        subcommand = config.get("subcommand", "")
+        if not subcommand:
+            raise ValueError("wecom node requires config.subcommand")
+        args = config.get("args", [])
+        if isinstance(args, str):
+            args = [args]
+        return await _run_cli("wecom-cli", subcommand, args)
+
+    if node_type == "approval":
+        return {
+            SUSPEND_FLAG: True,
+            "suspend_type": "approval",
+            "channel": config.get("channel", "feishu"),
+            "instance_key": config.get("approval_code", ""),
+            "approval_config": config.get("approval_config", {}),
+        }
+
+    if node_type == "human_input":
+        return {
+            SUSPEND_FLAG: True,
+            "suspend_type": "human_input",
+            "channel": config.get("channel", "feishu"),
+            "instance_key": config.get("instance_key", ""),
+            "prompt": config.get("prompt", ""),
+            "input_config": config.get("input_config", {}),
+        }
 
     raise ValueError(f"Unsupported node type: {node_type}")
 
