@@ -103,6 +103,7 @@ def create_app() -> FastAPI:
     from openagentic.agent.router import router as agent_router
     from openagentic.workflow.router import router as workflow_router
     from openagentic.knowledge.router import router as knowledge_router
+    from openagentic.memory.router import router as memory_router
 
     app.include_router(auth_router)
     app.include_router(chat_router)
@@ -110,6 +111,7 @@ def create_app() -> FastAPI:
     app.include_router(agent_router)
     app.include_router(workflow_router)
     app.include_router(knowledge_router)
+    app.include_router(memory_router)
 
     # 向后兼容的历史接口占位（旧前端依赖），后续可逐步替换为真实实现。
     @app.get("/api/sessions")

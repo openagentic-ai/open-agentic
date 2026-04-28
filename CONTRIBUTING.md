@@ -78,7 +78,7 @@ feat(workflow): 节点连接器抽象 + HTTP 节点首发
 
 ### 为什么要 CLA
 
-- 保留项目未来调整 license 的灵活性（如从 MIT 切换到 BSL 时不用逐个征得每位 contributor 同意）
+- 保留项目未来调整 license 的灵活性（如从 Apache 2.0 切换到 BSL 时不用逐个征得每位 contributor 同意）
 - 明确专利授权范围，保护其他贡献者和用户
 - 这是 Apache 基金会、Google、Meta、Linux 基金会等几乎所有主流开源项目的标准做法
 

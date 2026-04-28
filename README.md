@@ -6,7 +6,7 @@
 |------|------|
 | 官网 | [openagentic-ai.github.io](https://openagentic-ai.github.io) |
 | 仓库 | [github.com/openagentic-ai/open-agentic](https://github.com/openagentic-ai/open-agentic) |
-| 许可证 | MIT |
+| 许可证 | Apache 2.0 |
 
 ## 最近更新
 
@@ -225,6 +225,11 @@ REPL 采用 Producer-Consumer 并发模型。模型执行长任务时，**按一
 
 ### 知识库
 - `GET/POST /api/knowledge`、`POST /{kb_id}/documents`、`POST /{kb_id}/search`、`POST /{kb_id}/optimize-index`
+
+### 记忆系统
+- `GET /api/memory/core`、`GET /api/memory/core/search?q=`、`POST /api/memory/core`、`DELETE /api/memory/core/{key}`
+- `GET /api/memory/episodes/search?q=`、`POST /api/memory/episodes`
+- `GET /api/memory/procedures/search?q=`、`POST /api/memory/procedures`
 
 ### 其他
 - `GET /health`、`GET /api/models`
