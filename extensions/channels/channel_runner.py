@@ -17,6 +17,12 @@ from typing import Any
 
 logger = structlog.get_logger("openagentic.channels.runner")
 
+# 预加载 SQLAlchemy 模型，确保 mapper 初始化时所有关联类已就绪。
+# 飞书渠道不经过 main.py 的 import 链，不走 FastAPI lifespan，
+# 因此必须在此处显式加载，否则 _current_user_id 触发 _init_models
+# 会因 Conversation 未 import 而抛 InvalidRequestError。
+import openagentic.core.chat.models as _chat_models  # noqa: F401
+
 # 当前请求的渠道身份——由 ChannelAIService.reply() 入口设置，
 # 工具执行时（execute_tool 内）按需读取以解析 OpenAgentic User。
 # 用 contextvars 而不是改 execute_tool 签名，避免破坏既有 ConversationEngine 契约。
@@ -74,6 +80,35 @@ WORKFLOW_TOOLS = [
                 "用户问'有什么工作流/流程/SOP'，或想触发某个流程时，先调这个查可用列表。"
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_workflow",
+            "description": (
+                "创建新的 DAG 工作流。用户描述流程需求后，你按规范构造 definition（nodes + edges），调此工具创建。\n\n"
+                "支持的节点类型（type）：\n"
+                "- llm — 调用 LLM 处理/生成文本（config: {prompt, model, temperature}）\n"
+                "- tool — 执行服务器命令（config: {command}）\n"
+                "- feishu — 飞书操作：发消息/建文档/建表格/日程/审批等（config: {action, ...}）\n"
+                "- wecom — 企业微信操作（config: {action, ...}）\n"
+                "- value — 静态值/常量注入（config: {value}）\n"
+                "- approval — 人工审批节点（config: {approvers, message}）\n"
+                "- human_input — 等待用户输入（config: {prompt, timeout_seconds}）\n\n"
+                "definition 结构：{\"nodes\": [{每个 node 必须有 id/type/label/config}], \"edges\": [{\"from\": \"node_id\", \"to\": \"node_id\"}]}\n"
+                "每个 node 必须有：id（唯一字符串）、type（上述类型之一）、label（显示名）、config（dict，类型相关配置）。\n"
+                "edges 表示执行顺序，不能有环。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "工作流名称"},
+                    "description": {"type": "string", "description": "简要描述这个工作流做什么"},
+                    "definition": {"type": "object", "description": "DAG 定义：{\"nodes\": [...], \"edges\": [...]}"},
+                },
+                "required": ["name", "description", "definition"],
+            },
         },
     },
     {
@@ -169,6 +204,12 @@ async def execute_tool(name: str, args: dict) -> str:
         return await _run_lark_cli(args.get("args", []))
     elif name == "list_workflows":
         return await _list_workflows()
+    elif name == "create_workflow":
+        return await _create_workflow(
+            args.get("name", ""),
+            args.get("description", ""),
+            args.get("definition") or {},
+        )
     elif name == "run_workflow":
         return await _run_workflow(
             args.get("workflow_id", ""),
@@ -257,14 +298,49 @@ async def _current_user_id():
     return await resolve_user_id_with_fallback(platform, sender_open_id)
 
 
+async def _create_workflow(name: str, description: str, definition: dict) -> str:
+    """创建新的 DAG 工作流。"""
+    import json as _json
+
+    user_id = await _current_user_id()
+    if user_id is None:
+        return (
+            "抱歉，未能识别你的身份，请稍后重试。"
+        )
+    if not name:
+        return "错误：缺少工作流名称"
+    if not definition.get("nodes"):
+        return "错误：definition 必须包含 nodes 数组"
+
+    try:
+        from openagentic.db.session import async_session
+        from openagentic.workflow import service as wf_service
+        from openagentic.workflow.schemas import WorkflowCreate
+        async with async_session() as db:
+            body = WorkflowCreate(name=name, description=description, definition=definition)
+            workflow = await wf_service.create_workflow(db, user_id, body)
+            wf_id = workflow.id
+            wf_name = workflow.name
+            await db.commit()
+        return _json.dumps({
+            "id": str(wf_id),
+            "name": wf_name,
+            "status": "created",
+            "note": "工作流已创建。用 list_workflows 查看全部，用 run_workflow 启动执行。",
+        }, ensure_ascii=False, indent=2)
+    except ValueError as e:
+        return f"工作流定义校验失败：{e}"
+    except Exception as e:
+        logger.exception("create_workflow failed")
+        return f"创建工作流失败：{e}"
+
+
 async def _list_workflows() -> str:
     """列出当前渠道用户名下的所有 workflows。"""
     user_id = await _current_user_id()
     if user_id is None:
         return (
-            "错误：当前飞书账号未绑定 OpenAgentic 用户。"
-            "请管理员往 user_channel_bindings 表插入一条 (platform=feishu, external_id=<你的open_id>, user_id=<目标用户>)，"
-            "或临时设置 env OPENAGENTIC_BOT_USER_ID 兜底。"
+            "抱歉，未能识别你的身份，请稍后重试。"
         )
     try:
         # 延迟 import 避免在未启用 workflow 时拉起 DB/ORM
@@ -296,8 +372,7 @@ async def _run_workflow(workflow_id: str, input_data: dict) -> str:
     user_id = await _current_user_id()
     if user_id is None:
         return (
-            "错误：当前飞书账号未绑定 OpenAgentic 用户，无法启动工作流。"
-            "请先在 user_channel_bindings 表完成绑定。"
+            "抱歉，未能识别你的身份，请稍后重试。"
         )
     if not workflow_id:
         return "错误：缺少 workflow_id"
@@ -511,4 +586,13 @@ class ChannelAIService:
         history.append({"role": "user", "content": user_text})
         history.append({"role": "assistant", "content": reply})
         self._histories[chat_id] = history[-MAX_HISTORY:]
+
+        # 自动保存 episodic memory——下次对话可通过 search_episodes 回忆上下文
+        try:
+            title = user_text.strip()[:48]
+            summary = f"User: {user_text[:300]}\nAssistant: {reply[:300]}"
+            MemoryManager().save_episode(title=title, summary=summary, tags=[chat_id])
+        except Exception as exc:
+            logger.warning("episodic memory save failed", error=str(exc))
+
         return reply

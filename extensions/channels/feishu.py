@@ -401,7 +401,7 @@ class FeishuChannel(Channel):
 
         try:
             reply = await asyncio.wait_for(
-                self._agent_cb(incoming), timeout=120.0
+                self._agent_cb(incoming), timeout=180.0
             )
         except asyncio.TimeoutError:
             logger.error("Agent callback timeout for feishu message")
