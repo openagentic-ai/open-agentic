@@ -9,12 +9,23 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import os
 import structlog
 import subprocess
 from typing import Any
 
 logger = structlog.get_logger("openagentic.channels.runner")
+
+# 当前请求的渠道身份——由 ChannelAIService.reply() 入口设置，
+# 工具执行时（execute_tool 内）按需读取以解析 OpenAgentic User。
+# 用 contextvars 而不是改 execute_tool 签名，避免破坏既有 ConversationEngine 契约。
+_current_platform: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "channel_platform", default=""
+)
+_current_sender_open_id: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "channel_sender_open_id", default=""
+)
 
 MAX_HISTORY = 20
 MAX_TOOL_ITERATIONS = 15
@@ -48,6 +59,60 @@ BASE_TOOLS = [
                     "max_lines": {"type": "integer", "description": "最大读取行数，默认200"},
                 },
                 "required": ["path"],
+            },
+        },
+    },
+]
+
+WORKFLOW_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "list_workflows",
+            "description": (
+                "列出当前 bot 归属用户名下的 DAG 工作流（含名称、描述、ID、是否启用）。"
+                "用户问'有什么工作流/流程/SOP'，或想触发某个流程时，先调这个查可用列表。"
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_workflow",
+            "description": (
+                "启动指定 DAG 工作流（异步）——立即返回 run_id，DAG 在后台跑。"
+                "workflow_id 必须是 UUID，先用 list_workflows 获取；"
+                "input_data 是工作流定义里 {{input.xxx}} 引用的字段。"
+                "需要查进度/拿结果 → 调 query_workflow_run(run_id)。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "workflow_id": {"type": "string", "description": "Workflow UUID"},
+                    "input_data": {
+                        "type": "object",
+                        "description": "工作流输入字段，对应定义里的 {{input.xxx}}",
+                    },
+                },
+                "required": ["workflow_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_workflow_run",
+            "description": (
+                "查询某次工作流执行的状态与结果。返回 status (pending/running/suspended/completed/failed/cancelled)、output、trace。"
+                "适合用户问'刚才的工作流跑完了吗''结果是什么'时调用。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "run_id": {"type": "string", "description": "Workflow run UUID（由 run_workflow 返回）"},
+                },
+                "required": ["run_id"],
             },
         },
     },
@@ -102,6 +167,15 @@ async def execute_tool(name: str, args: dict) -> str:
         return await _read_file(args.get("path", ""), args.get("max_lines", 200))
     elif name == "lark_cli":
         return await _run_lark_cli(args.get("args", []))
+    elif name == "list_workflows":
+        return await _list_workflows()
+    elif name == "run_workflow":
+        return await _run_workflow(
+            args.get("workflow_id", ""),
+            args.get("input_data") or {},
+        )
+    elif name == "query_workflow_run":
+        return await _query_workflow_run(args.get("run_id", ""))
     return f"未知工具: {name}"
 
 
@@ -164,6 +238,147 @@ async def _run_lark_cli(args: list[str]) -> str:
         return "错误：lark-cli 未安装"
 
 
+# ── Workflow 工具实现 ────────────────────────────────────────────────────
+# 用户解析路径（user_channel_bindings 优先 → env 兜底）：
+#   1. 当前请求的 (platform, sender_open_id) 命中 user_channel_bindings → 该 User
+#   2. 未命中时回退 env OPENAGENTIC_BOT_USER_ID（保留单租户老部署兼容性）
+#   3. 都没有 → 工具拒绝执行
+
+
+async def _current_user_id():
+    """解析当前渠道请求归属的 OpenAgentic User UUID。
+
+    优先按 (platform, sender_open_id) 反查 user_channel_bindings；
+    未命中且配置了 env OPENAGENTIC_BOT_USER_ID 时走 env 兜底。
+    """
+    from openagentic.channels.bindings import resolve_user_id_with_fallback
+    platform = _current_platform.get("")
+    sender_open_id = _current_sender_open_id.get("")
+    return await resolve_user_id_with_fallback(platform, sender_open_id)
+
+
+async def _list_workflows() -> str:
+    """列出当前渠道用户名下的所有 workflows。"""
+    user_id = await _current_user_id()
+    if user_id is None:
+        return (
+            "错误：当前飞书账号未绑定 OpenAgentic 用户。"
+            "请管理员往 user_channel_bindings 表插入一条 (platform=feishu, external_id=<你的open_id>, user_id=<目标用户>)，"
+            "或临时设置 env OPENAGENTIC_BOT_USER_ID 兜底。"
+        )
+    try:
+        # 延迟 import 避免在未启用 workflow 时拉起 DB/ORM
+        from openagentic.db.session import async_session
+        from openagentic.workflow import service as wf_service
+        async with async_session() as db:
+            wfs = await wf_service.list_workflows(db, user_id)
+        if not wfs:
+            return "(无可用工作流)"
+        lines = []
+        for w in wfs:
+            tag = "" if w.is_active else " [已停用]"
+            desc = (w.description or "").strip() or "(无)"
+            lines.append(f"- {w.name}{tag}\n  ID: {w.id}\n  描述: {desc}")
+        return "\n".join(lines)
+    except Exception as e:
+        logger.exception("list_workflows failed")
+        return f"查询工作流失败：{e}"
+
+
+async def _run_workflow(workflow_id: str, input_data: dict) -> str:
+    """启动 workflow（异步）——立即返回 run_id，不等执行完成。
+
+    调用方拿到 run_id 后通过 query_workflow_run 查进度/结果，避免阻塞渠道回复。
+    """
+    import json as _json
+    import uuid as _uuid
+
+    user_id = await _current_user_id()
+    if user_id is None:
+        return (
+            "错误：当前飞书账号未绑定 OpenAgentic 用户，无法启动工作流。"
+            "请先在 user_channel_bindings 表完成绑定。"
+        )
+    if not workflow_id:
+        return "错误：缺少 workflow_id"
+    try:
+        wf_uuid = _uuid.UUID(str(workflow_id))
+    except (ValueError, TypeError):
+        return f"错误：workflow_id 不是合法 UUID — {workflow_id}"
+
+    try:
+        from openagentic.db.session import async_session
+        from openagentic.workflow import service as wf_service
+        from openagentic.workflow.runtime import runtime
+        async with async_session() as db:
+            workflow = await wf_service.get_workflow(db, wf_uuid, user_id)
+            if not workflow:
+                return f"错误：找不到工作流 {workflow_id}（或不属于当前用户）"
+            if not workflow.is_active:
+                return f"错误：工作流 {workflow.name} 已停用"
+            run = await wf_service.create_run(db, workflow, input_data or {})
+            run_id = run.id
+            wf_id = workflow.id
+            wf_name = workflow.name
+            await db.commit()
+
+        # 后台执行——execute_run_by_id 自带 async_session，不污染当前连接
+        runtime.start(run_id, wf_service.execute_run_by_id(run_id, wf_id, user_id))
+
+        return _json.dumps({
+            "run_id": str(run_id),
+            "workflow": wf_name,
+            "status": "started",
+            "note": "工作流已在后台启动。用 query_workflow_run(run_id) 查进度。",
+        }, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.exception("run_workflow failed")
+        return f"启动工作流失败：{e}"
+
+
+async def _query_workflow_run(run_id: str) -> str:
+    """查询 workflow run 状态。"""
+    import json as _json
+    import uuid as _uuid
+
+    user_id = await _current_user_id()
+    if user_id is None:
+        return "错误：当前账号未绑定 OpenAgentic 用户"
+    if not run_id:
+        return "错误：缺少 run_id"
+    try:
+        run_uuid = _uuid.UUID(str(run_id))
+    except (ValueError, TypeError):
+        return f"错误：run_id 不是合法 UUID — {run_id}"
+
+    try:
+        from openagentic.db.session import async_session
+        from openagentic.workflow import service as wf_service
+        async with async_session() as db:
+            run = await wf_service.get_run(db, run_uuid, user_id)
+        if not run:
+            return f"错误：找不到 run {run_id}（或不属于当前用户）"
+
+        status = run.status.value if hasattr(run.status, "value") else str(run.status)
+        node_states = run.node_states or {}
+        result = {
+            "run_id": str(run.id),
+            "status": status,
+            "output": (run.output_data or {}).get("result"),
+            "trace": node_states.get("trace", []),
+        }
+        # suspended 时附带 _waiting_for 信息，便于上游知道下一步动作
+        if status == "suspended" and "_waiting_for" in node_states:
+            result["waiting_for"] = node_states["_waiting_for"]
+        out = _json.dumps(result, ensure_ascii=False, default=str, indent=2)
+        if len(out) > 4000:
+            out = out[:4000] + "\n... (输出截断)"
+        return out
+    except Exception as e:
+        logger.exception("query_workflow_run failed")
+        return f"查询失败：{e}"
+
+
 # ── AI 回复（带工具调用循环）─────────────────────────────────────────────
 
 
@@ -189,6 +404,9 @@ class ChannelAIService:
         tools = list(BASE_TOOLS)
         if extra_tools:
             tools.extend(extra_tools)
+        # workflow 工具始终挂载——是否能用取决于 sender 在 user_channel_bindings
+        # 是否有绑定（或 env OPENAGENTIC_BOT_USER_ID 兜底）。未绑定时工具自身返回提示。
+        tools.extend(WORKFLOW_TOOLS)
 
         from openagentic.identity import build_system_prompt
         system_prompt = build_system_prompt(list(channel_hints) if channel_hints else None)
@@ -214,11 +432,29 @@ class ChannelAIService:
         )
         self._histories: dict[str, list[dict]] = {}
 
-    async def reply(self, user_text: str, chat_id: str) -> str:
+    async def reply(
+        self,
+        user_text: str,
+        chat_id: str,
+        *,
+        platform: str = "",
+        sender_open_id: str = "",
+    ) -> str:
         """处理一条用户消息，返回 AI 回复。
 
         每轮自动注入 episodic + procedural memory，触发 working memory 压缩。
+        platform/sender_open_id 用于在工具执行（如 run_workflow）时按 user_channel_bindings 解析归属用户。
         """
+        # 把渠道身份塞到 contextvars，供本次 LLM 调用链内的工具读取
+        _platform_token = _current_platform.set(platform)
+        _sender_token = _current_sender_open_id.set(sender_open_id)
+        try:
+            return await self._reply_inner(user_text, chat_id)
+        finally:
+            _current_platform.reset(_platform_token)
+            _current_sender_open_id.reset(_sender_token)
+
+    async def _reply_inner(self, user_text: str, chat_id: str) -> str:
         from openagentic.memory.manager import (
             MemoryManager,
             working_memory_compressible,

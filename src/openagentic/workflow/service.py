@@ -321,14 +321,24 @@ async def _execute_definition(
     run: WorkflowExecution,
     definition: dict[str, Any],
     input_payload: dict[str, Any],
+    initial_outputs: dict[str, Any] | None = None,
+    initial_trace: list[dict[str, Any]] | None = None,
 ) -> tuple[Any, list[dict[str, Any]]]:
-    """按拓扑序执行整个定义并生成 trace。"""
+    """按拓扑序执行整个定义并生成 trace。
+
+    resume 场景：传入 initial_outputs/initial_trace，已在 outputs 中的 node_id 直接跳过——
+    挂起前已完成的节点 + 唤醒注入的节点输出 都按缓存值供下游引用。
+    """
     nodes = {n["id"]: n for n in definition.get("nodes", [])}
     order = _topological_order(definition)
-    outputs: dict[str, Any] = {}
-    trace: list[dict[str, Any]] = []
+    outputs: dict[str, Any] = dict(initial_outputs or {})
+    trace: list[dict[str, Any]] = list(initial_trace or [])
 
     for node_id in order:
+        # resume 场景：节点已执行过（或被 resume 注入），跳过
+        if node_id in outputs:
+            continue
+
         await db.refresh(run)
         if _is_cancel_requested(run):
             trace.append({"node_id": node_id, "status": "cancelled", "reason": "cancel_requested"})

@@ -15,6 +15,7 @@ from openagentic.core.chat.models import Conversation, Message  # noqa: F401
 from openagentic.agent.models import Agent, AgentExecution  # noqa: F401
 from openagentic.workflow.models import Workflow, WorkflowExecution  # noqa: F401
 from openagentic.knowledge.models import KnowledgeBase, Document, Chunk  # noqa: F401
+from openagentic.channels.models import ChannelConfig, UserChannelBinding  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:

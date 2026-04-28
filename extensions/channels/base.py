@@ -35,9 +35,11 @@ class IncomingMessage:
 
     platform: str  # "feishu" | "wecom"
     chat_id: str  # 群聊 ID 或私聊 ID
-    sender_id: str  # 发送者 open_id / user_id
+    sender_id: str  # 发送者 open_id / user_id（来源由渠道决定，仅用于显示/日志）
+    sender_open_id: str = ""  # 平台稳定主键——用于 user_channel_bindings 反查（飞书=open_id）
     sender_name: str = ""  # 发送者显示名（可选）
     text: str = ""  # 消息纯文本（@机器人 部分已剥离）
+    msg_type: str = ""  # 消息类型："text" / "image" / "media" / "file" / "post" / "sticker" / "unknown"
     raw: dict[str, Any] = field(default_factory=dict)  # 原始 webhook payload（调试用）
 
 

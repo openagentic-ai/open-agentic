@@ -169,24 +169,18 @@ class FeishuChannel(Channel):
         chat_id = message.get("chat_id", "")
         content = message.get("content", "{}")
 
-        # 飞书消息 content 是 JSON string
-        text = ""
-        if isinstance(content, str):
-            try:
-                text = json.loads(content).get("text", "")
-            except Exception:
-                text = content
-        elif isinstance(content, dict):
-            text = content.get("text", "")
-
+        text, msg_type = _parse_content(content)
         sender_user_id = sender_id_map.get("user_id", sender_id_map.get("open_id", ""))
+        sender_open_id = sender_id_map.get("open_id", "")
 
         return IncomingMessage(
             platform="feishu",
             chat_id=chat_id,
             sender_id=sender_user_id,
+            sender_open_id=sender_open_id,
             sender_name=sender.get("sender_name", ""),
-            text=_strip_mentions(text).strip(),
+            text=_strip_mentions(text).strip() if msg_type == "text" else text,
+            msg_type=msg_type,
             raw=body,
         )
 
@@ -264,9 +258,11 @@ class FeishuChannel(Channel):
         if not chat_id:
             logger.error("Feishu send_message: empty chat_id")
             return False
-        if await self._send_via_sdk(chat_id, text):
+        # CLI 优先——支持 Markdown 渲染（内部转飞书 post 格式）
+        # SDK 备选——纯文本兜底
+        if await self._send_via_cli(chat_id, text):
             return True
-        return await self._send_via_cli(chat_id, text)
+        return await self._send_via_sdk(chat_id, text)
 
     async def _send_via_sdk(self, chat_id: str, text: str) -> bool:
         """通过 lark-oapi SDK 直发消息（无子进程开销）。"""
@@ -342,24 +338,23 @@ class FeishuChannel(Channel):
 
                 chat_id = getattr(message, "chat_id", "")
                 content_str = getattr(message, "content", "{}")
-                text = ""
-                if isinstance(content_str, str):
-                    try:
-                        text = json.loads(content_str).get("text", "")
-                    except Exception:
-                        text = content_str
+                text, msg_type = _parse_content(content_str)
+                if msg_type == "text":
+                    text = _strip_mentions(text).strip()
 
                 incoming = IncomingMessage(
                     platform="feishu",
                     chat_id=chat_id,
                     sender_id=getattr(sid, "user_id", "") or getattr(sid, "open_id", ""),
+                    sender_open_id=getattr(sid, "open_id", "") or "",
                     sender_name=getattr(sender, "sender_name", ""),
-                    text=_strip_mentions(text).strip(),
+                    text=text,
+                    msg_type=msg_type,
                     raw={"sdk_v2": True},
                 )
                 if incoming.text:
-                    logger.info("Feishu msg: sender=%s chat=%s text=%.100s",
-                                incoming.sender_id, incoming.chat_id, incoming.text)
+                    logger.info("Feishu msg: sender=%s chat=%s type=%s text=%.100s",
+                                incoming.sender_id, incoming.chat_id, incoming.msg_type, incoming.text)
                     # 在 SDK 自己的 loop 中调度 agent 回调
                     asyncio.ensure_future(self._reply_via_agent(incoming))
             except Exception:
@@ -390,8 +385,18 @@ class FeishuChannel(Channel):
             logger.exception("Feishu SDK WebSocket error")
 
     async def _reply_via_agent(self, incoming: IncomingMessage) -> None:
-        """统一的 agent 回调 + 回复发送。"""
+        """统一的 agent 回调 + 回复发送。
+
+        非文本消息（图片/视频/文件/表情包）不调 LLM，直接返回能力边界说明。
+        """
         if not self._agent_cb:
+            return
+
+        # 非文本消息：直接回复，不走 LLM
+        if incoming.msg_type in _NON_TEXT_REPLIES:
+            reply = _NON_TEXT_REPLIES[incoming.msg_type]
+            if incoming.chat_id:
+                await self.send_message(incoming.chat_id, reply)
             return
 
         try:
@@ -443,6 +448,86 @@ def try_create_feishu_channel() -> FeishuChannel | None:
 
     logger.info("Feishu channel mode: %s", connection_mode)
     return FeishuChannel(config)
+
+
+def _parse_content(content: Any) -> tuple[str, str]:
+    """从飞书消息 content 中提取 (text, msg_type)。
+
+    飞书不同类型的消息 content JSON 结构：
+    - text:    {"text": "..."}
+    - image:   {"image_key": "..."}
+    - media:   {"file_key": "...", "image_key": "...", "file_name": "..."}
+    - file:    {"file_key": "..."}
+    - post:    {"title": "...", "content": [[...]]}
+    - sticker: {"file_key": "..."}
+    """
+    if isinstance(content, str):
+        try:
+            content = json.loads(content)
+        except Exception:
+            return content, "text"
+
+    if not isinstance(content, dict):
+        return str(content), "text"
+
+    # 按优先级判定消息类型
+    if "text" in content:
+        return content["text"], "text"
+    elif "image_key" in content and "file_key" in content:
+        # media 类型同时有 image_key + file_key
+        file_name = content.get("file_name", "")
+        return f"[视频消息: {file_name}]" if file_name else "[视频消息]", "media"
+    elif "image_key" in content:
+        return "[图片消息]", "image"
+    elif "file_key" in content:
+        file_name = content.get("file_name", "")
+        return f"[文件消息: {file_name}]" if file_name else "[文件消息]", "file"
+    elif "content" in content:
+        # post 富文本，提取 title + 文本
+        title = content.get("title", "")
+        post_blocks = content.get("content", [])
+        post_text = _extract_post_text(post_blocks)
+        full = f"{title}\n{post_text}".strip()
+        return full, "post"
+    elif "sticker_key" in content:
+        return "[表情包]", "sticker"
+    else:
+        return "", "unknown"
+
+
+def _extract_post_text(blocks: list) -> str:
+    """从飞书 post 富文本的 content 二维数组中提取纯文本。"""
+    lines = []
+    for paragraph in blocks:
+        if not isinstance(paragraph, list):
+            continue
+        line_parts = []
+        for el in paragraph:
+            if isinstance(el, dict):
+                line_parts.append(el.get("text", ""))
+        if line_parts:
+            lines.append("".join(line_parts))
+    return "\n".join(lines)
+
+
+# 非文本消息的预设回复（不调 LLM，避免浪费 token）
+_NON_TEXT_REPLIES = {
+    "image": (
+        "收到图片啦~ 不过目前我只支持识别**文字消息**，还无法理解图片内容。\n\n"
+        "请用文字描述你想做什么，我会尽力帮你处理。"
+    ),
+    "media": (
+        "收到视频啦~ 不过目前我只支持识别**文字消息**，还无法理解视频内容。\n\n"
+        "请用文字描述你想做什么，我会尽力帮你处理。"
+    ),
+    "file": (
+        "收到文件啦~ 不过目前我只支持识别**文字消息**，还无法解析文件内容。\n\n"
+        "请用文字描述你想做什么，我会尽力帮你处理。"
+    ),
+    "sticker": (
+        "表情包收到了，但我不太懂这个 😄\n请用文字告诉我你想做什么~"
+    ),
+}
 
 
 def _strip_mentions(text: str) -> str:

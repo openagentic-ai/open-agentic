@@ -108,7 +108,15 @@ class ConversationEngine:
             return ""
 
         logger.warning("ConversationEngine max iterations reached", max_iterations=self.max_iterations)
-        return "工具调用次数过多，已中止。请简化你的请求。"
+        # 不再返回硬中止文案——保留 LLM 最后一轮的可见内容（thinking 或 content），
+        # 都没有时返回空，由调用方决定如何处理（飞书层空回复会跳过 send）。
+        last_content = ""
+        for msg in reversed(messages):
+            if msg.get("role") == "assistant":
+                last_content = msg.get("content") or msg.get("reasoning_content") or ""
+                if last_content:
+                    break
+        return last_content
 
     async def _execute_tool(self, tc: dict, messages: list[dict]) -> str:
         """执行单个工具调用，返回结果字符串。"""
