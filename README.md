@@ -10,8 +10,56 @@
 
 ## 最近更新
 
-- **2026-04-28**：Phase 6 前后端闭环落地——知识库上传 API 对齐、Skills/Channels/Sessions/Devices 后端 CRUD 全补齐、前端全部接入真实 API；Phase 7 Workflow 引擎改造 1.1+1.2（suspended 状态 + 挂起信号槽 + runtime 挂起）；`feishu` / `wecom` / `approval` / `human_input` 4 个新节点类型
-- **284 passed, 2 skipped** 测试覆盖
+- **2026-04-29**：System-Seed 预设工作流上线（3 个 preset YAML + lifespan upsert + 全渠道透明共享）；并发治理底座 `ConcurrencyGate`（全局信号量 + 类别配额 + 会话串行）；飞书 bot → DAG 工作流链路打通（含用户身份映射 + context 注入）；sender chat_id 自动注入工作流 context；deep logging audit 全覆盖
+- **295 passed, 2 skipped** 测试覆盖
+
+## 当前迭代未完成 TODO（2026-04-29，下次接着干）
+
+**目标**：System-Seed 预设工作流收尾 + Workflow resume 引擎 + 5 个生产 bug 收尾。
+
+### 进行中：System-Seed 预设工作流（收尾）
+
+- [x] 1. `Workflow` 模型加 `is_system / slug / version` 字段，`user_id` 改 nullable
+- [x] 2. Alembic 迁移 `add_is_system_workflow`
+- [x] 3. 3 个预设 YAML：`presets/doc.summarize_url.yaml` / `news.tech_weekly.yaml` / `ops.server_health.yaml`
+- [x] 4. Preset loader：`src/openagentic/workflow/presets.py`（`_scan_presets` + `load_presets`）
+- [x] 5. `tool` 节点扩展支持 `args: dict` 入参
+- [x] 6. `main.py` lifespan 调用 `_load_preset_workflows()`
+- [x] 7. `service.list_workflows` 合并 `user_id == current OR is_system==True`
+- [x] 8. `channel_runner.py` WORKFLOW_TOOLS 预设提示（slug → run_workflow 直调）
+- [x] 9. sender_open_id / chat_id 注入工作流 context（`contextvars` → `input_data.context`）
+- [x] 10. 并发治理底座 `ConcurrencyGate`（全局信号量 + 类别配额 + 会话串行）
+- [ ] 11. `service.update_workflow` / `delete_workflow` 拒绝 `is_system=True`
+- [ ] 12. `start_workflow_run` / `get_workflow` grant 条件加 `or is_system`
+- [ ] 13. 写测试：`tests/workflow/test_presets.py`
+- [ ] 14. Alembic 迁移重复 slug 检测已存在：`add_is_system_workflow.py` 中 `uq_workflows_slug` / `ix_workflows_slug` 在旧 DB 可能冲突，需检查
+
+### 待修：生产 bug
+
+- [ ] **#1 15 服部署**：`/opt/open-agentic` 更新代码 + `alembic upgrade head` + `systemctl restart`
+- [ ] **#2 LLM 不用 list_workflows**：preset 提示已注入 system prompt，需验证实际效果
+- [ ] **#3 DAG 被绕过**：同 #2，preset hints 兜底
+- [ ] **#4 sender_open_id 注入**：contextvars 链路已就绪，pr
+- [ ] **#5 飞书 markdown 渲染**：`feishu_card_utils.py` + `feishu.py:_send_via_cli`，下次单 PR
+
+### 上线动作（合并完上述 11-14 + bug 修复后一次性做）
+
+```bash
+# 本机
+pytest -q
+git add -A && git commit -m "feat: system-seed preset workflows 收尾"
+git push origin main
+
+# 15 服务器
+ssh root@192.168.0.15
+cd /opt/open-agentic
+git pull origin main --ff-only
+.venv/bin/alembic upgrade head
+systemctl restart openagentic-feishu.service
+journalctl -u openagentic-feishu.service -f
+```
+
+
 
 ## 目录
 
@@ -46,7 +94,7 @@
 | **5 多租户+可观测** | ✅ 单租户级 | 行级 user_id 隔离 ✓；tenant/request_id contextvar ✓；Prometheus `/metrics` ✓；structlog 注入 request_id+tenant_id ✓ |
 | **5.5 CLI 增强** | ✅ | `/compact` `/context` `/btw` `/cost` `/permissions` `/diff` `/review` + procedural 自动注入 + `write_file` diff + 6 个内置 SKILL |
 | **6 前后端闭环** | ✅ | 知识库上传 API 对齐；Skills/Channels/Sessions/Devices 全 CRUD 上线；前端全部接入真实 API；Android 客户端可用 |
-| **7 Workflow 扩展** | 🔄 进行中 | 节点连接器 / 人工审批 / 模板库 / 可视化编辑器 / 版本+回滚 / 节点级 SLA |
+| **7 Workflow 扩展** | 🔄 进行中 | System-Seed 预设工作流（3 preset + lifespan upsert）；并发底座 `ConcurrencyGate`；sender context 注入；飞书 bot → DAG 链路；suspended 状态机 + runtime 挂起；`feishu`/`wecom`/`approval`/`human_input` 4 新节点类型 |
 
 ### CLI 当前能力
 
@@ -77,7 +125,7 @@
 
 ### 测试覆盖
 
-282 passed, 4 skipped — 覆盖 CLI 编码、`/cost` / `write_file` diff / `/permissions`、root 命令强制确认、LLM provider 配置、记忆系统、知识库、工作流、MCP、Agent、认证、聊天、迁移脚本、运维烟雾、数据库会话、可观测性、Skills 系统、租户上下文。
+295 passed, 2 skipped — 覆盖 CLI 编码、`/cost` / `write_file` diff / `/permissions`、root 命令强制确认、LLM provider 配置、记忆系统、知识库、工作流（含 presets + suspended）、MCP、Agent、认证、聊天、迁移脚本（7 个 revision）、运维烟雾、数据库会话、可观测性、Skills 系统、租户上下文、并发网关。
 
 ## 快速启动
 
@@ -256,6 +304,7 @@ src/openagentic/
 ├── identity.py          # 全局 Agent 身份与行为准则（CLI/飞书/企微共享）
 ├── cli/                 # CLI ReAct（repl、react、tools、providers、model_router 等）
 ├── channels/            # 渠道配置 DB 模型 + 管理 CRUD
+├── concurrency/         # 并发治理网关（全局信号量 + 类别配额 + 会话串行）
 ├── core/
 │   ├── auth/            # JWT + bcrypt
 │   ├── chat/            # 会话+消息+SSE + sessions 兼容路由
@@ -445,8 +494,10 @@ allowed-tools: [...]       # 可选，限定可用工具列表
 users ─┬─ api_keys              # JWT 认证
        ├─ conversations ─┬─ messages     # 对话（含 reasoning_content 列）
        ├─ agents ────────── agent_executions   # Agent 执行记录（JSON steps + trace）
-       ├─ workflows ─────── workflow_executions # Workflow 执行（JSONB definition/input/output/node_states）
-       └─ knowledge_bases ─┬─ documents ─┬─ chunks   # RAG（pgvector Vector(768)）
+       ├─ workflows ─────── workflow_executions # Workflow 执行（含 is_system/slug/version 预设字段）
+       ├─ knowledge_bases ─┬─ documents ─┬─ chunks   # RAG（pgvector Vector(768)）
+       ├─ channel_configs        # 渠道配置（飞书/企微 app 凭证）
+       └─ user_channel_bindings  # 外部渠道账号 → User 映射
 ```
 
 | 域 | 核心表 | 关键字段 |
@@ -456,7 +507,7 @@ users ─┬─ api_keys              # JWT 认证
 | Agent | `agents` `agent_executions` | `tools` JSON, `config` JSON, `steps` JSON, `status` enum |
 | Workflow | `workflows` `workflow_executions` | `definition` JSONB, `input_data`/`output_data` JSON, `node_states` JSON(trace+cancel), `status` enum(pending/running/completed/failed/cancelled) |
 | 知识库 | `knowledge_bases` `documents` `chunks` | `embedding` Vector(768), `chunk_size`/`chunk_overlap`, `metadata_` JSON |
-| 迁移 | 4 个 Alembic revisions | 初始→workflow→knowledge(pgvector)→reasoning_content |
+| 迁移 | 7 个 Alembic revisions | 初始→workflow→knowledge(pgvector)→reasoning_content→suspended status→user_channel_bindings→is_system_workflow |
 
 - **多租户**：应用层 `user_id` 过滤，非 RLS；`tenant_id` contextvar 等价 `user_id`
 - **WorkflowExecution 特殊**：`node_states` 一个 JSONB 同时承载 trace 数组和 `_cancel_requested` 软标志
@@ -476,6 +527,8 @@ users ─┬─ api_keys              # JWT 认证
 | Skills | SKILL.md 文件式而非硬编码 slash | 行为类功能（review/commit/debug）统一为可编辑 SOP 文档，模型按需 read_file 加载全文，避免命令膨胀 |
 | MCP | HTTP JSON-RPC 客户端（非 stdio） | 先支持远程 MCP server，stdio 本地 server 后续按需补 |
 | 重排序 | CrossEncoder（`rerank_model`） | 向量检索后对 top-N 做精排，提升 RAG 准确率；轻量级模型不依赖外部服务 |
+| 系统预设 | `presets/*.yaml` + lifespan upsert | 启动自动同步预设工作流到 DB，跨渠道透明共享；按 slug+version 升降级判断，用户不可改只能 fork |
+| 并发治理 | `ConcurrencyGate`（全局信号量 + 类别配额 + 会话串行） | 多用户并发请求统一接入，飞书/企微/CLI/HTTP 共享同一套限流 + 排队 + 超时兜底 |
 
 ### Workflow DAG 引擎
 
@@ -564,6 +617,20 @@ users ─┬─ api_keys              # JWT 认证
 
 通过 `GET /api/workflow-runs/{run_id}` 整体回看，目前**没有 SSE/流式 trace 推送**——见 Phase 7 待办。
 
+#### 系统预设工作流
+
+3 个开箱即用的预设，启动时自动 upsert 到 DB（`user_id=NULL, is_system=True`），跨渠道（CLI/飞书/企微/HTTP）透明共享：
+
+| slug | 名称 | 用途 |
+|------|------|------|
+| `news.tech_weekly` | 技术新闻周报 | 抓取科技媒体 RSS/API → LLM 摘要分类 → 生成中文周报 |
+| `doc.summarize_url` | URL 摘要 | 抓取指定网页 → LLM 提炼要点 → 结构化摘要输出 |
+| `ops.server_health` | 服务器健康巡检 | SSH/HTTP 检查目标主机 → 汇总磁盘/内存/服务状态 → 告警 |
+
+**机制**：`main.py` lifespan 调用 `load_presets(db)` 按 `slug` 匹配已有记录，`version` 字段控制升级；同 slug 新版覆盖、旧版跳过、不变跳过。channel_runner 注入预设提示到 system prompt，LLM 识别到"新闻周报"等意图时直接 `run_workflow(slug)`。
+
+用户不能修改/删除系统预设——需 fork 成私有副本后再编辑。
+
 #### 当前不支持
 
 - 同层并行执行 / 调度器（DAG 引擎刻意串行）
@@ -571,6 +638,7 @@ users ─┬─ api_keys              # JWT 认证
 - `approval` / `human_input` 节点的真正飞书审批/卡片回调集成（骨架已就绪，事件触发器待接）
 - WorkflowTrigger 表 + 事件驱动启动 workflow
 - 版本管理 / 灰度 / 回滚
+- Workflow resume 接口（`POST /api/workflow-runs/{id}/resume`）
 
 ## 路线图
 
@@ -804,8 +872,12 @@ CREATE TABLE workflow_triggers (
 - ✅ `feishu` 节点 — 包装 `lark-cli`（`subcommand` + `args`，支持 `{{input.x}}` / `{{nodes.x}}` 模板渲染）
 - ✅ `wecom` 节点 — 包装 `wecom-cli`
 - ✅ 45 条 workflow 测试（原 28 + 新增 17）
+- ✅ System-Seed 预设工作流（`presets.py` + 3 个 YAML + lifespan upsert + `list_workflows` 合并系统/用户集）
+- ✅ 并发治理底座 `ConcurrencyGate`（`concurrency/gate.py` + `limiter.py` + `config.py`）
+- ✅ sender context 注入（`contextvars` → `input_data.context`，飞书/企微触发时自动写入）
+- ✅ channel_runner 预设提示（LLM 看到"新闻周报"等关键词自动调 `run_workflow(slug)`）
 
-#### 引擎改造 TODO（2026-04-28）
+#### 引擎改造 TODO（2026-04-29）
 
 | # | 任务 | 优先级 | 文件 | 说明 |
 |---|------|--------|------|------|
@@ -831,7 +903,7 @@ CREATE TABLE workflow_triggers (
 ## 开发与测试
 
 ```bash
-# 全量测试（282 passed, 4 skipped）
+# 全量测试（295 passed, 2 skipped）
 pytest -q
 
 # CLI 与交互边界
@@ -856,15 +928,20 @@ pip-audit
 | 目录 | 说明 |
 |------|------|
 | `tests/cli/` | CLI 编码、slash 命令、交互边界 |
+| `tests/concurrency/` | 并发网关（ConcurrencyGate）单元测试 |
 | `tests/db/` | 数据库会话测试 |
 | `tests/observability/` | 日志、指标、中间件测试 |
 | `tests/skills/` | Skill 加载器与管理器测试 |
 | `tests/tenant/` | 租户 contextvar 测试 |
-| `tests/config/` | 配置加载与校验 |
-| `tests/deps/` | FastAPI 依赖注入 |
-| `tests/entry/` | CLI 入口参数解析 |
 | `tests/smoke/` | Phase 0 运维烟雾（需 Docker） |
-| `tests/` 根 | Agent、工作流、知识库、MCP、认证、聊天、记忆、迁移等 |
+| `tests/agent/` | Agent API 与服务边界测试 |
+| `tests/core/` | 认证、聊天、LLM 边界测试 |
+| `tests/knowledge/` | 知识库 API、搜索、服务测试 |
+| `tests/mcp/` | MCP 客户端边界测试 |
+| `tests/memory/` | 记忆管理器测试 |
+| `tests/migrations/` | Alembic 迁移脚本正确性测试 |
+| `tests/workflow/` | Workflow API、服务、runtime、suspended 状态测试 |
+| `tests/` 根 | 配置、依赖注入、入口、健康检查 |
 
 ## 常见问题
 
@@ -914,5 +991,5 @@ OpenAgentic 以隐私优先为设计原则。
 
 - **分支策略**：从 `main` 拉 feature 分支，提交前跑全量测试与静态检查
 - **代码规范**：Python（Ruff + MyPy）、前端（ESLint + Prettier）
-- **测试要求**：新增功能需附带测试；pytest 全量 282 条必须通过
+- **测试要求**：新增功能需附带测试；pytest 全量 295 条必须通过
 - **PR 流程**：描述清楚改了啥、为什么、如何验证；CI 绿灯后请求 review

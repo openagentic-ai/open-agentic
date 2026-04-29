@@ -568,6 +568,13 @@ async def _execute_node(node_type: str, config: dict[str, Any]) -> Any:
         tool = default_registry.get(str(name))
         if tool is None:
             raise ValueError(f"Unknown tool: {name}")
+        # 工具入参支持两种形态：
+        # 1) config.args: dict —— 直接透传给 tool.execute（推荐，能精确填 url/path/headers 等专属参数）
+        # 2) config.arg: str  —— legacy 路径，把单字符串广播到 input/query/command 三个常用键，
+        #    给 echo / calculator / run_command / knowledge_search 这类只吃单字符串的工具用
+        args_dict = config.get("args")
+        if isinstance(args_dict, dict):
+            return await tool.execute(args_dict)
         arg = config.get("arg", "")
         if isinstance(arg, (dict, list)):
             arg = str(arg)

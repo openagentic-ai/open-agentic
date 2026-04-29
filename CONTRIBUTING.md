@@ -22,7 +22,7 @@ docker compose up -d postgres
 | Python 类型检查 | `mypy` |
 | 安全扫描 | `bandit -r src/openagentic -c pyproject.toml` |
 | 依赖审计 | `pip-audit` |
-| 测试 | `pytest -q`（基线：137 passed, 2 skipped） |
+| 测试 | `pytest -q`（基线：295 passed, 2 skipped） |
 
 提交前请确保：
 - 所有测试通过
