@@ -139,8 +139,20 @@ async def create_workflow(db: AsyncSession, user_id: uuid.UUID, body: WorkflowCr
     return workflow
 
 
+class SystemWorkflowImmutable(ValueError):
+    """系统预设工作流不可改/删——抛出此异常让路由层映射为 400/403，引导用户 fork。"""
+
+
 async def update_workflow(db: AsyncSession, workflow: Workflow, body: WorkflowUpdate) -> Workflow:
-    """更新工作流；若 definition 被修改，会再次校验。"""
+    """更新工作流；若 definition 被修改，会再次校验。
+
+    系统预设（is_system=True）由 presets/*.yaml 单一事实源管理，禁止运行期改动；
+    用户需要个性化时调 fork_workflow 复制成自己的私有副本。
+    """
+    if workflow.is_system:
+        raise SystemWorkflowImmutable(
+            "System preset workflows are immutable. Fork it via POST /api/workflows/{id}/fork to customize."
+        )
     patch = body.model_dump(exclude_unset=True)
     if "definition" in patch and patch["definition"] is not None:
         validate_definition(patch["definition"])
@@ -151,7 +163,33 @@ async def update_workflow(db: AsyncSession, workflow: Workflow, body: WorkflowUp
 
 
 async def delete_workflow(db: AsyncSession, workflow: Workflow) -> None:
+    """删除工作流；系统预设禁止删除。"""
+    if workflow.is_system:
+        raise SystemWorkflowImmutable(
+            "System preset workflows cannot be deleted; remove the YAML in presets/ if you really mean to."
+        )
     await db.delete(workflow)
+
+
+async def fork_workflow(
+    db: AsyncSession, source: Workflow, user_id: uuid.UUID, new_name: str | None = None
+) -> Workflow:
+    """复制一份工作流到当前用户名下（用于把系统预设变成可编辑的私有副本）。
+
+    新副本：user_id=current, is_system=False, slug=None（避免与系统 slug 冲突）, version=1。
+    """
+    workflow = Workflow(
+        user_id=user_id,
+        name=new_name or f"{source.name} (fork)",
+        slug=None,
+        description=source.description,
+        definition=source.definition,
+        is_active=True,
+        is_system=False,
+    )
+    db.add(workflow)
+    await db.flush()
+    return workflow
 
 
 async def create_run(

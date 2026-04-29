@@ -78,6 +78,26 @@ async def delete_workflow(
     await service.delete_workflow(db, workflow)
 
 
+@router.post(
+    "/workflows/{workflow_id}/fork",
+    response_model=schemas.WorkflowResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def fork_workflow(
+    workflow_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """把工作流（含系统预设）复制成当前用户的可编辑私有副本。
+
+    新副本：user_id=current_user, is_system=False, slug=None（避免与系统 slug 冲突）。
+    """
+    source = await service.get_workflow(db, workflow_id, current_user.id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return await service.fork_workflow(db, source, current_user.id)
+
+
 @router.post("/workflows/{workflow_id}/runs", response_model=schemas.WorkflowExecutionResponse)
 async def start_workflow_run(
     workflow_id: uuid.UUID,

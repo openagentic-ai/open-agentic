@@ -29,10 +29,10 @@
 - [x] 8. `channel_runner.py` WORKFLOW_TOOLS 预设提示（slug → run_workflow 直调）
 - [x] 9. sender_open_id / chat_id 注入工作流 context（`contextvars` → `input_data.context`）
 - [x] 10. 并发治理底座 `ConcurrencyGate`（全局信号量 + 类别配额 + 会话串行）
-- [ ] 11. `service.update_workflow` / `delete_workflow` 拒绝 `is_system=True`
-- [ ] 12. `start_workflow_run` / `get_workflow` grant 条件加 `or is_system`
-- [ ] 13. 写测试：`tests/workflow/test_presets.py`
-- [ ] 14. Alembic 迁移重复 slug 检测已存在：`add_is_system_workflow.py` 中 `uq_workflows_slug` / `ix_workflows_slug` 在旧 DB 可能冲突，需检查
+- [x] 11. `service.update_workflow` / `delete_workflow` 拒绝 `is_system=True`（抛 `SystemWorkflowImmutable` → 路由 403）+ `POST /api/workflows/{id}/fork` 端点
+- [x] 12. `start_workflow_run` / `get_workflow` 已合并 `or is_system`；系统 run 归属调用者（`calling_user_id`）
+- [x] 13. 写测试：`tests/workflow/test_presets.py` — 14 条覆盖 YAML 解析/扫描/upsert/版本策略/真实预设健全度/不可改不可删/fork
+- [ ] 14. **遗留小修（非阻塞）**：`add_is_system_workflow.py` 同时建 `uq_workflows_slug` UNIQUE 约束 + `ix_workflows_slug` 普通索引——同一列两个索引冗余；建议下个迁移里 drop 后者，并把模型 `slug` 字段去掉 `index=True`
 
 ### 待修：生产 bug
 
