@@ -28,6 +28,9 @@ _sender_platform: contextvars.ContextVar[str] = contextvars.ContextVar(
 _sender_open_id: contextvars.ContextVar[str] = contextvars.ContextVar(
     "wf_sender_open_id", default=""
 )
+_channel_chat_id: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "wf_channel_chat_id", default=""
+)
 _calling_user_id: contextvars.ContextVar[uuid.UUID | None] = contextvars.ContextVar(
     "wf_calling_user_id", default=None
 )
@@ -392,12 +395,15 @@ async def _execute_definition(
         render_context: dict[str, Any] = {"input": input_payload, "nodes": outputs}
         sender_platform = _sender_platform.get("")
         sender_open_id = _sender_open_id.get("")
+        chat_id = _channel_chat_id.get("")
         calling_uid = _calling_user_id.get()
         ctx: dict[str, str] = {}
         if sender_platform:
             ctx["sender_platform"] = sender_platform
         if sender_open_id:
             ctx["sender_open_id"] = sender_open_id
+        if chat_id:
+            ctx["chat_id"] = chat_id
         if calling_uid:
             ctx["calling_user_id"] = str(calling_uid)
         if ctx:

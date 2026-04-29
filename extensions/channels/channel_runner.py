@@ -32,6 +32,9 @@ _current_platform: contextvars.ContextVar[str] = contextvars.ContextVar(
 _current_sender_open_id: contextvars.ContextVar[str] = contextvars.ContextVar(
     "channel_sender_open_id", default=""
 )
+_current_chat_id: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "channel_chat_id", default=""
+)
 
 MAX_HISTORY = 20
 MAX_TOOL_ITERATIONS = 15
@@ -412,8 +415,10 @@ async def _run_workflow(workflow_id: str, input_data: dict) -> str:
         # sender context 注入：后台任务通过 contextvars 继承当前渠道身份
         platform = _current_platform.get("")
         sender_open_id = _current_sender_open_id.get("")
+        chat_id = _current_chat_id.get("")
         wf_service._sender_platform.set(platform)
         wf_service._sender_open_id.set(sender_open_id)
+        wf_service._channel_chat_id.set(chat_id)
         wf_service._calling_user_id.set(user_id)
 
         # 后台执行——execute_run_by_id 自带 async_session，不污染当前连接
@@ -551,6 +556,7 @@ class ChannelAIService:
         # 必须在 submit 外层 set，因为 contextvars 在 submit 内层 await 也能读到（继承自当前 task）。
         _platform_token = _current_platform.set(platform)
         _sender_token = _current_sender_open_id.set(sender_open_id)
+        _chat_token = _current_chat_id.set(chat_id)
         try:
             try:
                 return await get_default_gate().submit(
@@ -566,6 +572,7 @@ class ChannelAIService:
         finally:
             _current_platform.reset(_platform_token)
             _current_sender_open_id.reset(_sender_token)
+            _current_chat_id.reset(_chat_token)
 
     async def _reply_inner(self, user_text: str, chat_id: str) -> str:
         from openagentic.memory.manager import (

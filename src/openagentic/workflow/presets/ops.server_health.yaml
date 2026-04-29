@@ -1,19 +1,13 @@
 # 服务器巡检
-# 跑 uptime / df / free，LLM 解读后飞书告警。
+# 跑 uptime / df / free，LLM 解读后飞书告警到当前会话。
 slug: ops.server_health
-version: 1
+version: 2
 name: 服务器巡检
 description: >
   检查服务器负载（uptime）、磁盘（df -h）、内存（free -h），
-  LLM 解读异常指标并推飞书告警。触发时传 {{input.target_chat_id}}。
+  LLM 解读异常指标并推飞书告警到触发会话。无需额外参数。
 definition:
   nodes:
-    - id: input
-      type: value
-      config:
-        value:
-          target_chat_id: "{{input.target_chat_id}}"
-
     - id: check_uptime
       type: tool
       config:
@@ -39,7 +33,8 @@ definition:
         system_prompt: >
           你是运维巡检助手。根据 uptime / df / free 输出判断服务器健康状态。
           只报告异常指标（负载 > CPU 核数、磁盘 > 80%、内存 < 10% 可用），
-          正常的略过。用中文输出，Markdown 格式。
+          正常的略过。用中文输出，不用 Markdown 表格和代码块，
+          标题用 **加粗** 不用 # 号。
         prompt: |
           ## 服务器负载
           {{nodes.check_uptime}}
@@ -57,18 +52,12 @@ definition:
       config:
         subcommand: im send
         args:
-          - --receive-id
-          - "{{nodes.input.target_chat_id}}"
+          - --chat-id
+          - "{{context.chat_id}}"
           - --content
           - "{{nodes.analyze}}"
 
   edges:
-    - from: input
-      to: check_uptime
-    - from: input
-      to: check_disk
-    - from: input
-      to: check_mem
     - from: check_uptime
       to: analyze
     - from: check_disk
