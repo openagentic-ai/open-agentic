@@ -634,24 +634,29 @@ class ChannelAIService:
 
         # /list 或 "列表"
         if self._FAST_LIST_RE.match(text):
+            logger.info("fast_path: list", text=text[:50])
             return await _list_workflows()
 
         # query_workflow_run / status / 状态（无参） → 最近一次运行
         if self._FAST_QUERY_BARE_RE.match(text):
+            logger.info("fast_path: status", text=text[:50])
             return await self._fast_last_run_status(chat_id)
 
         # /query <run_id> / 查询 <run_id>
         m = self._FAST_QUERY_RE.match(text)
         if m:
-            run_id = m.group(2)  # group(1) is "query"/"查询"
+            run_id = m.group(2)
+            logger.info("fast_path: query", run_id=run_id[:8])
             return await _query_workflow_run(run_id)
 
         # /run <slug> 或 /run <name>
         m = self._FAST_RUN_RE.match(text)
         if m:
-            slug_or_name = m.group(2)  # group(1) is "run"/"启动"
+            slug_or_name = m.group(2)
+            logger.info("fast_path: run", slug=slug_or_name[:50])
             return await self._fast_run_by_slug(slug_or_name)
 
+        logger.debug("fast_path: miss, falling through to LLM", text=text[:100])
         return None
 
     async def _fast_run_by_slug(self, slug_or_name: str) -> str:

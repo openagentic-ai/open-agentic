@@ -136,8 +136,11 @@ class ConversationEngine:
 
         # 执行
         if self.executor:
+            logger.info("Tool dispatch", tool=func_name,
+                        args_preview=str(func_args)[:200])
             try:
-                return await self.executor(func_name, func_args)
+                result = await self.executor(func_name, func_args)
+                return result
             except Exception as e:
                 logger.exception("Tool executor failed", tool=func_name)
                 return f"工具执行错误：{e}"

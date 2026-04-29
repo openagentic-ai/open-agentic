@@ -16,8 +16,11 @@ from dataclasses import dataclass
 from typing import Any, Callable, Awaitable
 
 import httpx
+import structlog
 
 from openagentic.config import SETTINGS
+
+logger = structlog.get_logger("openagentic.agent.tools")
 
 # 单次工具输出截断上限，防止 token 爆炸
 _MAX_OUTPUT = 4000
@@ -161,6 +164,7 @@ async def _run_command(args: dict[str, Any]) -> str:
     """
     command = args.get("command", "")
     timeout = min(args.get("timeout", 60), 60)
+    logger.info("tool run_command", command=command[:200])
     try:
         proc = await asyncio.create_subprocess_shell(
             command,
@@ -182,6 +186,7 @@ async def _run_command(args: dict[str, Any]) -> str:
 async def _read_file(args: dict[str, Any]) -> str:
     """读取文件内容（UTF-8），超过上限截断。"""
     path = args.get("path", "")
+    logger.info("tool read_file", path=path)
     try:
         loop = asyncio.get_event_loop()
         content = await loop.run_in_executor(None, lambda: open(path, "r", encoding="utf-8").read())

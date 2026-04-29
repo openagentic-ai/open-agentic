@@ -6,10 +6,12 @@ import asyncio
 import contextvars
 import os
 import re
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+import structlog
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +36,8 @@ _channel_chat_id: contextvars.ContextVar[str] = contextvars.ContextVar(
 _calling_user_id: contextvars.ContextVar[uuid.UUID | None] = contextvars.ContextVar(
     "wf_calling_user_id", default=None
 )
+
+logger = structlog.get_logger("openagentic.workflow.service")
 
 VAR_PATTERN = re.compile(r"\{\{\s*([^}]+)\s*\}\}")
 TRACE_KEY = "trace"
@@ -270,6 +274,11 @@ async def execute_run(db: AsyncSession, run: WorkflowExecution, workflow: Workfl
     中途可进入 suspended（approval/human_input 节点触发），
     resume 时从 suspended 回到 running。
     """
+    t0 = time.monotonic()
+    logger.info("execute_run start", run_id=str(getattr(run, "id", "")),
+                workflow_slug=getattr(workflow, "slug", ""),
+                workflow_name=getattr(workflow, "name", ""), status=run.status.value)
+
     run.status = ExecutionStatus.running
     run.started_at = datetime.now(timezone.utc)
     run.completed_at = None
@@ -288,7 +297,8 @@ async def execute_run(db: AsyncSession, run: WorkflowExecution, workflow: Workfl
             run.status = ExecutionStatus.cancelled
         elif run.status == ExecutionStatus.suspended:
             # _execute_definition 已将 run 置为 suspended 并持久化了 outputs/trace
-            pass
+            logger.info("execute_run suspended", run_id=str(getattr(run, "id", "")),
+                        waiting_for=get_waiting_for(run))
         else:
             run.status = ExecutionStatus.completed
         if run.status != ExecutionStatus.suspended:
@@ -298,12 +308,18 @@ async def execute_run(db: AsyncSession, run: WorkflowExecution, workflow: Workfl
         # 外部协程取消（如任务终止）统一映射为 cancelled。
         run.status = ExecutionStatus.cancelled
         run.node_states = {**(run.node_states or {}), "error": "Run cancelled"}
+        logger.info("execute_run cancelled", run_id=str(getattr(run, "id", "")))
     except Exception as exc:
         run.status = ExecutionStatus.failed
         run.node_states = {**(run.node_states or {}), "error": str(exc)}
+        logger.error("execute_run failed", run_id=str(getattr(run, "id", "")), error=str(exc),
+                     exc_info=True)
     finally:
         if run.status in TERMINAL_STATUSES:
             run.completed_at = datetime.now(timezone.utc)
+        elapsed = time.monotonic() - t0
+        logger.info("execute_run done", run_id=str(getattr(run, "id", "")), status=run.status.value,
+                    elapsed_ms=round(elapsed * 1000))
         await db.flush()
     return run
 
@@ -379,13 +395,20 @@ async def _execute_definition(
             break
 
         node = nodes[node_id]
+        node_type_name = node.get("type", "")
+
+        run_id_str = str(getattr(run, "id", ""))
+        logger.debug("execute node start", run_id=run_id_str, node_id=node_id,
+                     node_type=node_type_name)
 
         # 条件边检查：入边条件全部为 False 时跳过此节点
         should_skip, skip_reason = _should_skip_node(node_id, definition, outputs)
         if should_skip:
+            logger.debug("execute node skipped", run_id=str(getattr(run, "id", "")), node_id=node_id,
+                         reason=skip_reason)
             trace.append({
                 "node_id": node_id,
-                "node_type": node["type"],
+                "node_type": node_type_name,
                 "status": "skipped",
                 "reason": skip_reason,
             })
@@ -434,10 +457,12 @@ async def _execute_definition(
                     set_waiting_for(run, signal)
                     trace.append({
                         "node_id": node_id,
-                        "node_type": node["type"],
+                        "node_type": node_type_name,
                         "status": "suspended",
                         "waiting_for": signal,
                     })
+                    logger.info("execute node suspended", run_id=str(getattr(run, "id", "")),
+                                node_id=node_id, signal_type=signal.get("type"))
                     # 持久化已完成的 outputs + trace 供 resume 恢复
                     run.node_states = {
                         **(run.node_states or {}),
@@ -452,12 +477,14 @@ async def _execute_definition(
                 trace.append(
                     {
                         "node_id": node_id,
-                        "node_type": node["type"],
+                        "node_type": node_type_name,
                         "status": "success",
                         "attempt": attempts,
                         "output": output,
                     }
                 )
+                logger.info("execute node success", run_id=str(getattr(run, "id", "")),
+                            node_id=node_id, node_type=node_type_name, attempt=attempts)
                 break
             except Exception as exc:  # noqa: PERF203
                 # 失败后根据 retries 决定重试或失败终止，并记录结构化 trace。
@@ -466,22 +493,28 @@ async def _execute_definition(
                     trace.append(
                         {
                             "node_id": node_id,
-                            "node_type": node["type"],
+                            "node_type": node_type_name,
                             "status": "failed",
                             "attempt": attempts,
                             "error": last_err,
                         }
                     )
+                    logger.error("execute node failed", run_id=str(getattr(run, "id", "")),
+                                 node_id=node_id, node_type=node_type_name,
+                                 attempt=attempts, error=last_err)
                     raise RuntimeError(f"Node {node_id} failed: {last_err}") from exc
                 trace.append(
                     {
                         "node_id": node_id,
-                        "node_type": node["type"],
+                        "node_type": node_type_name,
                         "status": "retrying",
                         "attempt": attempts,
                         "error": last_err,
                     }
                 )
+                logger.warning("execute node retrying", run_id=str(getattr(run, "id", "")),
+                               node_id=node_id, node_type=node_type_name,
+                               attempt=attempts, error=last_err)
 
     final_output = outputs[order[-1]] if order and order[-1] in outputs else None
     return final_output, trace
@@ -502,6 +535,8 @@ async def _run_cli(
     if platform and sender_platform and sender_open_id:
         extra_env["OPENAGENTIC_SENDER_PLATFORM"] = sender_platform
         extra_env["OPENAGENTIC_SENDER_OPEN_ID"] = sender_open_id
+    logger.info("_run_cli", binary=binary, cmd=" ".join(cmd[:6]),
+                has_sender_context=bool(extra_env))
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -509,6 +544,9 @@ async def _run_cli(
         env={**os.environ, **extra_env},
     )
     stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        logger.warning("_run_cli non-zero exit", binary=binary, returncode=proc.returncode,
+                       stderr=stderr.decode("utf-8", errors="replace")[:500])
     return {
         "stdout": stdout.decode("utf-8", errors="replace").strip(),
         "stderr": stderr.decode("utf-8", errors="replace").strip(),
@@ -519,7 +557,9 @@ async def _run_cli(
 async def _execute_node(node_type: str, config: dict[str, Any]) -> Any:
     """执行单个节点（value/tool/llm/approval/human_input/feishu/wecom）。"""
     if node_type == "value":
-        return config.get("value")
+        val = config.get("value")
+        logger.debug("execute value node", value_preview=str(val)[:200])
+        return val
 
     if node_type == "tool":
         name = config.get("tool_name")
@@ -531,6 +571,7 @@ async def _execute_node(node_type: str, config: dict[str, Any]) -> Any:
         arg = config.get("arg", "")
         if isinstance(arg, (dict, list)):
             arg = str(arg)
+        logger.info("execute tool node", tool_name=name, arg_preview=str(arg)[:200])
         return await tool.execute({"input": str(arg), "query": str(arg), "command": str(arg)})
 
     if node_type == "llm":
@@ -539,6 +580,8 @@ async def _execute_node(node_type: str, config: dict[str, Any]) -> Any:
             raise ValueError("llm node requires config.prompt")
         system = config.get("system_prompt")
         model = config.get("model")
+        logger.info("execute llm node", model=model or "(default)",
+                    prompt_preview=str(prompt)[:200])
         messages = []
         if system:
             messages.append({"role": "system", "content": str(system)})

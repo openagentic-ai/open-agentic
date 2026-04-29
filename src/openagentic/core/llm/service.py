@@ -1,12 +1,15 @@
 """模块说明（中文）：`src/openagentic/core/llm/service.py`。\n\n该文件承载核心业务逻辑，供路由层复用。\n"""
 
 import json
+import structlog
 from collections.abc import AsyncGenerator
 
 import litellm
 
 from openagentic.core.llm.provider_config import get_provider_store
 from openagentic.tenant import get_current_request_id, get_current_tenant_id
+
+logger = structlog.get_logger("openagentic.core.llm")
 
 # Configure LiteLLM
 litellm.drop_params = True
@@ -37,6 +40,7 @@ async def chat_completion(
 ) -> dict:
     """Non-streaming chat completion."""
     kwargs = _litellm_kwargs(model)
+    logger.info("chat_completion", model=kwargs.get("model"), msg_count=len(messages))
     response = await litellm.acompletion(
         messages=messages,
         temperature=temperature,
