@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import json as _json
 import os
+import re
 import structlog
 import subprocess
+import uuid as _uuid
 from typing import Any
 
 logger = structlog.get_logger("openagentic.channels.runner")
@@ -479,6 +482,37 @@ async def _query_workflow_run(run_id: str) -> str:
         return f"查询失败：{e}"
 
 
+# ── 预设工作流提示 ──────────────────────────────────────────────────────
+
+
+def _build_preset_hint() -> str:
+    """从 YAML 预设文件中提取 slug + name + 一句话描述，注入 system prompt。
+
+    LLM 看到这个就知道用户说「跑个新闻周报」时应该直接调 run_workflow("news.tech_weekly")。
+    """
+    try:
+        from openagentic.workflow.presets import _scan_presets
+        presets = _scan_presets()
+        if not presets:
+            return ""
+    except Exception:
+        return ""
+
+    lines = [
+        "\n## 系统预设工作流（直接调 run_workflow(slug)，不要手工执行）",
+    ]
+    for p in presets:
+        slug = p.get("slug", "")
+        name = p.get("name", "")
+        desc = (p.get("description", "") or "").replace("\n", " ").strip()[:100]
+        lines.append(f"- `{slug}` — {name}: {desc}")
+    lines.append("用户说「新闻/周报/AI动态」→ 直接 run_workflow('news.tech_weekly')")
+    lines.append("用户说「摘要/链接/URL」→ 直接 run_workflow('doc.summarize_url')")
+    lines.append("用户说「巡检/服务器/健康检查」→ 直接 run_workflow('ops.server_health')")
+    lines.append("不要自己 curl、爬虫、scrape——交给工作流引擎执行。")
+    return "\n".join(lines)
+
+
 # ── AI 回复（带工具调用循环）─────────────────────────────────────────────
 
 
@@ -510,6 +544,11 @@ class ChannelAIService:
 
         from openagentic.identity import build_system_prompt
         system_prompt = build_system_prompt(list(channel_hints) if channel_hints else None)
+
+        # 注入可用系统预设工作流（LLM 看到后直接调 run_workflow，不会手工爬）
+        preset_hint = _build_preset_hint()
+        if preset_hint:
+            system_prompt += "\n" + preset_hint
 
         # Core memory：启动时注入 system prompt
         try:
@@ -558,6 +597,11 @@ class ChannelAIService:
         _sender_token = _current_sender_open_id.set(sender_open_id)
         _chat_token = _current_chat_id.set(chat_id)
         try:
+            # ── 快路径：匹配已知命令，绕过 LLM 直接执行 ──
+            fast_reply = await self._fast_path_reply(user_text, chat_id)
+            if fast_reply is not None:
+                return fast_reply
+
             try:
                 return await get_default_gate().submit(
                     session_key=chat_id,
@@ -573,6 +617,120 @@ class ChannelAIService:
             _current_platform.reset(_platform_token)
             _current_sender_open_id.reset(_sender_token)
             _current_chat_id.reset(_chat_token)
+
+    # ── 快路径匹配 ──────────────────────────────────────────────────────
+    _FAST_RUN_RE = re.compile(r"^[/]?run\s+(\S+)", re.IGNORECASE)
+    _FAST_QUERY_RE = re.compile(r"^[/]?query\s+([0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12})", re.IGNORECASE)
+    _FAST_LIST_RE = re.compile(r"^[/]?(list|ls|列表|列出)", re.IGNORECASE)
+    _FAST_STATUS_RE = re.compile(r"^[/]?status$", re.IGNORECASE)
+
+    async def _fast_path_reply(self, user_text: str, chat_id: str) -> str | None:
+        """匹配已知命令模式，直接执行不经过 LLM。返回 None 表示未命中。"""
+        text = user_text.strip()
+
+        # /list 或 "列表"
+        if self._FAST_LIST_RE.match(text):
+            return await _list_workflows()
+
+        # /run <slug> 或 /run <name>
+        m = self._FAST_RUN_RE.match(text)
+        if m:
+            slug_or_name = m.group(1)
+            return await self._fast_run_by_slug(slug_or_name)
+
+        # /query <run_id>
+        m = self._FAST_QUERY_RE.match(text)
+        if m:
+            run_id = m.group(1)
+            return await _query_workflow_run(run_id)
+
+        # /status: last run status
+        if self._FAST_STATUS_RE.match(text):
+            return await self._fast_last_run_status(chat_id)
+
+        return None
+
+    async def _fast_run_by_slug(self, slug_or_name: str) -> str:
+        """按 slug 或名称查找预设/用户工作流，直接启动。"""
+        user_id = await _current_user_id()
+        if user_id is None:
+            return "抱歉，未能识别你的身份。"
+
+        try:
+            from openagentic.db.session import async_session
+            from openagentic.workflow import service as wf_service
+            from openagentic.workflow.runtime import runtime
+            from sqlalchemy import or_, select
+            from openagentic.workflow.models import Workflow
+
+            async with async_session() as db:
+                result = await db.execute(
+                    select(Workflow).where(
+                        Workflow.is_active == True,  # noqa: E712
+                        or_(
+                            Workflow.slug == slug_or_name,
+                            Workflow.name == slug_or_name,
+                        ),
+                    )
+                )
+                wf = result.scalar_one_or_none()
+                if not wf:
+                    return f"未找到工作流「{slug_or_name}」。输入「list」查看可用列表。"
+
+                # 检查权限：用户自有或系统工作流
+                if not wf.is_system and wf.user_id != user_id:
+                    return f"工作流「{wf.name}」不属于你。"
+
+                run = await wf_service.create_run(db, wf, {},
+                                                  calling_user_id=user_id)
+                run_id = run.id
+                wf_id = wf.id
+                wf_name = wf.name
+                await db.commit()
+
+            platform = _current_platform.get("")
+            sender_open_id = _current_sender_open_id.get("")
+            chat_id = _current_chat_id.get("")
+            from openagentic.workflow import service as wf_service2
+            wf_service2._sender_platform.set(platform)
+            wf_service2._sender_open_id.set(sender_open_id)
+            wf_service2._channel_chat_id.set(chat_id)
+            wf_service2._calling_user_id.set(user_id)
+
+            runtime.start(
+                run_id,
+                wf_service2.execute_run_by_id(run_id, wf_id, user_id,
+                                              calling_user_id=user_id),
+            )
+
+            return _json.dumps({
+                "run_id": str(run_id),
+                "workflow": wf_name,
+                "status": "started",
+                "note": "已在后台启动，用「query <run_id>」查进度。",
+            }, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.exception("fast_run_by_slug failed")
+            return f"启动失败：{e}"
+
+    async def _fast_last_run_status(self, chat_id: str) -> str:
+        """查询当前会话最近一次 workflow run 的状态。"""
+        user_id = await _current_user_id()
+        if user_id is None:
+            return "抱歉，未能识别你的身份。"
+        try:
+            from openagentic.db.session import async_session
+            from openagentic.workflow import service as wf_service
+            async with async_session() as db:
+                runs = await wf_service.list_runs(db, user_id)
+            if not runs:
+                return "没有找到运行记录。"
+            latest = runs[0]
+            status = latest.status.value if hasattr(latest.status, "value") else str(latest.status)
+            return f"最近运行: {latest.id}\n状态: {status}\n结果: {(latest.output_data or {}).get('result', '(无)')}"
+        except Exception as e:
+            logger.exception("fast_last_run_status failed")
+            return f"查询失败：{e}"
 
     async def _reply_inner(self, user_text: str, chat_id: str) -> str:
         from openagentic.memory.manager import (
