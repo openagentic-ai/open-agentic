@@ -199,7 +199,10 @@ async def execute_tool(name: str, args: dict) -> str:
     if name == "run_command":
         return await _run_command(args.get("command", ""))
     elif name == "read_file":
-        return await _read_file(args.get("path", ""), args.get("max_lines", 200))
+        # read_file 走 io 类别（异步文件读其实是 sync_to_thread，但仍受 io 槽位保护）
+        from openagentic.concurrency import get_default_gate
+        async with get_default_gate().acquire("io"):
+            return await _read_file(args.get("path", ""), args.get("max_lines", 200))
     elif name == "lark_cli":
         return await _run_lark_cli(args.get("args", []))
     elif name == "list_workflows":
@@ -225,17 +228,20 @@ async def _run_command(command: str) -> str:
     if not cmd:
         return "错误：命令为空"
     logger.info("[TOOL] run_command", command=cmd[:200])
+    # 子进程上限保护：100 用户同时让 bot 跑 git pull 时不击穿机器
+    from openagentic.concurrency import get_default_gate
     try:
-        proc = await asyncio.create_subprocess_shell(
-            cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
-        out = stdout.decode("utf-8", errors="replace").strip()
-        err = stderr.decode("utf-8", errors="replace").strip()
-        result = out or err or "(无输出)"
-        if len(result) > 4000:
-            result = result[:4000] + "\n... (输出截断)"
-        return result
+        async with get_default_gate().acquire("subprocess"):
+            proc = await asyncio.create_subprocess_shell(
+                cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+            out = stdout.decode("utf-8", errors="replace").strip()
+            err = stderr.decode("utf-8", errors="replace").strip()
+            result = out or err or "(无输出)"
+            if len(result) > 4000:
+                result = result[:4000] + "\n... (输出截断)"
+            return result
     except asyncio.TimeoutError:
         return "错误：命令执行超时 (30s)"
 
@@ -262,17 +268,20 @@ async def _read_file(path: str, max_lines: int = 200) -> str:
 async def _run_lark_cli(args: list[str]) -> str:
     cmd = ["lark-cli"] + args
     logger.info("[TOOL] lark-cli", cmd=" ".join(cmd))
+    # 同 _run_command——lark-cli 也是子进程，受同一类别配额保护
+    from openagentic.concurrency import get_default_gate
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
-        out = stdout.decode("utf-8", errors="replace").strip()
-        err = stderr.decode("utf-8", errors="replace").strip()
-        result = out or err or "(无输出)"
-        if len(result) > 4000:
-            result = result[:4000] + "\n... (输出截断)"
-        return result
+        async with get_default_gate().acquire("subprocess"):
+            proc = await asyncio.create_subprocess_exec(
+                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+            out = stdout.decode("utf-8", errors="replace").strip()
+            err = stderr.decode("utf-8", errors="replace").strip()
+            result = out or err or "(无输出)"
+            if len(result) > 4000:
+                result = result[:4000] + "\n... (输出截断)"
+            return result
     except asyncio.TimeoutError:
         return "错误：lark-cli 执行超时 (30s)"
     except FileNotFoundError:
@@ -517,14 +526,32 @@ class ChannelAIService:
     ) -> str:
         """处理一条用户消息，返回 AI 回复。
 
+        通过 ConcurrencyGate 接入并发底座：
+        - session_key=chat_id：同会话严格串行，杜绝 _histories 竞态
+        - category="default"：业务级配额；底层 LLM/子进程调用各自走自己类别
+        - timeout 不在此设置，由底座默认值或上层 wait_for 兜底（飞书层已 180s）
+
         每轮自动注入 episodic + procedural memory，触发 working memory 压缩。
         platform/sender_open_id 用于在工具执行（如 run_workflow）时按 user_channel_bindings 解析归属用户。
         """
-        # 把渠道身份塞到 contextvars，供本次 LLM 调用链内的工具读取
+        from openagentic.concurrency import get_default_gate, GateBusy, GateTimeout
+
+        # 把渠道身份塞到 contextvars，供本次 LLM 调用链内的工具读取——
+        # 必须在 submit 外层 set，因为 contextvars 在 submit 内层 await 也能读到（继承自当前 task）。
         _platform_token = _current_platform.set(platform)
         _sender_token = _current_sender_open_id.set(sender_open_id)
         try:
-            return await self._reply_inner(user_text, chat_id)
+            try:
+                return await get_default_gate().submit(
+                    session_key=chat_id,
+                    coro_factory=lambda: self._reply_inner(user_text, chat_id),
+                )
+            except GateBusy:
+                logger.warning("gate busy, dropping reply", chat_id=chat_id)
+                return "服务繁忙，请稍后重试。"
+            except GateTimeout:
+                logger.warning("gate timeout", chat_id=chat_id)
+                return "处理超时，请稍后重试。"
         finally:
             _current_platform.reset(_platform_token)
             _current_sender_open_id.reset(_sender_token)
@@ -541,9 +568,12 @@ class ChannelAIService:
             *history[-MAX_HISTORY:],
         ]
 
-        # Episodic memory：搜索相关历史对话
+        # Episodic / Procedural memory：原 MemoryManager 是同步文件 I/O，
+        # 直接 await 会阻塞 event loop 拖慢所有其他用户；用 to_thread 隔离到线程池。
         try:
-            eps = MemoryManager().search_episodes(user_text, top_k=3)
+            eps = await asyncio.to_thread(
+                MemoryManager().search_episodes, user_text, 3
+            )
             if eps:
                 ctx = "## Relevant Past Experiences\n\n"
                 for i, ep in enumerate(eps, 1):
@@ -552,9 +582,10 @@ class ChannelAIService:
         except Exception as exc:
             logger.warning("episodic memory injection failed", error=str(exc))
 
-        # Procedural memory：搜索可复用步骤
         try:
-            procs = MemoryManager().search_procedures(user_text, top_k=3)
+            procs = await asyncio.to_thread(
+                MemoryManager().search_procedures, user_text, 3
+            )
             if procs:
                 ctx = "## Relevant Procedures\n\n"
                 for i, p in enumerate(procs, 1):
@@ -591,7 +622,9 @@ class ChannelAIService:
         try:
             title = user_text.strip()[:48]
             summary = f"User: {user_text[:300]}\nAssistant: {reply[:300]}"
-            MemoryManager().save_episode(title=title, summary=summary, tags=[chat_id])
+            await asyncio.to_thread(
+                MemoryManager().save_episode, title, summary, [chat_id]
+            )
         except Exception as exc:
             logger.warning("episodic memory save failed", error=str(exc))
 

@@ -154,12 +154,25 @@ def _setup_channel_routes(app: FastAPI) -> None:
     )
 
     async def _channel_agent_callback(msg: IncomingMessage) -> str:
-        try:
+        # 通过并发底座：同 chat_id 串行 + 全局/LLM 类别限流，与 ChannelAIService 同一套配额。
+        from openagentic.concurrency import get_default_gate, GateBusy, GateTimeout
+
+        async def _run() -> str:
             messages = [
                 {"role": "system", "content": _channel_engine.system_prompt},
                 {"role": "user", "content": msg.text},
             ]
             return await _channel_engine.chat(messages) or "（未返回内容）"
+
+        try:
+            return await get_default_gate().submit(
+                session_key=msg.chat_id or msg.sender_id,
+                coro_factory=_run,
+            )
+        except GateBusy:
+            return "服务繁忙，请稍后重试。"
+        except GateTimeout:
+            return "处理超时，请稍后重试。"
         except Exception:
             logger.exception("Channel agent execution failed for %s", msg.platform)
             return "抱歉，处理消息时遇到错误，请稍后重试。"

@@ -83,11 +83,25 @@ async def execute_agent(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """执行 Agent：运行 ReAct loop，返回执行记录（含步骤追踪）。"""
+    """执行 Agent：运行 ReAct loop，返回执行记录（含步骤追踪）。
+
+    通过并发底座接入：session_key=user_id 让同用户的连续调用串行（避免对账面打架），
+    跨用户走全局信号量与 LLM 类别限流。底层 litellm_chat 还会再过一道 LLM 类别。
+    """
     agent = await service.get_agent(db, agent_id, current_user.id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-    return await service.execute_agent(db, agent, body.input)
+
+    from openagentic.concurrency import get_default_gate, GateBusy, GateTimeout
+    try:
+        return await get_default_gate().submit(
+            session_key=str(current_user.id),
+            coro_factory=lambda: service.execute_agent(db, agent, body.input),
+        )
+    except GateBusy:
+        raise HTTPException(status_code=503, detail="Service busy, please retry shortly")
+    except GateTimeout:
+        raise HTTPException(status_code=504, detail="Execution timed out")
 
 
 @router.get("/agents/{agent_id}/executions", response_model=list[schemas.ExecutionResponse])

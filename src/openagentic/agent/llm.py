@@ -66,8 +66,12 @@ async def litellm_chat(
         kwargs["tool_choice"] = "auto"
     kwargs.setdefault("timeout", 120)
 
+    # 走 LLM 类别配额（信号量 + 令牌桶）——保护 provider QPS、削峰填谷。
+    # 每次 LLM 调用都过这一关：CLI 单次调用没影响，飞书/HTTP 高并发时自动限流。
+    from openagentic.concurrency import get_default_gate
     try:
-        response = await litellm.acompletion(**kwargs)
+        async with get_default_gate().acquire("llm"):
+            response = await litellm.acompletion(**kwargs)
     except Exception:
         logger.exception("litellm_chat failed")
         raise
