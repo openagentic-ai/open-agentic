@@ -17,6 +17,7 @@ dependencies = [
     "python-jose[cryptography]>=3.3.0",
     "passlib[bcrypt]>=1.7.4",
     "python-multipart>=0.0.18",
+    "pyyaml>=6.0",
     # LLM
     "litellm>=1.55.0",
     # Validation & Settings

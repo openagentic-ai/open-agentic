@@ -1,0 +1,65 @@
+# 全球科技/AI 新闻周报
+# 抓取 HackerNews + arXiv 当日热门，LLM 汇总后推到飞书群。
+slug: news.tech_weekly
+version: 1
+name: 全球科技/AI 新闻周报
+description: >
+  抓取 Hacker News 前 30 条 + arXiv 最新 AI 论文，LLM 精炼为 5-8 条周报要点，
+  推送到指定飞书群或私聊。触发时传 {{input.target_chat_id}}。
+definition:
+  nodes:
+    - id: input
+      type: value
+      config:
+        value:
+          target_chat_id: "{{input.target_chat_id}}"
+
+    - id: fetch_hn
+      type: tool
+      config:
+        tool_name: run_command
+        arg: "curl -s 'https://hacker-news.firebaseio.com/v0/topstories.json' | head -c 200"
+
+    - id: fetch_arxiv
+      type: tool
+      config:
+        tool_name: run_command
+        arg: "curl -s 'http://export.arxiv.org/api/query?search_query=cat:cs.AI&sortBy=submittedDate&sortOrder=descending&max_results=10' | head -c 5000"
+
+    - id: summarize
+      type: llm
+      config:
+        model: deepseek/deepseek-v4-flash
+        system_prompt: >
+          你是科技新闻编辑。把 HN 热门和 arXiv 论文整理成简洁的周报（5-8 条要点），
+          每条带一句话解读。用中文输出，Markdown 格式。
+        prompt: |
+          ## Hacker News 热门
+          {{nodes.fetch_hn}}
+
+          ## arXiv 最新 AI 论文
+          {{nodes.fetch_arxiv}}
+
+          请整理为今日 AI/科技周报。
+
+    - id: push_feishu
+      type: feishu
+      config:
+        subcommand: im send
+        args:
+          - --receive-id
+          - "{{nodes.input.target_chat_id}}"
+          - --content
+          - "{{nodes.summarize}}"
+
+  edges:
+    - from: input
+      to: fetch_hn
+    - from: input
+      to: fetch_arxiv
+    - from: fetch_hn
+      to: summarize
+    - from: fetch_arxiv
+      to: summarize
+    - from: summarize
+      to: push_feishu

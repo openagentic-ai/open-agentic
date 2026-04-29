@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
+import os
 import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openagentic.agent.tools import default_registry
@@ -16,6 +18,19 @@ from openagentic.core.llm.service import chat_completion
 from openagentic.db.session import async_session
 from openagentic.workflow.models import TERMINAL_STATUSES, ExecutionStatus, Workflow, WorkflowExecution
 from openagentic.workflow.schemas import WorkflowCreate, WorkflowUpdate
+
+# ── Sender context（渠道触发的工作流节点执行时读取） ────────────────────
+# HTTP 路由在执行前设置 _calling_user_id；渠道 runner 额外设置 _sender_platform / _sender_open_id。
+# _execute_node 在执行 feishu/wecom 节点时读取这些值，注入子进程环境变量。
+_sender_platform: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "wf_sender_platform", default=""
+)
+_sender_open_id: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "wf_sender_open_id", default=""
+)
+_calling_user_id: contextvars.ContextVar[uuid.UUID | None] = contextvars.ContextVar(
+    "wf_calling_user_id", default=None
+)
 
 VAR_PATTERN = re.compile(r"\{\{\s*([^}]+)\s*\}\}")
 TRACE_KEY = "trace"
@@ -41,14 +56,19 @@ _COND_TRUTHY_RE = re.compile(r"^\{\{\s*([^}]+)\s*\}\}$")
 
 async def list_workflows(db: AsyncSession, user_id: uuid.UUID) -> list[Workflow]:
     result = await db.execute(
-        select(Workflow).where(Workflow.user_id == user_id).order_by(Workflow.updated_at.desc())
+        select(Workflow)
+        .where(or_(Workflow.user_id == user_id, Workflow.is_system == True))  # noqa: E712
+        .order_by(Workflow.is_system.desc(), Workflow.updated_at.desc())
     )
     return list(result.scalars().all())
 
 
 async def get_workflow(db: AsyncSession, workflow_id: uuid.UUID, user_id: uuid.UUID) -> Workflow | None:
     result = await db.execute(
-        select(Workflow).where(Workflow.id == workflow_id, Workflow.user_id == user_id)
+        select(Workflow).where(
+            Workflow.id == workflow_id,
+            or_(Workflow.user_id == user_id, Workflow.is_system == True),  # noqa: E712
+        )
     )
     return result.scalar_one_or_none()
 
@@ -101,9 +121,11 @@ async def create_workflow(db: AsyncSession, user_id: uuid.UUID, body: WorkflowCr
     workflow = Workflow(
         user_id=user_id,
         name=body.name,
+        slug=body.slug or None,
         description=body.description,
         definition=body.definition,
         is_active=True,
+        is_system=False,
     )
     db.add(workflow)
     await db.flush()
@@ -129,11 +151,17 @@ async def create_run(
     db: AsyncSession,
     workflow: Workflow,
     input_data: dict[str, Any] | None,
+    calling_user_id: uuid.UUID | None = None,
 ) -> WorkflowExecution:
-    """创建一次运行记录（初始状态 pending）。"""
+    """创建一次运行记录（初始状态 pending）。
+
+    系统工作流的 run 归属调用者（calling_user_id），而非 workflow 所有者；
+    用户自有工作流保持原有语义（run 归属 = workflow 所有者）。
+    """
+    owner_id = calling_user_id if workflow.is_system and calling_user_id else workflow.user_id
     run = WorkflowExecution(
         workflow_id=workflow.id,
-        user_id=workflow.user_id,
+        user_id=owner_id,
         status=ExecutionStatus.pending,
         input_data=input_data or {},
         output_data=None,
@@ -277,7 +305,10 @@ async def execute_run(db: AsyncSession, run: WorkflowExecution, workflow: Workfl
     return run
 
 
-async def execute_run_by_id(run_id: uuid.UUID, workflow_id: uuid.UUID, user_id: uuid.UUID) -> None:
+async def execute_run_by_id(
+    run_id: uuid.UUID, workflow_id: uuid.UUID, user_id: uuid.UUID,
+    calling_user_id: uuid.UUID | None = None,
+) -> None:
     """后台任务入口：按 ID 拉取 run/workflow 并执行。"""
     async with async_session() as db:
         run = await get_run(db, run_id, user_id)
@@ -357,10 +388,22 @@ async def _execute_definition(
             })
             continue
 
-        rendered = _render_value(
-            node.get("config", {}),
-            {"input": input_payload, "nodes": outputs},
-        )
+        # 构建 context 维度（渠道 sender 身份），供 {{context.xxx}} 引用
+        render_context: dict[str, Any] = {"input": input_payload, "nodes": outputs}
+        sender_platform = _sender_platform.get("")
+        sender_open_id = _sender_open_id.get("")
+        calling_uid = _calling_user_id.get()
+        ctx: dict[str, str] = {}
+        if sender_platform:
+            ctx["sender_platform"] = sender_platform
+        if sender_open_id:
+            ctx["sender_open_id"] = sender_open_id
+        if calling_uid:
+            ctx["calling_user_id"] = str(calling_uid)
+        if ctx:
+            render_context["context"] = ctx
+
+        rendered = _render_value(node.get("config", {}), render_context)
 
         retries = int(rendered.get("retries", 0) or 0)
         timeout_sec = float(rendered.get("timeout_sec", 60) or 60)
@@ -438,13 +481,26 @@ async def _execute_definition(
     return final_output, trace
 
 
-async def _run_cli(binary: str, subcommand: str, args: list) -> dict[str, Any]:
-    """执行 CLI 二进制，返回 {stdout, stderr, returncode}。"""
+async def _run_cli(
+    binary: str, subcommand: str, args: list, platform: str = ""
+) -> dict[str, Any]:
+    """执行 CLI 二进制，返回 {stdout, stderr, returncode}。
+
+    若 sender context 中有渠道身份，注入子进程环境变量
+    供 lark-cli/wecom-cli 使用发送者凭据而非 bot 默认凭据。
+    """
     cmd = [binary] + subcommand.split() + [str(a) for a in args]
+    extra_env = {}
+    sender_platform = _sender_platform.get("")
+    sender_open_id = _sender_open_id.get("")
+    if platform and sender_platform and sender_open_id:
+        extra_env["OPENAGENTIC_SENDER_PLATFORM"] = sender_platform
+        extra_env["OPENAGENTIC_SENDER_OPEN_ID"] = sender_open_id
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env={**os.environ, **extra_env},
     )
     stdout, stderr = await proc.communicate()
     return {
@@ -491,7 +547,7 @@ async def _execute_node(node_type: str, config: dict[str, Any]) -> Any:
         args = config.get("args", [])
         if isinstance(args, str):
             args = [args]
-        return await _run_cli("lark-cli", subcommand, args)
+        return await _run_cli("lark-cli", subcommand, args, platform="feishu")
 
     if node_type == "wecom":
         subcommand = config.get("subcommand", "")
@@ -500,7 +556,7 @@ async def _execute_node(node_type: str, config: dict[str, Any]) -> Any:
         args = config.get("args", [])
         if isinstance(args, str):
             args = [args]
-        return await _run_cli("wecom-cli", subcommand, args)
+        return await _run_cli("wecom-cli", subcommand, args, platform="wecom")
 
     if node_type == "approval":
         return {

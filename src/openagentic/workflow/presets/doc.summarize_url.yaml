@@ -1,0 +1,43 @@
+# 链接/文档摘要
+# 输入一个 URL，抓取内容后 LLM 摘要输出。
+slug: doc.summarize_url
+version: 1
+name: 链接/文档摘要
+description: >
+  输入任意 URL，抓取页面内容后 LLM 提取关键信息并生成中文摘要。
+  触发时传 {{input.url}}。
+definition:
+  nodes:
+    - id: input
+      type: value
+      config:
+        value:
+          url: "{{input.url}}"
+
+    - id: fetch_url
+      type: tool
+      config:
+        tool_name: run_command
+        arg: "curl -sL --max-time 15 '{{nodes.input.url}}' | sed 's/<[^>]*>//g' | head -c 8000"
+
+    - id: summarize
+      type: llm
+      config:
+        model: deepseek/deepseek-v4-flash
+        system_prompt: >
+          你是信息摘要助手。把网页内容提取为 3-5 条关键要点，用中文输出。
+          每条一句话，不要啰嗦。如果内容是错误或空白，请诚实告知。
+        prompt: "请摘要以下网页内容：\n\n{{nodes.fetch_url}}"
+
+    - id: output
+      type: value
+      config:
+        value: "{{nodes.summarize}}"
+
+  edges:
+    - from: input
+      to: fetch_url
+    - from: fetch_url
+      to: summarize
+    - from: summarize
+      to: output

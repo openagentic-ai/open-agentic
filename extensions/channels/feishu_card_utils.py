@@ -47,9 +47,15 @@ def build_answer_card(markdown: str) -> dict:
     ])
 
 
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$")
+_HR_RE = re.compile(r"^[-*_]{3,}\s*$")
+
+
 def _sanitize_for_lark_md(md: str) -> str:
     """清理 Markdown 中 lark_md 不支持的语法。
 
+    - 标题 # → 加粗文本（lark_md 不支持 heading）
+    - 分隔线 --- → 空行
     - 表格 → 紧凑列表格式
     - 围栏代码块 → 缩进文本
     """
@@ -80,6 +86,23 @@ def _sanitize_for_lark_md(md: str) -> str:
             for cl in code_lines:
                 result.append(f"    {cl}")
             result.append("")
+            continue
+        # 标题 → 加粗文本
+        m = _HEADING_RE.match(line)
+        if m:
+            level = len(m.group(1))
+            text = m.group(2)
+            # 用不同大小的前缀区分层级
+            if level <= 2:
+                result.append(f"**{text}**")
+            else:
+                result.append(f"**{text}**")
+            result.append("")
+            i += 1
+            continue
+        # 水平分隔线 → 跳过（空行即是分隔）
+        if _HR_RE.match(line.strip()):
+            i += 1
             continue
         result.append(line)
         i += 1

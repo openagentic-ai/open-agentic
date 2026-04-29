@@ -400,14 +400,25 @@ async def _run_workflow(workflow_id: str, input_data: dict) -> str:
                 return f"错误：找不到工作流 {workflow_id}（或不属于当前用户）"
             if not workflow.is_active:
                 return f"错误：工作流 {workflow.name} 已停用"
-            run = await wf_service.create_run(db, workflow, input_data or {})
+            run = await wf_service.create_run(
+                db, workflow, input_data or {},
+                calling_user_id=user_id,
+            )
             run_id = run.id
             wf_id = workflow.id
             wf_name = workflow.name
             await db.commit()
 
+        # sender context 注入：后台任务通过 contextvars 继承当前渠道身份
+        platform = _current_platform.get("")
+        sender_open_id = _current_sender_open_id.get("")
+        wf_service._sender_platform.set(platform)
+        wf_service._sender_open_id.set(sender_open_id)
+        wf_service._calling_user_id.set(user_id)
+
         # 后台执行——execute_run_by_id 自带 async_session，不污染当前连接
-        runtime.start(run_id, wf_service.execute_run_by_id(run_id, wf_id, user_id))
+        runtime.start(run_id, wf_service.execute_run_by_id(run_id, wf_id, user_id,
+                                                            calling_user_id=user_id))
 
         return _json.dumps({
             "run_id": str(run_id),

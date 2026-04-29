@@ -51,6 +51,9 @@ async def lifespan(app: FastAPI):
             await conn.run_sync(Base.metadata.create_all)
         logger.info("Database tables created (dev mode)")
 
+    # 加载系统预设工作流（启动时 upsert）
+    await _load_preset_workflows()
+
     # 启动渠道长连接（飞书 WebSocket 等）
     from extensions.channels import start_channels
     await start_channels()
@@ -63,6 +66,24 @@ async def lifespan(app: FastAPI):
 
     await engine.dispose()
     logger.info("OpenAgentic shutdown complete")
+
+
+async def _load_preset_workflows() -> None:
+    """加载系统预设工作流（启动时 upsert）。
+
+    扫描 src/openagentic/workflow/presets/*.yaml，按 slug 匹配 DB 记录，
+    按 version 决定是否升级。系统工作流 user_id=NULL，全用户可见。
+    """
+    from openagentic.db.session import async_session
+    from openagentic.workflow.presets import load_presets
+
+    try:
+        async with async_session() as db:
+            changed = await load_presets(db)
+            await db.commit()
+        logger.info("preset workflows loaded", changed=len(changed))
+    except Exception:
+        logger.exception("preset workflows load failed")
 
 
 def create_app() -> FastAPI:

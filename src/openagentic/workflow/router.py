@@ -56,6 +56,8 @@ async def update_workflow(
     workflow = await service.get_workflow(db, workflow_id, current_user.id)
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
+    if workflow.is_system:
+        raise HTTPException(status_code=403, detail="System workflows are read-only")
     try:
         return await service.update_workflow(db, workflow, body)
     except ValueError as exc:
@@ -71,6 +73,8 @@ async def delete_workflow(
     workflow = await service.get_workflow(db, workflow_id, current_user.id)
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
+    if workflow.is_system:
+        raise HTTPException(status_code=403, detail="System workflows are read-only")
     await service.delete_workflow(db, workflow)
 
 
@@ -87,7 +91,13 @@ async def start_workflow_run(
     if not workflow.is_active:
         raise HTTPException(status_code=400, detail="Workflow is inactive")
 
-    run = await service.create_run(db, workflow, body.input_data)
+    # HTTP 路径无渠道 sender context，清空后仅设置 calling_user_id 供归属
+    service._sender_platform.set("")
+    service._sender_open_id.set("")
+    service._calling_user_id.set(current_user.id)
+
+    run = await service.create_run(db, workflow, body.input_data,
+                                   calling_user_id=current_user.id)
     return await service.execute_run(db, run, workflow)
 
 

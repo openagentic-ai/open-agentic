@@ -54,7 +54,7 @@ async def test_execute_node_tool_and_value():
 @pytest.mark.asyncio
 async def test_execute_node_feishu_calls_run_cli(monkeypatch):
     """feishu 节点调用 lark-cli，返回 {stdout, stderr, returncode}。"""
-    async def fake_run_cli(binary, subcommand, args):
+    async def fake_run_cli(binary, subcommand, args, platform=""):
         return {"stdout": "ok", "stderr": "", "returncode": 0}
 
     monkeypatch.setattr(service, "_run_cli", fake_run_cli)
@@ -69,7 +69,7 @@ async def test_execute_node_feishu_calls_run_cli(monkeypatch):
 @pytest.mark.asyncio
 async def test_execute_node_wecom_calls_run_cli(monkeypatch):
     """wecom 节点调用 wecom-cli。"""
-    async def fake_run_cli(binary, subcommand, args):
+    async def fake_run_cli(binary, subcommand, args, platform=""):
         assert binary == "wecom-cli"
         return {"stdout": "sent", "stderr": "", "returncode": 0}
 

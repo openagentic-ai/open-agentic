@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 class WorkflowCreate(BaseModel):
     """创建工作流请求：名称 + DAG 定义（nodes/edges）。"""
     name: str = Field(..., max_length=255)
+    slug: str | None = Field(default=None, max_length=255)
     description: str | None = None
     definition: dict = Field(..., description="DAG definition with nodes and edges")
 
@@ -37,9 +38,12 @@ class WorkflowResponse(BaseModel):
     """工作流查询响应。"""
     id: uuid.UUID
     name: str
-    description: str | None
+    slug: str | None = None
+    description: str | None = None
     definition: dict
-    is_active: bool
+    version: int = 1
+    is_active: bool = True
+    is_system: bool = False
     created_at: datetime
     updated_at: datetime
 

@@ -40,6 +40,7 @@ async def workflow_api_client(monkeypatch):
             description=body.description,
             definition=body.definition,
             is_active=True,
+            is_system=False,
             created_at=now,
             updated_at=now,
         )
@@ -62,7 +63,7 @@ async def workflow_api_client(monkeypatch):
     async def delete_workflow(_db, workflow):
         state["workflows"].pop(workflow.id, None)
 
-    async def create_run(_db, workflow, input_data):
+    async def create_run(_db, workflow, input_data, calling_user_id=None):
         run_id = uuid.uuid4()
         run = SimpleNamespace(
             id=run_id,

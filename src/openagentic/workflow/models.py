@@ -45,13 +45,18 @@ WorkflowRunStatus = ExecutionStatus
 class Workflow(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "workflows"
 
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    slug: Mapped[str | None] = mapped_column(
+        String(255), unique=True, nullable=True, index=True,
+    )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     definition: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    version: Mapped[int] = mapped_column(default=1, server_default="1", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_system: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     executions = relationship("WorkflowExecution", back_populates="workflow", lazy="selectin")
 
