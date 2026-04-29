@@ -37,7 +37,7 @@ _current_chat_id: contextvars.ContextVar[str] = contextvars.ContextVar(
 )
 
 MAX_HISTORY = 20
-MAX_TOOL_ITERATIONS = 15
+MAX_TOOL_ITERATIONS = 30
 
 # ── 公共工具定义 ──────────────────────────────────────────────────────────
 
