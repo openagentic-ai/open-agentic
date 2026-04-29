@@ -619,10 +619,14 @@ class ChannelAIService:
             _current_chat_id.reset(_chat_token)
 
     # ── 快路径匹配 ──────────────────────────────────────────────────────
-    _FAST_RUN_RE = re.compile(r"^[/]?run\s+(\S+)", re.IGNORECASE)
-    _FAST_QUERY_RE = re.compile(r"^[/]?query\s+([0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12})", re.IGNORECASE)
+    _FAST_RUN_RE = re.compile(r"^[/]?(run|启动|运行)\s+(\S+)", re.IGNORECASE)
+    _FAST_QUERY_RE = re.compile(
+        r"^[/]?(query|查询|状态)\S*\s+([0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12})",
+        re.IGNORECASE,
+    )
+    # query_workflow_run 不带参数 = 查最近一次运行状态
+    _FAST_QUERY_BARE_RE = re.compile(r"^[/]?(query|状态|status)\S*$", re.IGNORECASE)
     _FAST_LIST_RE = re.compile(r"^[/]?(list|ls|列表|列出)", re.IGNORECASE)
-    _FAST_STATUS_RE = re.compile(r"^[/]?status$", re.IGNORECASE)
 
     async def _fast_path_reply(self, user_text: str, chat_id: str) -> str | None:
         """匹配已知命令模式，直接执行不经过 LLM。返回 None 表示未命中。"""
@@ -632,21 +636,21 @@ class ChannelAIService:
         if self._FAST_LIST_RE.match(text):
             return await _list_workflows()
 
+        # query_workflow_run / status / 状态（无参） → 最近一次运行
+        if self._FAST_QUERY_BARE_RE.match(text):
+            return await self._fast_last_run_status(chat_id)
+
+        # /query <run_id> / 查询 <run_id>
+        m = self._FAST_QUERY_RE.match(text)
+        if m:
+            run_id = m.group(2)  # group(1) is "query"/"查询"
+            return await _query_workflow_run(run_id)
+
         # /run <slug> 或 /run <name>
         m = self._FAST_RUN_RE.match(text)
         if m:
-            slug_or_name = m.group(1)
+            slug_or_name = m.group(2)  # group(1) is "run"/"启动"
             return await self._fast_run_by_slug(slug_or_name)
-
-        # /query <run_id>
-        m = self._FAST_QUERY_RE.match(text)
-        if m:
-            run_id = m.group(1)
-            return await _query_workflow_run(run_id)
-
-        # /status: last run status
-        if self._FAST_STATUS_RE.match(text):
-            return await self._fast_last_run_status(chat_id)
 
         return None
 
