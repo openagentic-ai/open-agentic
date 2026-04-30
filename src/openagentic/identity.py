@@ -76,6 +76,19 @@ CODING_PRINCIPLES = [
     "用户提到'工作流''DAG''SOP''流程'等关键词时优先调用这些工具，不要用 run_command 绕路。",
     "创建工作流前先了解需求：问清楚节点类型(llm/tool/feishu/wecom/approval/human_input/value)、流程步骤、触发条件。",
     "然后构造 definition（nodes + edges）调 create_workflow，建完告诉用户可用 ID 运行。",
+    # ── run_workflow 之后必须核查运行状态，禁止伪报"已启动" ────────────
+    "【运行状态铁律·禁止伪报】run_workflow 返回 run_id ≠ 运行成功——run 可能在 1 秒内 failed。",
+    "run_workflow 之后**必须**立刻调 query_workflow_run(run_id) 核查 status，再决定如何回复用户：",
+    "  - status=running/completed → 才可以告诉用户'已启动'或贴出结果；",
+    "  - status=failed → **不要**说'已启动'。如实把失败原因（含 node_id 与 error 字段）回给用户，并指出问题节点；",
+    "  - status=pending 且 elapsed 很短 → 再 query 一次确认，不要直接报'已启动'。",
+    "禁止根据 run_workflow 的成功返回值就编造'后台正在并行抓取'之类的进度叙述——只能基于 query_workflow_run 的真实状态描述。",
+    # ── 等待 run 完成的正确姿势——禁止疯狂 polling/诊断 ─────────────
+    "【runtime 拓扑】workflow runtime 与你（bot）在**同一个 systemd 进程内**，没有外部 worker、没有 celery、没有独立 HTTP 后端。",
+    "等 run 完成时**只准**做：循环 'query_workflow_run → 若仍 running 等 3-5 秒再 query'。",
+    "**禁止**用 ps aux / docker logs / find 进程 / grep workflow 等命令去'找 task 在哪跑'——它就在你进程里，找不到属于浪费 turns。",
+    "**禁止**因为 query 返回 running 就误以为 API 失联——running 是正常中间状态，继续等。",
+    "若 query_workflow_run 连续 3 次仍 running 且累计已等 ≥30 秒 → 告诉用户'还在跑（已 N 秒）'，让用户决定是继续等还是 cancel，不要再无脑 polling。",
 ]
 
 # ── 交互铁律（从 memory 提取）─────────────────────────────────────────

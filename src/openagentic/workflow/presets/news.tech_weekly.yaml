@@ -1,33 +1,43 @@
 # 全球科技/AI 新闻周报
-# 抓取 HackerNews + arXiv 当日热门，LLM 汇总后推到当前飞书会话。
+# 多源抓取：HN + arXiv + 知乎热榜，LLM 精炼为信息密度高的中文周报。
 slug: news.tech_weekly
-version: 2
+version: 5
 name: 全球科技/AI 新闻周报
 description: >
-  抓取 Hacker News 前 30 条 + arXiv 最新 AI 论文，LLM 精炼为 5-8 条周报要点，
-  自动推送到触发此工作流的飞书会话。无需额外参数。
+  多源抓取 Hacker News + arXiv + 知乎热榜，LLM 精炼为 8-12 条深度要点，
+  每条 60 字以上带原文链接，自动推送飞书卡片。
 definition:
   nodes:
     - id: fetch_hn
       type: tool
       config:
         tool_name: run_command
-        arg: "curl -s 'https://hacker-news.firebaseio.com/v0/topstories.json' | head -c 200"
+        arg: "curl -s 'https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=15' | python3 -c \"import json,sys; data=json.load(sys.stdin); [print(f'- {h[\\\"title\\\"]}  |  {h.get(\\\"points\\\",0)}pts  |  {h.get(\\\"num_comments\\\",0)} comments  |  {h.get(\\\"url\\\",\\\"\\\")}') for h in data['hits'][:15]]\" 2>/dev/null || echo 'HN_API_FAILED'"
 
     - id: fetch_arxiv
       type: tool
       config:
         tool_name: run_command
-        arg: "curl -s 'http://export.arxiv.org/api/query?search_query=cat:cs.AI&sortBy=submittedDate&sortOrder=descending&max_results=10' | head -c 5000"
+        arg: "curl -s 'http://export.arxiv.org/api/query?search_query=cat:cs.AI&sortBy=submittedDate&sortOrder=descending&max_results=10' | python3 -c \"import sys,re; text=sys.stdin.read(); entries=text.split('<entry>')[1:]; [print(f'- {re.findall(r\\\"<title>(.*?)</title>\\\",e)[0].strip().replace(chr(10),\\\" \\\")}  |  {re.findall(r\\\"<id>(.*?)</id>\\\",e)[0].strip().replace(\\\"abs\\\",\\\"pdf\\\")}  |  {re.findall(r\\\"<summary>(.*?)</summary>\\\",e)[0].strip()[:200].replace(chr(10),\\\" \\\")}') for e in entries[:10]]\" 2>/dev/null || echo 'ARXIV_API_FAILED'"
+
+    - id: fetch_zhihu
+      type: tool
+      config:
+        tool_name: run_command
+        arg: "curl -s -H 'User-Agent: Mozilla/5.0' 'https://www.zhihu.com/api/v3/feed/topstory/hot-lists/total?limit=15' | python3 -c \"import json,sys; data=json.load(sys.stdin); [print(f'- {h[\\\"target\\\"][\\\"title\\\"]}  |  {h[\\\"target\\\"].get(\\\"excerpt\\\",\\\"\\\")[:80]}  |  https://www.zhihu.com/question/{h[\\\"target\\\"][\\\"id\\\"]}') for h in data.get('data',[])[:15]]\" 2>/dev/null || echo 'ZHIHU_API_FAILED'"
 
     - id: summarize
       type: llm
       config:
         model: deepseek/deepseek-v4-flash
         system_prompt: >
-          你是科技新闻编辑。把 HN 热门和 arXiv 论文整理成简洁的周报（5-8 条要点），
-          每条带一句话解读。用中文输出，不用 Markdown 表格和代码块，
-          标题用 **加粗** 不用 # 号，分隔线用空行不用 ---。
+          你是 AI/科技领域的深度新闻编辑。根据提供的 HN、arXiv、知乎热榜数据，
+          整理一份信息密度极高的周报。规则：
+          1. 总量：8-15 条要点，HN/arXiv/知乎各占合理比例
+          2. 每条 60-150 字中文解读，说清楚"是什么 + 为什么重要/有什么影响"
+          3. 每条必须带原文链接（URL 或 arXiv ID）
+          4. 筛选原则：优先 AI/科技/编程相关内容，纯娱乐/八卦跳过
+          5. 不用 Markdown 表格和代码块，标题用 **加粗** 不用 # 号，分隔线用空行不用 ---
         prompt: |
           ## Hacker News 热门
           {{nodes.fetch_hn}}
@@ -35,22 +45,26 @@ definition:
           ## arXiv 最新 AI 论文
           {{nodes.fetch_arxiv}}
 
-          请整理为今日 AI/科技周报。
+          ## 知乎热榜
+          {{nodes.fetch_zhihu}}
+
+          请整理为今日 AI/科技周报。每条 60 字以上，必须带原文链接。
+          先国际后国内排序，最不相关的跳过。
 
     - id: push_feishu
       type: feishu
       config:
-        subcommand: im send
-        args:
-          - --chat-id
-          - "{{context.chat_id}}"
-          - --content
-          - "{{nodes.summarize}}"
+        subcommand: im +messages-send
+        format: card
+        chat_id: "{{context.chat_id}}"
+        content: "{{nodes.summarize}}"
 
   edges:
     - from: fetch_hn
       to: summarize
     - from: fetch_arxiv
+      to: summarize
+    - from: fetch_zhihu
       to: summarize
     - from: summarize
       to: push_feishu

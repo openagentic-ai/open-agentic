@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from openagentic.agent.tools import default_registry
 from openagentic.core.llm.service import chat_completion
+from openagentic.core.llm.provider_config import get_provider_store
 from openagentic.db.session import async_session
 from openagentic.workflow.models import TERMINAL_STATUSES, ExecutionStatus, Workflow, WorkflowExecution
 from openagentic.workflow.schemas import WorkflowCreate, WorkflowUpdate
@@ -35,6 +36,9 @@ _channel_chat_id: contextvars.ContextVar[str] = contextvars.ContextVar(
 )
 _calling_user_id: contextvars.ContextVar[uuid.UUID | None] = contextvars.ContextVar(
     "wf_calling_user_id", default=None
+)
+_thinking_card_msg_id: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "wf_thinking_card_msg_id", default=""
 )
 
 logger = structlog.get_logger("openagentic.workflow.service")
@@ -80,6 +84,50 @@ async def get_workflow(db: AsyncSession, workflow_id: uuid.UUID, user_id: uuid.U
     return result.scalar_one_or_none()
 
 
+def _validate_node_config(node_id: str, node_type: str, config: dict[str, Any]) -> None:
+    """节点级 config 必填校验——在 create_workflow 阶段就拦截，避免运行时秒挂。
+
+    历史教训：LLM 调 create_workflow 时常漏写 tool_name/prompt/subcommand，
+    工作流创建成功但执行时 1 秒内 failed，bot 却仍然回复"已启动 ✅"。
+    把校验前移到创建期，让错误在调用 create_workflow 时就抛出。
+    """
+    if not isinstance(config, dict):
+        raise ValueError(f"Node '{node_id}' config must be an object")
+
+    if node_type == "tool":
+        tool_name = config.get("tool_name")
+        if not isinstance(tool_name, str) or not tool_name.strip():
+            known = ", ".join(default_registry.list_tool_names())
+            raise ValueError(
+                f"Node '{node_id}' (type=tool) requires config.tool_name. "
+                f"Known tools: {known}"
+            )
+        known_names = default_registry.list_tool_names()
+        if tool_name not in known_names:
+            raise ValueError(
+                f"Node '{node_id}' (type=tool) references unknown tool '{tool_name}'. "
+                f"Known tools: {', '.join(known_names)}"
+            )
+    elif node_type == "llm":
+        prompt = config.get("prompt")
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise ValueError(f"Node '{node_id}' (type=llm) requires config.prompt")
+    elif node_type in ("feishu", "wecom"):
+        subcommand = config.get("subcommand")
+        # 飞书 card 模式可不需要 subcommand，但需要 chat_id + content
+        if node_type == "feishu" and config.get("format") == "card":
+            if not config.get("chat_id"):
+                raise ValueError(f"Node '{node_id}' (feishu card) requires config.chat_id")
+            if not config.get("content"):
+                raise ValueError(f"Node '{node_id}' (feishu card) requires config.content")
+        elif not isinstance(subcommand, str) or not subcommand.strip():
+            raise ValueError(f"Node '{node_id}' (type={node_type}) requires config.subcommand")
+    elif node_type == "value":
+        if "value" not in config:
+            raise ValueError(f"Node '{node_id}' (type=value) requires config.value")
+    # approval / human_input：执行期由挂起信号定义具体配置，此处不强校验
+
+
 def validate_definition(definition: dict[str, Any]) -> None:
     """校验工作流定义是否合法。
 
@@ -87,6 +135,7 @@ def validate_definition(definition: dict[str, Any]) -> None:
     - nodes/edges 结构；
     - 节点 ID 唯一性；
     - 节点类型是否支持；
+    - 节点 config 必填字段（tool_name / prompt / subcommand 等）；
     - edge 引用是否存在；
     - 图是否有环（通过拓扑排序检测）。
     """
@@ -109,6 +158,8 @@ def validate_definition(definition: dict[str, Any]) -> None:
             raise ValueError(f"Duplicate node id: {node_id}")
         if node_type not in {"value", "tool", "llm", "approval", "human_input", "feishu", "wecom"}:
             raise ValueError(f"Unsupported node type: {node_type}")
+        # 创建期就拦下缺 config 的节点，避免运行时秒挂导致用户被骗"已启动"。
+        _validate_node_config(node_id, node_type, node.get("config") or {})
         node_ids.append(node_id)
 
     for edge in edges:
@@ -592,6 +643,81 @@ async def _run_cli(
     }
 
 
+async def _send_feishu_card(chat_id: str, markdown: str) -> dict[str, Any]:
+    """通过飞书 SDK 发送交互卡片消息。
+
+    若上下文中有思考卡片的 message_id（通过 contextvar _thinking_card_msg_id 传入），
+    则更新该卡片而非创建新卡片，实现"思考中..."→结果的无缝替换。
+    """
+    import json as _json
+    import os as _os
+
+    app_id = _os.getenv("FEISHU_APP_ID", "")
+    app_secret = _os.getenv("FEISHU_APP_SECRET", "")
+    if not app_id or not app_secret:
+        raise RuntimeError("FEISHU_APP_ID/FEISHU_APP_SECRET not set in environment")
+
+    try:
+        import lark_oapi as lark
+        from lark_oapi.api.im.v1.model.create_message_request import (
+            CreateMessageRequest,
+            CreateMessageRequestBody,
+        )
+        from lark_oapi.api.im.v1.model.patch_message_request import (
+            PatchMessageRequest,
+            PatchMessageRequestBody,
+        )
+    except ImportError:
+        raise RuntimeError("lark-oapi not installed. Run: pip install lark-oapi") from None
+
+    # 延迟 import——workflow module 不应强依赖 extensions
+    from extensions.channels.feishu_card_utils import build_answer_card
+
+    client = lark.Client.builder() \
+        .app_id(app_id) \
+        .app_secret(app_secret) \
+        .build()
+
+    card = build_answer_card(markdown)
+    card_json = _json.dumps(card, ensure_ascii=False)
+
+    # 若有思考卡片 message_id，更新原卡片而非发新卡片
+    thinking_id = _thinking_card_msg_id.get("")
+    if thinking_id:
+        patch_req = PatchMessageRequest.builder() \
+            .message_id(thinking_id) \
+            .request_body(PatchMessageRequestBody.builder()
+                .content(card_json)
+                .build()) \
+            .build()
+        patch_resp = await client.im.v1.message.apatch(patch_req)
+        if patch_resp.code != 0:
+            raise RuntimeError(f"Feishu card update failed: code={patch_resp.code} msg={patch_resp.msg}")
+        logger.info("feishu card updated", message_id=thinking_id)
+        return {"ok": True, "action": "updated", "message_id": thinking_id}
+
+    req = CreateMessageRequest.builder() \
+        .receive_id_type("chat_id") \
+        .request_body(CreateMessageRequestBody.builder()
+            .receive_id(chat_id)
+            .content(card_json)
+            .msg_type("interactive")
+            .build()) \
+        .build()
+
+    resp = await client.im.v1.message.acreate(req)
+    if resp.code != 0:
+        raise RuntimeError(f"Feishu card send failed: code={resp.code} msg={resp.msg}")
+
+    logger.info("feishu card sent", chat_id=chat_id,
+                message_id=getattr(resp.data, "message_id", ""))
+    return {
+        "ok": True,
+        "chat_id": chat_id,
+        "message_id": getattr(resp.data, "message_id", ""),
+    }
+
+
 async def _execute_node(node_type: str, config: dict[str, Any]) -> Any:
     """执行单个节点（value/tool/llm/approval/human_input/feishu/wecom）。"""
     if node_type == "value":
@@ -602,10 +728,14 @@ async def _execute_node(node_type: str, config: dict[str, Any]) -> Any:
     if node_type == "tool":
         name = config.get("tool_name")
         if not name:
-            raise ValueError("tool node requires config.tool_name")
+            known = ", ".join(default_registry.list_tool_names())
+            raise ValueError(
+                f"tool node requires config.tool_name (known tools: {known})"
+            )
         tool = default_registry.get(str(name))
         if tool is None:
-            raise ValueError(f"Unknown tool: {name}")
+            known = ", ".join(default_registry.list_tool_names())
+            raise ValueError(f"Unknown tool '{name}' (known tools: {known})")
         # 工具入参支持两种形态：
         # 1) config.args: dict —— 直接透传给 tool.execute（推荐，能精确填 url/path/headers 等专属参数）
         # 2) config.arg: str  —— legacy 路径，把单字符串广播到 input/query/command 三个常用键，
@@ -624,7 +754,7 @@ async def _execute_node(node_type: str, config: dict[str, Any]) -> Any:
         if not prompt:
             raise ValueError("llm node requires config.prompt")
         system = config.get("system_prompt")
-        model = config.get("model")
+        model = _resolve_validated_model(config.get("model"))
         logger.info("execute llm node", model=model or "(default)",
                     prompt_preview=str(prompt)[:200])
         messages = []
@@ -638,6 +768,18 @@ async def _execute_node(node_type: str, config: dict[str, Any]) -> Any:
         subcommand = config.get("subcommand", "")
         if not subcommand:
             raise ValueError("feishu node requires config.subcommand")
+        format_mode = config.get("format", "text")
+
+        if format_mode == "card":
+            chat_id = config.get("chat_id", "")
+            content = config.get("content", "")
+            if not chat_id:
+                raise ValueError("feishu card node requires chat_id")
+            if not content:
+                raise ValueError("feishu card node requires content")
+            return await _send_feishu_card(chat_id, content)
+
+        # legacy CLI 模式（format: text 或未指定）
         args = config.get("args", [])
         if isinstance(args, str):
             args = [args]
@@ -672,6 +814,23 @@ async def _execute_node(node_type: str, config: dict[str, Any]) -> Any:
         }
 
     raise ValueError(f"Unsupported node type: {node_type}")
+
+
+def _resolve_validated_model(model: str | None) -> str | None:
+    """校验 workflow 中指定的 model 是否在 provider 白名单中，无效则回退到服务器默认。
+
+    AI 创建 workflow 时可能硬编码不支持的模型（如 gpt-4o），
+    这里做个兜底：只承认 provider store 中已配置的模型，其余一律回退 None。
+    """
+    if not model:
+        return None
+    store = get_provider_store()
+    config = store.get()
+    for profile in config.profiles:
+        if profile.enabled and model in profile.models:
+            return model
+    # 模型不在任何 provider 白名单中，回退默认
+    return None
 
 
 def _render_value(value: Any, context: dict[str, Any]) -> Any:

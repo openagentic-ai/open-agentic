@@ -25,7 +25,7 @@ logger = structlog.get_logger("openagentic.channels.feishu")
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-from extensions.channels.channel_runner import ChannelAIService, LARK_TOOL
+from extensions.channels.channel_runner import ChannelAIService, LARK_TOOL, _thinking_card_msg_id
 from extensions.channels.feishu import try_create_feishu_channel
 
 stop = asyncio.Event()
@@ -49,6 +49,8 @@ async def main():
     async def callback(msg):
         logger.info("feishu_msg", sender=msg.sender_id, text=msg.text[:100])
         card_id = await ch.send_thinking_card(msg.chat_id)
+        # 将思考卡片 message_id 注入 contextvar，workflow push_feishu 节点会更新该卡片而非新建
+        token = _thinking_card_msg_id.set(card_id or "")
         try:
             reply = await ai.reply(
                 msg.text, msg.chat_id,
@@ -77,6 +79,8 @@ async def main():
                 await ch.update_card(card_id, err_msg)
             else:
                 await ch.send_message(msg.chat_id, err_msg)
+        finally:
+            _thinking_card_msg_id.reset(token)
         return ""
 
     ch._ws_stop = stop

@@ -17,6 +17,7 @@ Directory layout:
 
 from __future__ import annotations
 
+import os
 import re
 import uuid
 from dataclasses import dataclass
@@ -32,7 +33,13 @@ _FM_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 
 def _default_memory_dir() -> Path:
-    """Resolve the memory root directory."""
+    """Resolve the memory root directory.
+
+    优先级：环境变量 OPENAGENTIC_MEMORY_DIR > ~/.openagentic/memory
+    """
+    env_dir = os.environ.get("OPENAGENTIC_MEMORY_DIR", "").strip()
+    if env_dir:
+        return Path(env_dir)
     return Path.home() / ".openagentic" / "memory"
 
 

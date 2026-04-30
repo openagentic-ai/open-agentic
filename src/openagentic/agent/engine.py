@@ -108,8 +108,29 @@ class ConversationEngine:
             return ""
 
         logger.warning("ConversationEngine max iterations reached", max_iterations=self.max_iterations)
-        # 不再返回硬中止文案——保留 LLM 最后一轮的可见内容（thinking 或 content），
-        # 都没有时返回空，由调用方决定如何处理（飞书层空回复会跳过 send）。
+        # 达到工具调用上限，注入收束指令让 LLM 基于已收集的信息给结论
+        messages.append({
+            "role": "user",
+            "content": (
+                "已达到工具调用次数上限。请基于已获取的所有信息，"
+                "直接给出你的结论或下一步建议，不要再调用工具。"
+            ),
+        })
+        try:
+            result = await litellm_chat(
+                messages=messages,
+                model=self.model,
+                api_base=self.api_base,
+                api_key=self.api_key,
+                tools=[],  # 禁止再调工具
+            )
+            final_content = result["message"].get("content") or result["message"].get("reasoning_content") or ""
+            if final_content:
+                return final_content
+        except Exception:
+            logger.exception("force-conclusion chat failed")
+
+        # 兜底：取最后一轮 assistant 内容
         last_content = ""
         for msg in reversed(messages):
             if msg.get("role") == "assistant":

@@ -38,6 +38,10 @@ _current_sender_open_id: contextvars.ContextVar[str] = contextvars.ContextVar(
 _current_chat_id: contextvars.ContextVar[str] = contextvars.ContextVar(
     "channel_chat_id", default=""
 )
+# 思考卡片 message_id——用于 workflow push_feishu 节点覆盖而非发新卡片
+_thinking_card_msg_id: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "channel_thinking_card_msg_id", default=""
+)
 
 MAX_HISTORY = 20
 MAX_TOOL_ITERATIONS = 30
@@ -45,6 +49,31 @@ MAX_TOOL_ITERATIONS = 30
 # ── 公共工具定义 ──────────────────────────────────────────────────────────
 
 BASE_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "save_memory",
+            "description": (
+                "保存重要信息到持久记忆，下次对话时可自动召回。"
+                "发现用户说出偏好、需求、重要背景信息时主动调用。"
+                "category: user_profile(用户画像)/project_fact(项目事实)/preference(偏好设置)/reference(参考信息)。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "记忆标题（简短关键词）"},
+                    "content": {"type": "string", "description": "记忆内容（详细记录，可多行）"},
+                    "category": {
+                        "type": "string",
+                        "description": "类别",
+                        "enum": ["user_profile", "project_fact", "preference", "reference"],
+                    },
+                    "importance": {"type": "number", "description": "重要性 0-1，默认0.7"},
+                },
+                "required": ["title", "content", "category"],
+            },
+        },
+    },
     {
         "type": "function",
         "function": {
@@ -202,7 +231,14 @@ LARK_TOOL = {
 
 async def execute_tool(name: str, args: dict) -> str:
     """执行工具调用，返回结果字符串。"""
-    if name == "run_command":
+    if name == "save_memory":
+        return await _save_memory(
+            args.get("title", ""),
+            args.get("content", ""),
+            args.get("category", "reference"),
+            args.get("importance", 0.7),
+        )
+    elif name == "run_command":
         return await _run_command(args.get("command", ""))
     elif name == "read_file":
         # read_file 走 io 类别（异步文件读其实是 sync_to_thread，但仍受 io 槽位保护）
@@ -227,6 +263,26 @@ async def execute_tool(name: str, args: dict) -> str:
     elif name == "query_workflow_run":
         return await _query_workflow_run(args.get("run_id", ""))
     return f"未知工具: {name}"
+
+
+async def _save_memory(title: str, content: str, category: str, importance: float) -> str:
+    """保存记忆到 Core Memory（持久化文件存储，下次对话自动召回）。"""
+    if not title or not content:
+        return "错误：title 和 content 不能为空"
+    try:
+        from openagentic.memory.manager import MemoryManager
+        path = await asyncio.to_thread(
+            MemoryManager().save_core_memory,
+            key=title,
+            value=content,
+            category=category,
+            importance=float(importance),
+        )
+        logger.info("memory saved", title=title, category=category, path=path)
+        return f"已保存记忆：「{title}」→ {category}"
+    except Exception as e:
+        logger.exception("save_memory failed")
+        return f"保存记忆失败：{e}"
 
 
 async def _run_command(command: str) -> str:
@@ -391,17 +447,28 @@ async def _run_workflow(workflow_id: str, input_data: dict) -> str:
         )
     if not workflow_id:
         return "错误：缺少 workflow_id"
+    # 支持 UUID 或 slug 两种方式查找
     try:
         wf_uuid = _uuid.UUID(str(workflow_id))
+        lookup_by_slug = False
     except (ValueError, TypeError):
-        return f"错误：workflow_id 不是合法 UUID — {workflow_id}"
+        lookup_by_slug = True
+        wf_uuid = None
 
     try:
         from openagentic.db.session import async_session
         from openagentic.workflow import service as wf_service
         from openagentic.workflow.runtime import runtime
+        from sqlalchemy import select
+        from openagentic.workflow.models import Workflow
         async with async_session() as db:
-            workflow = await wf_service.get_workflow(db, wf_uuid, user_id)
+            if lookup_by_slug:
+                result = await db.execute(
+                    select(Workflow).where(Workflow.slug == str(workflow_id))
+                )
+                workflow = result.scalar_one_or_none()
+            else:
+                workflow = await wf_service.get_workflow(db, wf_uuid, user_id)
             if not workflow:
                 return f"错误：找不到工作流 {workflow_id}（或不属于当前用户）"
             if not workflow.is_active:
@@ -419,10 +486,12 @@ async def _run_workflow(workflow_id: str, input_data: dict) -> str:
         platform = _current_platform.get("")
         sender_open_id = _current_sender_open_id.get("")
         chat_id = _current_chat_id.get("")
+        thinking_id = _thinking_card_msg_id.get("")
         wf_service._sender_platform.set(platform)
         wf_service._sender_open_id.set(sender_open_id)
         wf_service._channel_chat_id.set(chat_id)
         wf_service._calling_user_id.set(user_id)
+        wf_service._thinking_card_msg_id.set(thinking_id)
 
         # 后台执行——execute_run_by_id 自带 async_session，不污染当前连接
         runtime.start(run_id, wf_service.execute_run_by_id(run_id, wf_id, user_id,
@@ -705,6 +774,7 @@ class ChannelAIService:
             wf_service2._sender_open_id.set(sender_open_id)
             wf_service2._channel_chat_id.set(chat_id)
             wf_service2._calling_user_id.set(user_id)
+            wf_service2._thinking_card_msg_id.set(_thinking_card_msg_id.get(""))
 
             runtime.start(
                 run_id,

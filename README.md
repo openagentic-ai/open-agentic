@@ -10,7 +10,8 @@
 
 ## 最近更新
 
-- **2026-04-29**：System-Seed 预设工作流上线（3 个 preset YAML + lifespan upsert + 全渠道透明共享）；并发治理底座 `ConcurrencyGate`（全局信号量 + 类别配额 + 会话串行）；飞书 bot → DAG 工作流链路打通（含用户身份映射 + context 注入）；sender chat_id 自动注入工作流 context；deep logging audit 全覆盖
+- **2026-04-30**：飞书 agent `save_memory` 工具（对话中主动保存记忆）；Core Memory 种子化（14 条用户画像/项目事实/偏好）；思考卡片覆盖机制（workflow push_feishu 自动更新而非新建卡片）；ConversationEngine 工具循环上限收束（强制 LLM 给结论）；模型名称白名单校验（`_resolve_validated_model` 兜底，防 agent 写入不支持的模型）；飞书 bot systemd 服务化部署
+- **2026-04-29**：System-Seed 预设工作流上线（3 个 preset YAML + lifespan upsert + 全渠道透明共享）；并发治理底座 `ConcurrencyGate`；飞书 bot → DAG 工作流链路打通（含用户身份映射 + context 注入）
 - **295 passed, 2 skipped** 测试覆盖
 
 ## 当前迭代未完成 TODO（2026-04-29，下次接着干）
@@ -33,6 +34,55 @@
 - [x] 12. `start_workflow_run` / `get_workflow` 已合并 `or is_system`；系统 run 归属调用者（`calling_user_id`）
 - [x] 13. 写测试：`tests/workflow/test_presets.py` — 14 条覆盖 YAML 解析/扫描/upsert/版本策略/真实预设健全度/不可改不可删/fork
 - [ ] 14. **遗留小修（非阻塞）**：`add_is_system_workflow.py` 同时建 `uq_workflows_slug` UNIQUE 约束 + `ix_workflows_slug` 普通索引——同一列两个索引冗余；建议下个迁移里 drop 后者，并把模型 `slug` 字段去掉 `index=True`
+
+### 阻塞：feishu 节点 lark-cli 适配（2026-04-30 新发现）
+
+**事实清单**（不是猜测，是 16:09–16:13 实战日志 + 仓库扫描结论）：
+
+- 4-29 16:09 用户在飞书触发 `news.tech_weekly` workflow，DAG 跑通 `fetch_hn` ✅ → `fetch_arxiv` ✅ → `summarize`(LLM) ✅，最后一步 `push_feishu` 抛 `[Errno 2] No such file or directory: 'lark-cli'`，整 run failed
+- 三个系统预设的 `push_feishu` 节点全部走 `service.py:644` 的 `_run_cli(lark-cli, ...)` 子进程路径——15 服没装这个二进制
+- `lark-cli` 是 [larksuite/cli](https://github.com/larksuite/cli)（飞书官方 2026-03-28 开源，npm `@larksuite/cli`，Node 实现）；用户 Mac 已装，15 服未装
+- 当前预设 yaml 用的子命令语法 `im send --content X` **跟官方 `im +messages-send --text X` 对不上**——光装 CLI 还不能跑，必须改 yaml
+- bot agent 拿到 failed run 后没向用户 surface 错误，反而开始 `find /` 翻 `openclaw`、查 sqlite，agent prompt/工具结果处理是另一个 bug（**单独立项，不在本块**）
+
+**执行计划**（按顺序，每步独立可验证）：
+
+- [ ] **L1. 装 lark-cli 到 15 + 跑通帮助**
+  ```bash
+  ssh root@192.168.0.15
+  npm install -g @larksuite/cli
+  lark-cli --version
+  lark-cli im --help     # 看真实子命令名
+  lark-cli im +messages-send --help   # 看真实参数表
+  ```
+  **验收**：拿到 `im` 域下发文本到指定 chat_id的真实 `subcommand + args`，写进下一步。**CLI `--help` 输出是单一事实源，不能信网文**。
+
+- [ ] **L2. 在 15 上配应用凭据 + bot 身份扫码授权**
+  ```bash
+  lark-cli config init        # 输入 app_id / app_secret（用现有飞书 bot 凭据）
+  lark-cli auth login --recommend   # 扫码授权（手机飞书扫，bot 身份）
+  lark-cli im +messages-send --chat-id <test_chat> --text lark-cli OK   # 冒烟
+  ```
+  **验收**：能从 15 命令行直接发一条飞书消息到指定 chat。
+  **注意**：`config init` 凭据存在系统 keychain / `~/.config/lark-cli/`，要确认 `openagentic-feishu.service` 跑的 user（root）能读到。
+
+- [ ] **L3. 改 3 个预设 yaml 的 `feishu` 节点 subcommand/args 适配实际 CLI**
+  改：`/opt/open-agentic/src/openagentic/workflow/presets/{news.tech_weekly,doc.summarize_url,ops.server_health}.yaml`
+  把 `subcommand: im send` + `args: [--chat-id, X, --content, Y]` 改成 L1 实测的真实命令（预计是 `im +messages-send` + `--text`）。
+  同步把 `version: 2` bump 成 `3`，service 启动时 lifespan 会自动 upsert。
+  **验收**：`pytest tests/workflow/test_presets.py` 通过（DAG 校验、字段齐全）。
+
+- [ ] **L4. 决定 `service.py:_run_cli` 是否改造**
+  当前 `_run_cli` 通过 env var (`LARK_USER_OPEN_ID` 等) 注入 sender 凭据——这是为代用户身份发消息设计的，但 lark-cli 官方走的是 `--as user/bot` flag + keychain 凭据。
+  **当前场景**（单聊推消息给触发者本人）：bot 身份就够，不切 sender，**`_run_cli` 暂不改**。
+  **未来场景**（群里代用户写文档/创日程）：再加 `--as` 适配。
+  **验收**：本块标暂缓，写进下面未来工作区。
+
+- [ ] **L5. 端到端冒烟**
+  在 15 上手动触发：`curl POST /api/workflows/<news_tech_weekly_id>/runs` 或飞书里说调用工作流 全球科技/AI 新闻周报。
+  **验收**：飞书会话里收到 LLM 总结的周报；`logs/openagentic.log` 里 `push_feishu` 节点 `success` 而非 `failed`。
+
+**回滚策略**：L1/L2 不改代码可独立回滚（卸 npm 包）；L3 改 yaml 但 `version` 单调递增，旧版不会被覆盖回；如果 L5 失败，回到日志看是 CLI 报错还是 yaml 渲染错。
 
 ### 待修：生产 bug
 
@@ -137,7 +187,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
 cp .env.example .env   # 填写 DATABASE_URL、JWT 密钥、API Key
-docker compose up -d postgres
+docker compose up -d    # 启动 PostgreSQL + FastAPI
 
 PYTHONPATH=src uvicorn openagentic.main:app --host 0.0.0.0 --port 8000
 ```
@@ -146,7 +196,17 @@ PYTHONPATH=src uvicorn openagentic.main:app --host 0.0.0.0 --port 8000
 - 健康检查：`http://<host>:8000/health`
 - 前端：`cd ui && npm install && npm run dev`
 
-**Windows 补充**：拉代码或改依赖后请在仓库根目录再次执行 `pip install -e .`。CLI 不会在进程内自动反复执行 pip install（避免替换正在使用的启动器导致 WinError 32）；源码有更新时请自行重装可编辑包，或直接用 `python -m openagentic.cli`。
+### 飞书 Bot 部署
+
+```bash
+# 配置 .env（FEISHU_APP_ID / FEISHU_APP_SECRET）
+# 安装 systemd 服务
+cp scripts/openagentic-feishu.service /etc/systemd/system/
+systemctl enable --now openagentic-feishu
+journalctl -u openagentic-feishu -f
+```
+
+飞书 bot 作为独立进程运行在宿主机（非 Docker），通过 systemd 管理生命周期。FastAPI 后端跑在 Docker 容器。改代码后 `systemctl restart openagentic-feishu` 即可生效。详见 `.claude/CLAUDE.md`。
 
 ## CLI 模式
 
