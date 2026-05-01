@@ -66,23 +66,27 @@
   **验收**：能从 15 命令行直接发一条飞书消息到指定 chat。
   **注意**：`config init` 凭据存在系统 keychain / `~/.config/lark-cli/`，要确认 `openagentic-feishu.service` 跑的 user（root）能读到。
 
-- [ ] **L3. 改 3 个预设 yaml 的 `feishu` 节点 subcommand/args 适配实际 CLI**
-  改：`/opt/open-agentic/src/openagentic/workflow/presets/{news.tech_weekly,doc.summarize_url,ops.server_health}.yaml`
-  把 `subcommand: im send` + `args: [--chat-id, X, --content, Y]` 改成 L1 实测的真实命令（预计是 `im +messages-send` + `--text`）。
-  同步把 `version: 2` bump 成 `3`，service 启动时 lifespan 会自动 upsert。
-  **验收**：`pytest tests/workflow/test_presets.py` 通过（DAG 校验、字段齐全）。
+**L3 已转向（2026-05-01）**：原计划手改 yaml；按agent 自管理铁律改为补能力，让 agent 自己改 yaml/definition。
 
-- [ ] **L4. 决定 `service.py:_run_cli` 是否改造**
-  当前 `_run_cli` 通过 env var (`LARK_USER_OPEN_ID` 等) 注入 sender 凭据——这是为代用户身份发消息设计的，但 lark-cli 官方走的是 `--as user/bot` flag + keychain 凭据。
-  **当前场景**（单聊推消息给触发者本人）：bot 身份就够，不切 sender，**`_run_cli` 暂不改**。
-  **未来场景**（群里代用户写文档/创日程）：再加 `--as` 适配。
-  **验收**：本块标暂缓，写进下面未来工作区。
+- [x] **L3-1. 给 channel_runner.py 加 4 个 workflow 工具**（2026-05-01 完成）
+  `get_workflow / update_workflow / fork_workflow / delete_workflow`，UUID/slug 通吃；遇 `SystemWorkflowImmutable` 时返回 fork 引导消息；`_resolve_workflow` 内部 helper 复用。
+  **验收**：syntax OK、8 个 WORKFLOW_TOOLS 全注册、helpers 可调用、preset hint 含 fork/get 引导。文件 886→1156 行。
 
-- [ ] **L5. 端到端冒烟**
-  在 15 上手动触发：`curl POST /api/workflows/<news_tech_weekly_id>/runs` 或飞书里说调用工作流 全球科技/AI 新闻周报。
-  **验收**：飞书会话里收到 LLM 总结的周报；`logs/openagentic.log` 里 `push_feishu` 节点 `success` 而非 `failed`。
+- [x] **L3-2. system prompt 加自管理引导**（2026-05-01 半完成，绑在 `_build_preset_hint` 里）
+  4 条规则：(1) 改前 `get_workflow` 读全量；(2) 系统预设要 `fork_workflow` 再 update；(3) run failed 看 trace.error 不去 find/grep；(4) update 是全量覆盖不是 patch。
+  **未做**：`src/openagentic/identity.py` 核心人格 prompt 是否再加一段你能自管理 workflow？看实战是否需要，不必抢跑。
 
-**回滚策略**：L1/L2 不改代码可独立回滚（卸 npm 包）；L3 改 yaml 但 `version` 单调递增，旧版不会被覆盖回；如果 L5 失败，回到日志看是 CLI 报错还是 yaml 渲染错。
+- [ ] **L3-3. 写 4 工具 dispatch 测试**（推迟到 L3-5 实战通过后补）
+  `tests/channels/test_workflow_tools.py`：mock `async_session` + `wf_service`，覆盖 fork→get→update→delete 闭环 + SystemWorkflowImmutable 引导文案。
+
+- [x] **L3-4. 部署**（2026-05-01 完成）
+  `systemctl restart openagentic-feishu` → `active` → 日志干净 reconnect。
+
+- [ ] **L3-5. 把球交给 agent（实战验证）**
+  你飞书里说给 doc.summarize_url 加个推送到当前会话的步骤，看 agent 能否自走 `get_workflow → fork_workflow → update_workflow → run_workflow → query_workflow_run` 闭环；不行就回头看 prompt/工具描述哪里没说清。
+  **验收**：agent 不手忙脚乱、不去 find/grep；新副本能跑通推送。
+
+**回滚策略**：L1/L2 卸 npm + 删 `/root/.lark-cli/` 即可；L3-1 是纯增量代码（4 工具+1 helper+提示扩展），`git diff` 可一键回退。
 
 ### 待修：生产 bug
 

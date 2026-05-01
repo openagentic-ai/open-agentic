@@ -56,10 +56,11 @@ async def update_workflow(
     workflow = await service.get_workflow(db, workflow_id, current_user.id)
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
-    if workflow.is_system:
+    is_admin = service.is_admin_user(current_user.id)
+    if workflow.is_system and not is_admin:
         raise HTTPException(status_code=403, detail="System workflows are read-only")
     try:
-        return await service.update_workflow(db, workflow, body)
+        return await service.update_workflow(db, workflow, body, is_admin=is_admin)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -73,9 +74,10 @@ async def delete_workflow(
     workflow = await service.get_workflow(db, workflow_id, current_user.id)
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
-    if workflow.is_system:
+    is_admin = service.is_admin_user(current_user.id)
+    if workflow.is_system and not is_admin:
         raise HTTPException(status_code=403, detail="System workflows are read-only")
-    await service.delete_workflow(db, workflow)
+    await service.delete_workflow(db, workflow, is_admin=is_admin)
 
 
 @router.post(

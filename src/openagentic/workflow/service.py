@@ -190,17 +190,38 @@ async def create_workflow(db: AsyncSession, user_id: uuid.UUID, body: WorkflowCr
     return workflow
 
 
+def is_admin_user(user_id: uuid.UUID | None) -> bool:
+    """env OPENAGENTIC_ADMIN_USER_IDS 包含该 user_id 即视为 admin。
+
+    admin 可绕过 SystemWorkflowImmutable 直接改系统预设——单租户/部署管理员场景。
+    多租户/普通员工不在该列表，仍按 fork 流程走。
+    """
+    if user_id is None:
+        return False
+    raw = os.getenv("OPENAGENTIC_ADMIN_USER_IDS", "").strip()
+    if not raw:
+        return False
+    target = str(user_id)
+    return any(part.strip() == target for part in raw.split(","))
+
+
 class SystemWorkflowImmutable(ValueError):
     """系统预设工作流不可改/删——抛出此异常让路由层映射为 400/403，引导用户 fork。"""
 
 
-async def update_workflow(db: AsyncSession, workflow: Workflow, body: WorkflowUpdate) -> Workflow:
+async def update_workflow(
+    db: AsyncSession,
+    workflow: Workflow,
+    body: WorkflowUpdate,
+    *,
+    is_admin: bool = False,
+) -> Workflow:
     """更新工作流；若 definition 被修改，会再次校验。
 
-    系统预设（is_system=True）由 presets/*.yaml 单一事实源管理，禁止运行期改动；
-    用户需要个性化时调 fork_workflow 复制成自己的私有副本。
+    系统预设（is_system=True）由 presets/*.yaml 单一事实源管理，普通用户需 fork；
+    is_admin=True 时（OPENAGENTIC_ADMIN_USER_IDS 包含的 user_id）允许直接改系统预设原版。
     """
-    if workflow.is_system:
+    if workflow.is_system and not is_admin:
         raise SystemWorkflowImmutable(
             "System preset workflows are immutable. Fork it via POST /api/workflows/{id}/fork to customize."
         )
@@ -213,9 +234,14 @@ async def update_workflow(db: AsyncSession, workflow: Workflow, body: WorkflowUp
     return workflow
 
 
-async def delete_workflow(db: AsyncSession, workflow: Workflow) -> None:
-    """删除工作流；系统预设禁止删除。"""
-    if workflow.is_system:
+async def delete_workflow(
+    db: AsyncSession,
+    workflow: Workflow,
+    *,
+    is_admin: bool = False,
+) -> None:
+    """删除工作流；系统预设默认禁止删除，is_admin=True 时放行。"""
+    if workflow.is_system and not is_admin:
         raise SystemWorkflowImmutable(
             "System preset workflows cannot be deleted; remove the YAML in presets/ if you really mean to."
         )

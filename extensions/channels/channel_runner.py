@@ -186,6 +186,82 @@ WORKFLOW_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_workflow",
+            "description": (
+                "读取指定工作流的完整定义（含 nodes/edges/config）。"
+                "想查 workflow 跑了什么、改之前先看现状、调试节点配置时用这个。"
+                "支持 UUID 或 slug（如 'news.tech_weekly'）。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "workflow_id": {"type": "string", "description": "Workflow UUID 或 slug"},
+                },
+                "required": ["workflow_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_workflow",
+            "description": (
+                "修改已有工作流（仅用户自有副本）。系统预设（is_system=True）不可改——"
+                "若要改预设，先调 fork_workflow 拿副本再改。"
+                "所有字段可选，未传的字段不动。definition 传完整新定义（不是 patch）。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "workflow_id": {"type": "string", "description": "Workflow UUID（必须是用户自有副本）"},
+                    "name": {"type": "string", "description": "新名称"},
+                    "description": {"type": "string", "description": "新描述"},
+                    "definition": {"type": "object", "description": "完整 DAG 定义（覆盖原 definition）"},
+                    "is_active": {"type": "boolean", "description": "是否启用"},
+                },
+                "required": ["workflow_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fork_workflow",
+            "description": (
+                "把一个工作流（含系统预设）复制成当前用户的可编辑私有副本。"
+                "系统预设要个性化必须先 fork 再 update_workflow。"
+                "返回新副本的 UUID，slug 为 None（避免与系统 slug 冲突）。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "workflow_id": {"type": "string", "description": "源 workflow UUID 或 slug"},
+                    "new_name": {"type": "string", "description": "新副本名称（默认在原名后加 ' (fork)'）"},
+                },
+                "required": ["workflow_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_workflow",
+            "description": (
+                "删除指定工作流（仅用户自有副本）。系统预设不可删，会被服务层拒绝。"
+                "用于清理废弃的私有副本。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "workflow_id": {"type": "string", "description": "Workflow UUID（必须是用户自有副本）"},
+                },
+                "required": ["workflow_id"],
+            },
+        },
+    },
 ]
 
 LARK_TOOL = {
@@ -262,6 +338,23 @@ async def execute_tool(name: str, args: dict) -> str:
         )
     elif name == "query_workflow_run":
         return await _query_workflow_run(args.get("run_id", ""))
+    elif name == "get_workflow":
+        return await _get_workflow(args.get("workflow_id", ""))
+    elif name == "update_workflow":
+        return await _update_workflow(
+            args.get("workflow_id", ""),
+            args.get("name"),
+            args.get("description"),
+            args.get("definition"),
+            args.get("is_active"),
+        )
+    elif name == "fork_workflow":
+        return await _fork_workflow(
+            args.get("workflow_id", ""),
+            args.get("new_name"),
+        )
+    elif name == "delete_workflow":
+        return await _delete_workflow(args.get("workflow_id", ""))
     return f"未知工具: {name}"
 
 
@@ -486,12 +579,13 @@ async def _run_workflow(workflow_id: str, input_data: dict) -> str:
         platform = _current_platform.get("")
         sender_open_id = _current_sender_open_id.get("")
         chat_id = _current_chat_id.get("")
-        thinking_id = _thinking_card_msg_id.get("")
+        # NOTE: 不继承 thinking_card——workflow 始终发新卡片，思考卡留给 agent 文本回复。
+        # 历史方案让 workflow 原地替换思考卡，在 ReAct 多轮场景会跟 agent 回复抢同一张卡。
         wf_service._sender_platform.set(platform)
         wf_service._sender_open_id.set(sender_open_id)
         wf_service._channel_chat_id.set(chat_id)
         wf_service._calling_user_id.set(user_id)
-        wf_service._thinking_card_msg_id.set(thinking_id)
+        wf_service._thinking_card_msg_id.set("")
 
         # 后台执行——execute_run_by_id 自带 async_session，不污染当前连接
         runtime.start(run_id, wf_service.execute_run_by_id(run_id, wf_id, user_id,
@@ -551,6 +645,189 @@ async def _query_workflow_run(run_id: str) -> str:
         return f"查询失败：{e}"
 
 
+async def _resolve_workflow(db, lookup: str, user_id):
+    """工具内部用：UUID 或 slug 都接受，返回 Workflow 或 None。
+
+    自有 workflow 必须 user_id 匹配；系统预设（is_system=True）所有用户可见。
+    """
+    import uuid as _uuid
+    from sqlalchemy import or_, select
+    from openagentic.workflow import service as wf_service
+    from openagentic.workflow.models import Workflow
+
+    try:
+        wf_uuid = _uuid.UUID(str(lookup))
+        return await wf_service.get_workflow(db, wf_uuid, user_id)
+    except (ValueError, TypeError):
+        # 不是 UUID — 当 slug 处理
+        result = await db.execute(
+            select(Workflow).where(
+                Workflow.slug == str(lookup),
+                or_(Workflow.user_id == user_id, Workflow.is_system.is_(True)),
+            )
+        )
+        return result.scalar_one_or_none()
+
+
+async def _get_workflow(workflow_id: str) -> str:
+    """读取工作流完整定义（含 nodes/edges/config），供 agent 改前查看。"""
+    import json as _json
+
+    user_id = await _current_user_id()
+    if user_id is None:
+        return "抱歉，未能识别你的身份，请稍后重试。"
+    if not workflow_id:
+        return "错误：缺少 workflow_id"
+
+    try:
+        from openagentic.db.session import async_session
+        async with async_session() as db:
+            wf = await _resolve_workflow(db, workflow_id, user_id)
+            if not wf:
+                return f"错误：找不到工作流 {workflow_id}（或不属于当前用户）"
+            payload = {
+                "id": str(wf.id),
+                "name": wf.name,
+                "slug": wf.slug,
+                "description": wf.description,
+                "definition": wf.definition,
+                "version": wf.version,
+                "is_active": wf.is_active,
+                "is_system": wf.is_system,
+            }
+        out = _json.dumps(payload, ensure_ascii=False, default=str, indent=2)
+        if len(out) > 6000:
+            out = out[:6000] + "\n... (definition 截断，可针对具体节点再查)"
+        return out
+    except Exception as e:
+        logger.exception("get_workflow failed")
+        return f"读取工作流失败：{e}"
+
+
+async def _update_workflow(
+    workflow_id: str,
+    name: str | None,
+    description: str | None,
+    definition: dict | None,
+    is_active: bool | None,
+) -> str:
+    """更新已有工作流；系统预设走到这里会被 service 拦下，引导调 fork_workflow。"""
+    import json as _json
+
+    user_id = await _current_user_id()
+    if user_id is None:
+        return "抱歉，未能识别你的身份，请稍后重试。"
+    if not workflow_id:
+        return "错误：缺少 workflow_id"
+
+    try:
+        from openagentic.db.session import async_session
+        from openagentic.workflow import service as wf_service
+        from openagentic.workflow.schemas import WorkflowUpdate
+        async with async_session() as db:
+            wf = await _resolve_workflow(db, workflow_id, user_id)
+            if not wf:
+                return f"错误：找不到工作流 {workflow_id}（或不属于当前用户）"
+            update_kwargs: dict = {}
+            if name is not None:
+                update_kwargs["name"] = name
+            if description is not None:
+                update_kwargs["description"] = description
+            if definition is not None:
+                update_kwargs["definition"] = definition
+            if is_active is not None:
+                update_kwargs["is_active"] = is_active
+            if not update_kwargs:
+                return "错误：未提供任何要更新的字段（name/description/definition/is_active 至少一个）"
+            body = WorkflowUpdate(**update_kwargs)
+            try:
+                wf = await wf_service.update_workflow(
+                    db, wf, body,
+                    is_admin=wf_service.is_admin_user(user_id),
+                )
+            except wf_service.SystemWorkflowImmutable as e:
+                return (
+                    f"系统预设不可改：{e}\n"
+                    f"先调 fork_workflow('{workflow_id}') 拿副本再 update_workflow。"
+                )
+            payload = {
+                "id": str(wf.id),
+                "name": wf.name,
+                "version": wf.version,
+                "status": "updated",
+            }
+            await db.commit()
+        return _json.dumps(payload, ensure_ascii=False, indent=2)
+    except ValueError as e:
+        return f"工作流定义校验失败：{e}"
+    except Exception as e:
+        logger.exception("update_workflow failed")
+        return f"更新工作流失败：{e}"
+
+
+async def _fork_workflow(workflow_id: str, new_name: str | None) -> str:
+    """复制工作流到当前用户名下（系统预设变可编辑副本）。"""
+    import json as _json
+
+    user_id = await _current_user_id()
+    if user_id is None:
+        return "抱歉，未能识别你的身份，请稍后重试。"
+    if not workflow_id:
+        return "错误：缺少 workflow_id"
+
+    try:
+        from openagentic.db.session import async_session
+        from openagentic.workflow import service as wf_service
+        async with async_session() as db:
+            source = await _resolve_workflow(db, workflow_id, user_id)
+            if not source:
+                return f"错误：找不到源工作流 {workflow_id}"
+            forked = await wf_service.fork_workflow(
+                db, source, user_id, new_name=new_name
+            )
+            payload = {
+                "id": str(forked.id),
+                "name": forked.name,
+                "status": "forked",
+                "note": "现在可以用 update_workflow(<新id>, definition=...) 修改副本。",
+            }
+            await db.commit()
+        return _json.dumps(payload, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.exception("fork_workflow failed")
+        return f"fork 工作流失败：{e}"
+
+
+async def _delete_workflow(workflow_id: str) -> str:
+    """删除工作流；系统预设走到这里会被 service 拦下。"""
+    user_id = await _current_user_id()
+    if user_id is None:
+        return "抱歉，未能识别你的身份，请稍后重试。"
+    if not workflow_id:
+        return "错误：缺少 workflow_id"
+
+    try:
+        from openagentic.db.session import async_session
+        from openagentic.workflow import service as wf_service
+        async with async_session() as db:
+            wf = await _resolve_workflow(db, workflow_id, user_id)
+            if not wf:
+                return f"错误：找不到工作流 {workflow_id}（或不属于当前用户）"
+            wf_name = wf.name
+            try:
+                await wf_service.delete_workflow(
+                db, wf,
+                is_admin=wf_service.is_admin_user(user_id),
+            )
+            except wf_service.SystemWorkflowImmutable as e:
+                return f"系统预设不可删：{e}"
+            await db.commit()
+        return f"已删除工作流 {wf_name}"
+    except Exception as e:
+        logger.exception("delete_workflow failed")
+        return f"删除工作流失败：{e}"
+
+
 # ── 预设工作流提示 ──────────────────────────────────────────────────────
 
 
@@ -579,6 +856,25 @@ def _build_preset_hint() -> str:
     lines.append("用户说「摘要/链接/URL」→ 直接 run_workflow('doc.summarize_url')")
     lines.append("用户说「巡检/服务器/健康检查」→ 直接 run_workflow('ops.server_health')")
     lines.append("不要自己 curl、爬虫、scrape——交给工作流引擎执行。")
+    lines.append("")
+    lines.append("## 工作流编辑路径（区分 admin 与普通用户）")
+    lines.append("**判断当前是不是 admin**：调一次 get_workflow(系统 slug) 后试着 update_workflow——")
+    lines.append("成功 = admin（OPENAGENTIC_ADMIN_USER_IDS 包含你），失败抛 SystemWorkflowImmutable = 普通用户。")
+    lines.append("")
+    lines.append("**Admin 路径（直改原版，推荐）**：")
+    lines.append("- 用户说「改 X 工作流」→ 直接 update_workflow(系统 slug, definition={...})")
+    lines.append("- **不要 fork**，直接改原版；改动持久（除非 yaml 里升 version 触发 lifespan 覆盖）")
+    lines.append("- 若历史上误 fork 过多个副本（is_system=False, slug=None 跟系统预设同主题）→ list_workflows 找出来，逐一调 delete_workflow 清理")
+    lines.append("")
+    lines.append("**普通用户路径（fork 后改副本）**：")
+    lines.append("- update_workflow 系统 slug 报 SystemWorkflowImmutable → 自动回退：先 fork_workflow，再 update_workflow(<新id>, ...)")
+    lines.append("- 跑工作流时优先 list_workflows 找自己 forked 副本（is_system=False, name 与原预设主题相关），优先跑副本")
+    lines.append("")
+    lines.append("## 工作流自管理（你能改任何 workflow）")
+    lines.append("- **改前必读**：先调 get_workflow(id_or_slug) 读完整 definition，不要凭印象改")
+    lines.append("- **系统预设只读**：is_system=True 的 workflow 改不动；用户要个性化时先 fork_workflow(slug, new_name?) 拿副本，再 update_workflow(<新id>, definition={...})")
+    lines.append("- **失败诊断**：run 失败时调 query_workflow_run(run_id) 看 trace 里 status=failed 节点的 error 字段，把错误原文回复用户，不要去 find/grep 探索文件系统")
+    lines.append("- **definition 是完整覆盖**：update_workflow 的 definition 是整体替换，不是 patch；先 get_workflow 拿全量再改某个 node")
     return "\n".join(lines)
 
 
@@ -774,7 +1070,8 @@ class ChannelAIService:
             wf_service2._sender_open_id.set(sender_open_id)
             wf_service2._channel_chat_id.set(chat_id)
             wf_service2._calling_user_id.set(user_id)
-            wf_service2._thinking_card_msg_id.set(_thinking_card_msg_id.get(""))
+            # 同上：workflow 不继承思考卡片，永远发新卡片。
+            wf_service2._thinking_card_msg_id.set("")
 
             runtime.start(
                 run_id,
