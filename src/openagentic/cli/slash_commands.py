@@ -37,7 +37,7 @@ SLASH_COMMANDS = [
     "/skills",
     "/compact", "/context", "/btw", "/cost", "/permissions",
     "/diff", "/review",
-    "/login-platform", "/logout-platform", "/quit",
+    "/login-platform", "/logout-platform", "/plan", "/quit",
 ]
 
 
@@ -431,12 +431,17 @@ async def _run_react_turn(
     confirm_fn,
     react_task_ref: dict,
     rebuild_system_message,
+    plan_mode: bool = False,
 ) -> str:
     """One full user turn: triage routing → react_loop (cancelable) → reset
     routed model. Returns the model name to keep for the next turn.
 
     The model rotation logic lives here so the consumer loop doesn't need to
     know about automodel internals.
+
+    Args:
+        plan_mode: If True, filter tools to read/explore only and inject
+                   plan-mode system prompt into react_loop.
     """
     # ── LLM triage auto-routing ──
     current_model = model
@@ -454,6 +459,10 @@ async def _run_react_turn(
         model = routed_model
         rebuild_system_message()
 
+    # ── Plan mode: filter tools to read/explore only ──
+    from openagentic.cli.tools import TOOLS, filter_tools_for_plan_mode
+    tools = filter_tools_for_plan_mode(TOOLS) if plan_mode else TOOLS
+
     # ── Execute react loop（包成 task，让 producer 的 Ctrl+C 能取消）──
     react_task = asyncio.create_task(
         react_loop(
@@ -465,6 +474,8 @@ async def _run_react_turn(
             platform_api_base=plat["base"],
             platform_user_email=plat["email"],
             confirm_fn=confirm_fn,
+            tools=tools,
+            plan_mode=plan_mode,
         )
     )
     react_task_ref["task"] = react_task
@@ -613,7 +624,7 @@ def print_help() -> None:
         "/provider-config [id]"
     )
     _console.print(
-        "  /automodel [on|off]  /login-platform  /logout-platform  /quit"
+        "  /automodel [on|off]  /login-platform  /logout-platform  /plan  /quit"
     )
     _console.print(
         "  /skills [name]  /skills new <name>  /skills reload"
@@ -629,6 +640,7 @@ def print_help() -> None:
     )
     _console.print()
     _console.print("[bold]Tips[/bold]")
+    _console.print("  /plan 进入计划模式——只探索/设计，不动手；再 /plan 退出恢复全部工具")
     _console.print("  write_file / delete_file need Y/N confirmation before execution")
     _console.print("  /btw <text> 仅追加到对话上下文，不触发推理（高频备注/补充用）")
     _console.print()
@@ -644,7 +656,7 @@ def _make_prompt_msg() -> HTML:
     )
 
 
-def _make_toolbar(pending: int = 0):
+def _make_toolbar(pending: int = 0, *, plan_mode_ref: dict | None = None):
     def _get_toolbar():
         w = shutil.get_terminal_size().columns
         inner = w - 2 if w >= 2 else w
@@ -656,6 +668,7 @@ def _make_toolbar(pending: int = 0):
             text = ""
 
         pending_hint = f"  [{pending} pending]" if pending > 0 else ""
+        plan_hint = " [bold yellow]PLAN MODE[/bold yellow]" if (plan_mode_ref and plan_mode_ref.get("on")) else ""
 
         if text.startswith("/"):
             matching = [c for c in SLASH_COMMANDS if c.startswith(text)]
@@ -665,10 +678,10 @@ def _make_toolbar(pending: int = 0):
                 hint = f"  未知命令：{text}"
             return HTML(
                 f'<style fg="#666666">╰{bar}╯</style>\n'
-                f'<style fg="#aaaaaa">  {hint}{pending_hint}</style>'
+                f'<style fg="#aaaaaa">  {hint}{pending_hint}{plan_hint}</style>'
             )
         return HTML(
             f'<style fg="#666666">╰{bar}╯</style>\n'
-            f'<style fg="#555555">  /help · 按 / 查看命令{pending_hint}</style>'
+            f'<style fg="#555555">  /help · 按 / 查看命令{pending_hint}{plan_hint}</style>'
         )
     return _get_toolbar

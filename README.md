@@ -10,9 +10,10 @@
 
 ## 最近更新
 
+- **2026-05-01**：CLI `/plan` 命令（Plan Mode——参考 Claude Code 设计模式，探索/设计/只读，确认后再实现）；飞书渠道测试补齐（71 条，`tests/channels/`）；workflow 自管理 4 工具（get/update/fork/delete）+ admin 旁路
 - **2026-04-30**：飞书 agent `save_memory` 工具（对话中主动保存记忆）；Core Memory 种子化（14 条用户画像/项目事实/偏好）；思考卡片覆盖机制（workflow push_feishu 自动更新而非新建卡片）；ConversationEngine 工具循环上限收束（强制 LLM 给结论）；模型名称白名单校验（`_resolve_validated_model` 兜底，防 agent 写入不支持的模型）；飞书 bot systemd 服务化部署
 - **2026-04-29**：System-Seed 预设工作流上线（3 个 preset YAML + lifespan upsert + 全渠道透明共享）；并发治理底座 `ConcurrencyGate`；飞书 bot → DAG 工作流链路打通（含用户身份映射 + context 注入）
-- **295 passed, 2 skipped** 测试覆盖
+- **366 passed, 2 skipped** 测试覆盖（含 2026-05-01 `tests/channels/` 新增 71 条飞书渠道测试）
 
 ## 当前迭代未完成 TODO（2026-04-29，下次接着干）
 
@@ -76,8 +77,8 @@
   4 条规则：(1) 改前 `get_workflow` 读全量；(2) 系统预设要 `fork_workflow` 再 update；(3) run failed 看 trace.error 不去 find/grep；(4) update 是全量覆盖不是 patch。
   **未做**：`src/openagentic/identity.py` 核心人格 prompt 是否再加一段你能自管理 workflow？看实战是否需要，不必抢跑。
 
-- [ ] **L3-3. 写 4 工具 dispatch 测试**（推迟到 L3-5 实战通过后补）
-  `tests/channels/test_workflow_tools.py`：mock `async_session` + `wf_service`，覆盖 fork→get→update→delete 闭环 + SystemWorkflowImmutable 引导文案。
+- [x] **L3-3. 写 4 工具 dispatch 测试**（2026-05-01 完成）
+  `tests/channels/test_workflow_tools.py`（31 条）：覆盖 execute_tool 分发、4 工具边界（not found / no user / empty id / no fields）、`_resolve_workflow` UUID/slug 匹配、`_build_preset_hint` 三种场景、基础工具边界（save_memory / run_command / read_file / lark_cli）。另 `tests/channels/test_feishu_card_utils.py`（19 条）+ `tests/channels/test_feishu_message.py`（21 条）。合计 71 条。
 
 - [x] **L3-4. 部署**（2026-05-01 完成）
   `systemctl restart openagentic-feishu` → `active` → 日志干净 reconnect。

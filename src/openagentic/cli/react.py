@@ -16,7 +16,7 @@ from rich.panel import Panel
 from openagentic.cli._patchable_stdout import _patchable_stdout
 
 from openagentic.cli.llm import litellm_chat
-from openagentic.cli.tools import TOOLS, ConfirmFn, execute_tool
+from openagentic.cli.tools import TOOLS, ConfirmFn, execute_tool, PLAN_MODE_SYSTEM_PROMPT
 from openagentic.config import SETTINGS
 from openagentic.memory.manager import (
     MemoryManager,
@@ -95,8 +95,19 @@ async def react_loop(
     platform_api_base: str | None = None,
     platform_user_email: str | None = None,
     confirm_fn: ConfirmFn | None = None,
+    tools: list[dict] | None = None,
+    plan_mode: bool = False,
 ) -> str:
-    """Run the ReAct loop: Thought → Action → Observation → ... → done."""
+    """Run the ReAct loop: Thought → Action → Observation → ... → done.
+
+    Args:
+        tools: Tool definitions to use (defaults to TOOLS).
+               In plan mode, pass a filtered subset (read/explore only).
+        plan_mode: If True, inject plan-mode system prompt so the agent
+                   explores and designs rather than writes code.
+    """
+    if tools is None:
+        tools = TOOLS
     base = (platform_api_base or "").strip()
     if base and not (platform_user_email or "").strip():
         msg = (
@@ -109,6 +120,10 @@ async def react_loop(
         return msg
 
     messages.append({"role": "user", "content": user_input})
+
+    # ── Plan mode: inject exploration-only system prompt ──
+    if plan_mode:
+        messages.insert(1, {"role": "system", "content": PLAN_MODE_SYSTEM_PROMPT})
 
     # ── Episodic memory injection: search past episodes relevant to user_input ──
     try:
@@ -157,7 +172,7 @@ async def react_loop(
             )
 
         resp = await _spin_while(
-            litellm_chat(messages, model, api_base=api_base, api_key=api_key, tools=TOOLS),
+            litellm_chat(messages, model, api_base=api_base, api_key=api_key, tools=tools),
             text="思考中...",
         )
         msg = resp.get("message", {})

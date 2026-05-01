@@ -310,6 +310,31 @@ TOOLS = [
 # Signature: async (title, detail) -> bool
 ConfirmFn = Callable[[str, str], Coroutine[Any, Any, bool]]
 
+# ── Plan Mode: 探索/设计阶段禁用的写入类工具 ──
+_PLAN_MODE_DISABLED = {
+    "write_file", "delete_file",
+    "core_memory_save", "core_memory_delete",
+    "episodic_save", "procedural_save",
+}
+
+PLAN_MODE_SYSTEM_PROMPT = (
+    "## PLAN MODE — 只探索、只设计，不动手\n\n"
+    "你当前处于计划模式，**不能**写文件、删文件、保存记忆。\n"
+    "你可以：读文件、搜记忆、跑只读命令、搜索知识库——做任何\"看\"和\"想\"的事。\n\n"
+    "你的任务：\n"
+    "1. 理解用户需求，探索现有代码/配置/记忆\n"
+    "2. 设计实现方案——涉及哪些文件、哪些函数、什么逻辑\n"
+    "3. 用自然语言输出完整计划（文件→改动→验收方式）\n\n"
+    "完成计划后摘要给用户，用户审阅后会 `/plan` 退出计划模式让你动手实现。\n"
+    "不要在计划模式里调用 done——done 是\"任务完成\"，不是\"计划写完\"。"
+    "输出计划本身即可。"
+)
+
+
+def filter_tools_for_plan_mode(tools: list[dict]) -> list[dict]:
+    """返回只保留读/搜索/探索类工具的过滤列表。"""
+    return [t for t in tools if t["function"]["name"] not in _PLAN_MODE_DISABLED]
+
 
 def _default_confirm_sync(title: str, detail: str) -> bool:
     """Fallback interactive yes/no when no async confirm_fn is provided."""

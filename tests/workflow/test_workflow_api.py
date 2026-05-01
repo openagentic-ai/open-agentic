@@ -53,14 +53,14 @@ async def workflow_api_client(monkeypatch):
             return wf
         return None
 
-    async def update_workflow(_db, workflow, body):
+    async def update_workflow(_db, workflow, body, *, is_admin=False):
         patch = body.model_dump(exclude_unset=True)
         for k, v in patch.items():
             setattr(workflow, k, v)
         workflow.updated_at = datetime.now(timezone.utc)
         return workflow
 
-    async def delete_workflow(_db, workflow):
+    async def delete_workflow(_db, workflow, *, is_admin=False):
         state["workflows"].pop(workflow.id, None)
 
     async def create_run(_db, workflow, input_data, calling_user_id=None):

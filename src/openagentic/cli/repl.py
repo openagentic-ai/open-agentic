@@ -149,6 +149,9 @@ async def main_loop(
     # ── 进行中的 react 任务引用：用于 Ctrl+C 中断当前轮而不退 CLI ──
     react_task_ref: dict[str, asyncio.Task | None] = {"task": None}
 
+    # ── Plan mode 状态（/plan 切换，toolbar 实时读取）──
+    plan_mode_ref: dict[str, bool] = {"on": False}
+
     async def _confirm_fn(title: str, detail: str) -> bool:
         if not sys.stdin.isatty() or not sys.stdout.isatty():
             return False
@@ -188,7 +191,7 @@ async def main_loop(
                 try:
                     user_input = await session.prompt_async(
                         _make_prompt_msg(),
-                        bottom_toolbar=_make_toolbar(queue.qsize()),
+                        bottom_toolbar=_make_toolbar(queue.qsize(), plan_mode_ref=plan_mode_ref),
                     )
                 except EOFError:
                     await queue.put(_SENTINEL_QUIT)
@@ -388,6 +391,18 @@ async def main_loop(
                 await _handle_review(user_input[len("/review"):], queue)
                 continue
 
+            if user_input == "/plan":
+                plan_mode_ref["on"] = not plan_mode_ref["on"]
+                if plan_mode_ref["on"]:
+                    _console.print()
+                    _console.print("  [yellow bold]PLAN MODE ON[/yellow bold]")
+                    _console.print("  [dim]探索/阅读/搜索/设计 —— 不写文件、不删文件、不存记忆[/dim]")
+                    _console.print("  [dim]输出计划后 /plan 退出即可动手实现[/dim]")
+                else:
+                    _console.print()
+                    _console.print("  [green bold]PLAN MODE OFF[/green bold] [dim]—— 全部工具已恢复[/dim]")
+                continue
+
             if user_input == "/config":
                 _console.print()
                 _console.print(f"  [bold]provider:[/bold] {provider}")
@@ -412,6 +427,7 @@ async def main_loop(
                 confirm_fn=_confirm_fn,
                 react_task_ref=react_task_ref,
                 rebuild_system_message=rebuild_system_message,
+                plan_mode=plan_mode_ref["on"],
             )
 
             _console.print()
