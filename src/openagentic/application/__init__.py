@@ -1,0 +1,18 @@
+"""OpenAgentic 共同底座 (Application Service Layer)。
+
+L3 层职责:为所有 L4 接入(IM Adapter / Client Gateway)提供统一对话编排能力。
+
+- ConversationOrchestrator: 流式事件协议入口
+- Session / Identity / Intent / ToolRegistry: 跨端共享原语
+
+设计原则:
+- **零 adapter 知识** — 不 import 任何 extensions.adapters / gateway 模块
+- **流式事件** — reply() 返回 AsyncIterator[ReplyEvent],各端自己渲染
+- **不耦合传输协议** — 不知道 webhook / WebSocket / SDK 的存在
+
+参考: docs/ADR-001-multi-adapter-foundation.md
+"""
+from __future__ import annotations
+
+# Phase 0 仅占位,不实现;实现见 Phase 1。
+__all__: list[str] = []

@@ -8,6 +8,85 @@
 | 仓库 | [github.com/openagentic-ai/open-agentic](https://github.com/openagentic-ai/open-agentic) |
 | 许可证 | Apache 2.0 |
 
+## 多端共同底座（2026-05-01 进行中,ADR-001）
+
+**核心定位**:OpenAgentic 不是 AI 聊天助手,是**企业 agent 跨端中枢**。差异化叙事 = 跨端 agent 一致性 + Workflow 移动/IM 触发器 + B 端系统深度集成 + 位置/时间/事件驱动。**绝不与 C 端 AI 聊天产品(豆包/Kimi)同轨竞争**。
+
+### 架构四层(详见 [docs/ADR-001-multi-adapter-foundation.md](docs/ADR-001-multi-adapter-foundation.md))
+
+```
+L4 接入
+   ┌─ IM Adapter (extensions/adapters/) ─┐    ┌─ Client Gateway (src/openagentic/gateway/) ─┐
+   │  飞书 / 企微 / 钉钉                   │    │  /api/* REST + /ws (ReplyEvent 流)            │
+   └────────────────┬─────────────────────┘    └──────────────────┬───────────────────────────┘
+                    └──────────────┬─────────────────────────────┘
+                                   ↓ 共用
+L3 底座 application/   ConversationOrchestrator + Session + Identity + Intent + ToolRegistry
+L2 Domain  agent / memory / workflow / knowledge (已有保持)
+L1 Infra   db / llm / concurrency (已有保持)
+```
+
+- **IM 走 Adapter,客户端(Web/Android)走 Gateway**——两条接入路径不同协议,共用 L3
+- **流式事件协议**:`reply() -> AsyncIterator[ReplyEvent]`,事件族 thinking/partial/tool_call/tool_result/final/error,各端自行渲染
+- **旧 `extensions/channels/` 保留不删**(将来可能复用),Phase 2 飞书迁完即空置
+
+### 产品矩阵(P0 锁死,不再加)
+
+| | 飞书 | 企微 | 钉钉 | Web | **Android** | 小程序 | iOS/桌面 |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| S1 对话 | ✅ | ✅ | 🔄 | ✅ | **✅** | 🔄 | ✗/⏳ |
+| S2 RAG | ✅ | ✅ | 🔄 | ✅ | **✅** | 🔄 | ⏳ |
+| S3 工作流 | ✅ | 🔄 | ⏳ | ✅ | **✅** | ⏳ | ⏳ |
+| S4 办公协同 | ✅ | 🔄 | 🔄 | 🔄 | ✗ | ✗ | ✗ |
+| S5 数据分析 | ✅ | 🔄 | ✗ | ✅ | ⏳ | ✗ | ⏳ |
+| **触发器**(位置/时间/事件) | — | — | — | — | **✅** | — | — |
+
+**Android = OpenAgentic Android Endpoint(不是手机助手产品)**: 跨端会话承接 + Workflow 移动触发器 + 企业 RAG + 位置/时间/事件触发自动跑 workflow。**永不做 mobile use agent**(C 形态),不抢豆包/AutoGLM 战场。**iOS 不做**(物理上做不了 cross-app 自动化)。**小程序 P1**(等 AI 备案)。
+
+### P0 交付盘(6 个月单人 + AI 协作上限)
+
+| 序 | 项 | 周 |
+|---|---|---|
+| 1 | 共同底座 application/ + gateway/ | 2-3 |
+| 2 | 飞书迁底座(不破坏现状) | 1 |
+| 3 | Web SaaS 真接通 Gateway | 3-4 |
+| 4 | 企微重写(OpenAPI,抛 wecom-cli) | 2 |
+| 5 | S5 数据分析骨架(飞书+Web) | 2-3 |
+| 6 | Android Endpoint 重写 | 12-16 |
+
+**合计 22-28 周 ≈ 5.5-7 个月,踩满 6 个月红线。P0 锁死,任何新任务触发 #2 契约一·交付确定性红线**。
+
+### Phase 0 进度(本 session)
+
+- [x] ADR-001 落地 `docs/ADR-001-multi-adapter-foundation.md` (200 行)
+- [x] `src/openagentic/application/` 6 文件骨架(events / session / identity / intent / tool_registry / orchestrator)——仅签名 + docstring,不实现
+- [ ] `src/openagentic/gateway/` 骨架(api.py + ws.py)
+- [ ] `extensions/adapters/` 骨架(base.py + registry.py + feishu/wecom/dingtalk 占位)
+
+### 决策一览(本 session 拍板)
+
+1. **Adapter 协议**(替代 `Channel`)不强制 webhook/CLI,只要 `adapter_id + start/stop`
+2. **Client Gateway** 新建,REST + WebSocket,UI/Android 共用
+3. **流式事件协议** 同意(非 `reply()->str`)
+4. **旧 channels/** 不删,留作复用
+5. **iOS 砍掉**,Android 必做但**形态 B+(企业移动端,非手机助手)**
+6. **现有 `extensions/android/`** 废弃重写(Ollama 协议 + 样子货,改造比重写累)
+7. **现有 `ui/`** 假数据 + WS 死代码,Phase 3 重做接 Gateway
+8. **企微 `wecom-cli`** 不存在,Phase 4 重写走 OpenAPI
+9. **产品命名**(OpenAgentic / 智子 / 其他)创业 0→1 启动时再定
+
+### 已知现状盘点(各端真实状态,核查于 2026-05-01)
+
+| 端 | 代码量 | 真实状态 |
+|---|---|---|
+| 飞书 Bot | 539 + 1183 行 + systemd | ✅ 上线运行 |
+| 企微 Bot | 294 行 | ⚠️ 骨架,wecom-cli 不存在,从未跑通 |
+| 钉钉 | 0 | ❌ 未开始 |
+| Web UI `ui/` | React+Vite 完整工程 | ⚠️ 样子货:假 telegram/discord 列表;`useWebSocket` 连不通后端 |
+| Android `extensions/android/` | Kotlin+Compose 完整工程 | ⚠️ 样子货:走 Ollama 协议,不接 agent |
+
+---
+
 ## 最近更新
 
 - **2026-05-01**：CLI `/plan` 命令（Plan Mode——参考 Claude Code 设计模式，探索/设计/只读，确认后再实现）；飞书渠道测试补齐（71 条，`tests/channels/`）；workflow 自管理 4 工具（get/update/fork/delete）+ admin 旁路
