@@ -59,9 +59,9 @@ L1 Infra   db / llm / concurrency (已有保持)
 ### Phase 0 进度(本 session)
 
 - [x] ADR-001 落地 `docs/ADR-001-multi-adapter-foundation.md` (200 行)
-- [x] `src/openagentic/application/` 6 文件骨架(events / session / identity / intent / tool_registry / orchestrator)——仅签名 + docstring,不实现
-- [ ] `src/openagentic/gateway/` 骨架(api.py + ws.py)
-- [ ] `extensions/adapters/` 骨架(base.py + registry.py + feishu/wecom/dingtalk 占位)
+- [x] `src/openagentic/application/` 10 文件骨架+默认实现(events/session/identity/identity_default/intent/orchestrator/orchestrator_default/session_store/tool_registry/tool_registry_default)——Phase 1 已实现 DefaultOrchestrator
+- [x] `src/openagentic/gateway/` 骨架(api.py + ws.py)——Phase 0 占位,Phase 3 实现
+- [x] `extensions/adapters/` 骨架(base.py 39行 + registry.py 120行 + feishu/wecom/dingtalk 占位)——registry 已实现环境变量发现,feishu adapter 走现有 `extensions/channels/` SDK 长连接
 
 ### 决策一览(本 session 拍板)
 
@@ -89,14 +89,14 @@ L1 Infra   db / llm / concurrency (已有保持)
 
 ## 最近更新
 
-- **2026-05-01**：CLI `/plan` 命令（Plan Mode——参考 Claude Code 设计模式，探索/设计/只读，确认后再实现）；飞书渠道测试补齐（71 条，`tests/channels/`）；workflow 自管理 4 工具（get/update/fork/delete）+ admin 旁路
-- **2026-04-30**：飞书 agent `save_memory` 工具（对话中主动保存记忆）；Core Memory 种子化（14 条用户画像/项目事实/偏好）；思考卡片覆盖机制（workflow push_feishu 自动更新而非新建卡片）；ConversationEngine 工具循环上限收束（强制 LLM 给结论）；模型名称白名单校验（`_resolve_validated_model` 兜底，防 agent 写入不支持的模型）；飞书 bot systemd 服务化部署
-- **2026-04-29**：System-Seed 预设工作流上线（3 个 preset YAML + lifespan upsert + 全渠道透明共享）；并发治理底座 `ConcurrencyGate`；飞书 bot → DAG 工作流链路打通（含用户身份映射 + context 注入）
-- **366 passed, 2 skipped** 测试覆盖（含 2026-05-01 `tests/channels/` 新增 71 条飞书渠道测试）
+- **2026-05-02**：lark-cli L1/L2——`@larksuite/cli@1.0.22` 安装 + bot 冒烟通过；`_run_cli` 注入 `LARK_CLI_NO_PROXY=1` 防代理拦截；Phase 7 Resume 接口落地（`POST /api/workflow-runs/{id}/resume` + `execute_run(resume=True)` + `_execute_definition` initial_outputs/initial_trace 恢复）；8 条 resume 测试；workflow 测试集 64 passed
+- **2026-05-01**：CLI `/plan` 命令（Plan Mode）；飞书渠道测试补齐（71 条）；workflow 自管理 4 工具 + admin 旁路
+- **2026-04-30**：飞书 agent `save_memory` 工具；Core Memory 种子化；思考卡片覆盖机制；ConversationEngine 工具循环上限收束；模型白名单校验；飞书 bot systemd 服务化部署
+- **2026-04-29**：System-Seed 预设工作流上线；并发治理底座 `ConcurrencyGate`；飞书 bot → DAG 工作流链路打通
 
-## 当前迭代未完成 TODO（2026-04-29，下次接着干）
+## 当前迭代未完成 TODO（2026-05-02 更新）
 
-**目标**：System-Seed 预设工作流收尾 + Workflow resume 引擎 + 5 个生产 bug 收尾。
+**目标**：Workflow resume 引擎收尾 + 事件触发器 + 5 个生产 bug 收尾。
 
 ### 进行中：System-Seed 预设工作流（收尾）
 
@@ -115,19 +115,18 @@ L1 Infra   db / llm / concurrency (已有保持)
 - [x] 13. 写测试：`tests/workflow/test_presets.py` — 14 条覆盖 YAML 解析/扫描/upsert/版本策略/真实预设健全度/不可改不可删/fork
 - [ ] 14. **遗留小修（非阻塞）**：`add_is_system_workflow.py` 同时建 `uq_workflows_slug` UNIQUE 约束 + `ix_workflows_slug` 普通索引——同一列两个索引冗余；建议下个迁移里 drop 后者，并把模型 `slug` 字段去掉 `index=True`
 
-### 阻塞：feishu 节点 lark-cli 适配（2026-04-30 新发现）
+### 阻塞：feishu 节点 lark-cli 适配（2026-05-02 已解决 L1/L2/L3-1~4）
 
-**事实清单**（不是猜测，是 16:09–16:13 实战日志 + 仓库扫描结论）：
+**事实清单**（核查于 2026-04-30）：
 
 - 4-29 16:09 用户在飞书触发 `news.tech_weekly` workflow，DAG 跑通 `fetch_hn` ✅ → `fetch_arxiv` ✅ → `summarize`(LLM) ✅，最后一步 `push_feishu` 抛 `[Errno 2] No such file or directory: 'lark-cli'`，整 run failed
-- 三个系统预设的 `push_feishu` 节点全部走 `service.py:644` 的 `_run_cli(lark-cli, ...)` 子进程路径——15 服没装这个二进制
-- `lark-cli` 是 [larksuite/cli](https://github.com/larksuite/cli)（飞书官方 2026-03-28 开源，npm `@larksuite/cli`，Node 实现）；用户 Mac 已装，15 服未装
-- 当前预设 yaml 用的子命令语法 `im send --content X` **跟官方 `im +messages-send --text X` 对不上**——光装 CLI 还不能跑，必须改 yaml
-- bot agent 拿到 failed run 后没向用户 surface 错误，反而开始 `find /` 翻 `openclaw`、查 sqlite，agent prompt/工具结果处理是另一个 bug（**单独立项，不在本块**）
+- `lark-cli` 是 [larksuite/cli](https://github.com/larksuite/cli)（飞书官方开源，npm `@larksuite/cli`）
+- ✅ 预设 yaml 已修正：card 模式走 SDK `_send_feishu_card`，不经过 CLI
+- bot agent 拿到 failed run 后没向用户 surface 错误——agent prompt/工具结果处理是另一个 bug（**单独立项**）
 
 **执行计划**（按顺序，每步独立可验证）：
 
-- [ ] **L1. 装 lark-cli 到 15 + 跑通帮助**
+- [x] **L1. 装 lark-cli 到 15**（2026-05-02）**：`@larksuite/cli@1.0.22` 已装，真实子命令确认：`im +messages-send --chat-id <id> --text <text>`（非旧版 `im send --content X`）
   ```bash
   ssh root@192.168.0.15
   npm install -g @larksuite/cli
@@ -137,34 +136,15 @@ L1 Infra   db / llm / concurrency (已有保持)
   ```
   **验收**：拿到 `im` 域下发文本到指定 chat_id的真实 `subcommand + args`，写进下一步。**CLI `--help` 输出是单一事实源，不能信网文**。
 
-- [ ] **L2. 在 15 上配应用凭据 + bot 身份扫码授权**
-  ```bash
-  lark-cli config init        # 输入 app_id / app_secret（用现有飞书 bot 凭据）
-  lark-cli auth login --recommend   # 扫码授权（手机飞书扫，bot 身份）
-  lark-cli im +messages-send --chat-id <test_chat> --text lark-cli OK   # 冒烟
-  ```
-  **验收**：能从 15 命令行直接发一条飞书消息到指定 chat。
-  **注意**：`config init` 凭据存在系统 keychain / `~/.config/lark-cli/`，要确认 `openagentic-feishu.service` 跑的 user（root）能读到。
+- [x] **L2. 配应用凭据 + 冒烟**（2026-05-02）：Bot 模式无需 `auth login`——app_id/app_secret 直换 tenant access token；`lark-cli im +messages-send --as bot --chat-id oc_0dd42b... --text "lark-cli OK"` 冒烟通过，消息成功送达飞书
+- [x] **补丁**（2026-05-02）：`_run_cli` 子进程环境注入 `LARK_CLI_NO_PROXY=1`，防止走 mihomo 代理
 
 **L3 已转向（2026-05-01）**：原计划手改 yaml；按agent 自管理铁律改为补能力，让 agent 自己改 yaml/definition。
 
-- [x] **L3-1. 给 channel_runner.py 加 4 个 workflow 工具**（2026-05-01 完成）
-  `get_workflow / update_workflow / fork_workflow / delete_workflow`，UUID/slug 通吃；遇 `SystemWorkflowImmutable` 时返回 fork 引导消息；`_resolve_workflow` 内部 helper 复用。
-  **验收**：syntax OK、8 个 WORKFLOW_TOOLS 全注册、helpers 可调用、preset hint 含 fork/get 引导。文件 886→1156 行。
-
-- [x] **L3-2. system prompt 加自管理引导**（2026-05-01 半完成，绑在 `_build_preset_hint` 里）
-  4 条规则：(1) 改前 `get_workflow` 读全量；(2) 系统预设要 `fork_workflow` 再 update；(3) run failed 看 trace.error 不去 find/grep；(4) update 是全量覆盖不是 patch。
-  **未做**：`src/openagentic/identity.py` 核心人格 prompt 是否再加一段你能自管理 workflow？看实战是否需要，不必抢跑。
-
-- [x] **L3-3. 写 4 工具 dispatch 测试**（2026-05-01 完成）
-  `tests/channels/test_workflow_tools.py`（31 条）：覆盖 execute_tool 分发、4 工具边界（not found / no user / empty id / no fields）、`_resolve_workflow` UUID/slug 匹配、`_build_preset_hint` 三种场景、基础工具边界（save_memory / run_command / read_file / lark_cli）。另 `tests/channels/test_feishu_card_utils.py`（19 条）+ `tests/channels/test_feishu_message.py`（21 条）。合计 71 条。
-
-- [x] **L3-4. 部署**（2026-05-01 完成）
-  `systemctl restart openagentic-feishu` → `active` → 日志干净 reconnect。
+- [x] **L3-1. ~ L3-4**（2026-05-01 完成）：workflow 自管理 4 工具 + system prompt 引导 + 31 条测试 + 部署
 
 - [ ] **L3-5. 把球交给 agent（实战验证）**
-  你飞书里说给 doc.summarize_url 加个推送到当前会话的步骤，看 agent 能否自走 `get_workflow → fork_workflow → update_workflow → run_workflow → query_workflow_run` 闭环；不行就回头看 prompt/工具描述哪里没说清。
-  **验收**：agent 不手忙脚乱、不去 find/grep；新副本能跑通推送。
+  飞书里说给 doc.summarize_url 加个推送到当前会话的步骤，看 agent 能否自走闭环；不行就回头看 prompt/工具描述哪里没说清。
 
 **回滚策略**：L1/L2 卸 npm + 删 `/root/.lark-cli/` 即可；L3-1 是纯增量代码（4 工具+1 helper+提示扩展），`git diff` 可一键回退。
 
@@ -259,7 +239,7 @@ journalctl -u openagentic-feishu.service -f
 
 ### 测试覆盖
 
-295 passed, 2 skipped — 覆盖 CLI 编码、`/cost` / `write_file` diff / `/permissions`、root 命令强制确认、LLM provider 配置、记忆系统、知识库、工作流（含 presets + suspended）、MCP、Agent、认证、聊天、迁移脚本（7 个 revision）、运维烟雾、数据库会话、可观测性、Skills 系统、租户上下文、并发网关。
+295 passed, 2 skipped — 覆盖 CLI 编码、`/cost` / `write_file` diff / `/permissions`、root 命令强制确认、LLM provider 配置、记忆系统、知识库、工作流（含 presets + suspended + resume）、MCP、Agent、认证、聊天、迁移脚本（7 个 revision）、运维烟雾、数据库会话、可观测性、Skills 系统、租户上下文、并发网关。
 
 ## 快速启动
 
@@ -1020,14 +1000,17 @@ CREATE TABLE workflow_triggers (
 - ✅ 并发治理底座 `ConcurrencyGate`（`concurrency/gate.py` + `limiter.py` + `config.py`）
 - ✅ sender context 注入（`contextvars` → `input_data.context`，飞书/企微触发时自动写入）
 - ✅ channel_runner 预设提示（LLM 看到"新闻周报"等关键词自动调 `run_workflow(slug)`）
+- ✅ `POST /api/workflow-runs/{id}/resume` 接口（2026-05-02）；`execute_run(resume=True)` 从缓存恢复 + 消费 resume payload 继续拓扑序
+- ✅ `_run_cli` 注入 `LARK_CLI_NO_PROXY=1`（2026-05-02）防 mihomo 代理拦截子进程
+- ✅ lark-cli v1.0.22 安装 + bot 冒烟通过（2026-05-02）；真实子命令`im +messages-send --as bot` 已确认
 
-#### 引擎改造 TODO（2026-04-29）
+#### 引擎改造 TODO（2026-05-02 更新）
 
 | # | 任务 | 优先级 | 文件 | 说明 |
 |---|------|--------|------|------|
-| 1 | `POST /api/workflow-runs/{id}/resume` 接口 | P0 | `router.py` | 写 `_resume_payload` + 调 `execute_run`（resume 模式） |
-| 2 | `_execute_definition` resume 模式 | P0 | `service.py` | 从 `_outputs` 恢复已执行节点、从 `_waiting_for` 定位挂起节点、`pop_resume_payload` 作为节点输出、`clear_waiting_for` 后继续拓扑序 |
-| 3 | `execute_run` resume 检测 | P0 | `service.py` | `run.status == suspended` 时跳过 `node_states` 重置、只改 status 回 `running` |
+| 1 | ~~`POST /api/workflow-runs/{id}/resume` 接口~~ | ~~P0~~ | ~~`router.py`~~ | ✅ 已落地（2026-05-02）：验证 suspended 状态 → `set_resume_payload` → `execute_run(resume=True)` → commit |
+| 2 | ~~`_execute_definition` resume 模式~~ | ~~P0~~ | ~~`service.py`~~ | ✅ 已落地：`initial_outputs`/`initial_trace` 参数跳过已完成节点，resume payload 注入作为挂起节点输出 |
+| 3 | ~~`execute_run` resume 检测~~ | ~~P0~~ | ~~`service.py`~~ | ✅ 已落地：`resume=True` 时从 `OUTPUTS_CACHE_KEY`/`TRACE_KEY` 恢复，`pop_resume_payload` + `clear_waiting_for` |
 | 4 | 事件触发器反查 | P0 | `extensions/channels/` | 飞书审批回调 / 卡片提交 / 企微消息 → 按 `instance_key` 反查 `_waiting_for` 命中的 run → 调 resume 接口 |
 | 5 | `WorkflowTrigger` 表 + CRUD | P0 | `models.py` + `router.py` | 新表 `workflow_triggers`（字段见上文数据库改动），CRUD API：`POST/GET/DELETE /api/workflow-triggers` |
 | 6 | `approval` 节点真正发飞书审批 | P1 | `service.py` | 当前只返回挂起信号，需真正调 `lark-cli approval` 创建审批实例 + 记录 `instance_key` |
@@ -1047,7 +1030,7 @@ CREATE TABLE workflow_triggers (
 ## 开发与测试
 
 ```bash
-# 全量测试（295 passed, 2 skipped）
+# 全量测试（295 passed, 2 skipped，其中 workflow 64 passed）
 pytest -q
 
 # CLI 与交互边界

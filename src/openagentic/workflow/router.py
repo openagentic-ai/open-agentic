@@ -1,8 +1,9 @@
 """模块说明（中文）：`src/openagentic/workflow/router.py`。\n\n该文件定义 HTTP 路由与请求入口，负责参数校验与服务层调用。\n"""
 
 import uuid
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openagentic.core.auth.models import User
@@ -155,5 +156,40 @@ async def cancel_workflow_run(
         raise HTTPException(status_code=404, detail="Workflow run not found")
     run = await service.request_cancel(db, run)
     runtime.cancel(run.id)
+    return run
+
+
+@router.post("/workflow-runs/{run_id}/resume", response_model=schemas.WorkflowExecutionResponse)
+async def resume_workflow_run(
+    run_id: uuid.UUID,
+    payload: dict[str, Any] = Body(..., description="唤醒载荷，如 {\"approved\": true} 或 {\"text\": \"用户输入\"}"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """唤醒一个 suspended 的 workflow run。
+
+    仅 suspended 状态的 run 可被唤醒。载荷写入 _resume_payload slot，
+    作为挂起节点的输出注入，run 从下一节点继续执行。
+    """
+    from openagentic.workflow import models as _models
+
+    run = await service.get_run(db, run_id, current_user.id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Workflow run not found")
+    if run.status != _models.ExecutionStatus.suspended:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Run is not suspended (status={run.status.value})",
+        )
+
+    workflow = await service.get_workflow(db, run.workflow_id, current_user.id)
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    service.set_resume_payload(run, payload)
+    await db.flush()
+
+    run = await service.execute_run(db, run, workflow, resume=True)
+    await db.commit()
     return run
 

@@ -381,25 +381,53 @@ def pop_resume_payload(run: WorkflowExecution) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
-async def execute_run(db: AsyncSession, run: WorkflowExecution, workflow: Workflow) -> WorkflowExecution:
+async def execute_run(
+    db: AsyncSession, run: WorkflowExecution, workflow: Workflow,
+    resume: bool = False,
+) -> WorkflowExecution:
     """执行单次 Run。
 
     状态流转：
     pending -> running -> completed/failed/cancelled
     中途可进入 suspended（approval/human_input 节点触发），
     resume 时从 suspended 回到 running。
+
+    当 resume=True 时：从 node_states 恢复已缓存的 outputs/trace，
+    消费 resume payload 作为挂起节点的输出，清除 waiting_for 后继续拓扑序。
     """
     t0 = time.monotonic()
+
+    if not resume:
+        # 全新执行：重置状态
+        run.status = ExecutionStatus.running
+        run.started_at = datetime.now(timezone.utc)
+        run.completed_at = None
+        run.output_data = None
+        run.node_states = {TRACE_KEY: []}
+        initial_outputs = None
+        initial_trace = None
+    else:
+        # Resume 执行：从缓存恢复
+        node_states = dict(run.node_states or {})
+        initial_outputs = node_states.pop(OUTPUTS_CACHE_KEY, None) or {}
+        initial_trace = node_states.pop(TRACE_KEY, None) or []
+
+        # 消费 resume payload 作为挂起节点的输出
+        resume_data = pop_resume_payload(run)
+        waiting_for = clear_waiting_for(run)
+        if waiting_for:
+            suspended_node_id = waiting_for.get("node_id")
+            if suspended_node_id and resume_data is not None:
+                initial_outputs[suspended_node_id] = resume_data
+
+        run.status = ExecutionStatus.running
+        run.completed_at = None
+        await db.flush()
+
     logger.info("execute_run start", run_id=str(getattr(run, "id", "")),
                 workflow_slug=getattr(workflow, "slug", ""),
-                workflow_name=getattr(workflow, "name", ""), status=run.status.value)
-
-    run.status = ExecutionStatus.running
-    run.started_at = datetime.now(timezone.utc)
-    run.completed_at = None
-    run.output_data = None
-    run.node_states = {TRACE_KEY: []}
-    await db.flush()
+                workflow_name=getattr(workflow, "name", ""),
+                status=run.status.value, resume=resume)
 
     try:
         output, trace = await _execute_definition(
@@ -407,6 +435,8 @@ async def execute_run(db: AsyncSession, run: WorkflowExecution, workflow: Workfl
             run=run,
             definition=workflow.definition,
             input_payload=run.input_data or {},
+            initial_outputs=initial_outputs,
+            initial_trace=initial_trace,
         )
         if _is_cancel_requested(run):
             run.status = ExecutionStatus.cancelled
@@ -656,7 +686,7 @@ async def _run_cli(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        env={**os.environ, **extra_env},
+        env={**os.environ, "LARK_CLI_NO_PROXY": "1", **extra_env},
     )
     stdout, stderr = await proc.communicate()
     if proc.returncode != 0:
