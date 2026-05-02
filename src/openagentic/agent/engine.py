@@ -29,6 +29,13 @@ ToolExecutor = Callable[[str, dict], Awaitable[str]]
 # 返回 True 表示放行；返回 str 表示拒绝（str 为拒绝原因）
 ToolGuard = Callable[[str, dict], Awaitable[bool | str]]
 
+# 流式观察 hook（可选）。L3 Orchestrator 用这些把 chat() 内部事件转成 ReplyEvent。
+# engine 不依赖 application/events，保持解耦（#3 解耦原则）。
+# 任意 hook 抛异常都被吞 + 仅 logger.warning，不影响主链路。
+ThinkingHook = Callable[[str], Awaitable[None]]                       # (text)
+ToolCallHook = Callable[[str, str, dict], Awaitable[None]]            # (call_id, tool_name, arguments)
+ToolResultHook = Callable[[str, str, str | None], Awaitable[None]]    # (call_id, result, error)
+
 DEFAULT_MAX_ITERATIONS = 5
 
 
@@ -36,6 +43,9 @@ class ConversationEngine:
     """LLM 对话引擎：发送消息 → 调工具 → 追加结果 → 循环 → 最终回复。
 
     无状态设计——调用方自行管理 messages 历史和持久化。
+
+    可选 hooks（on_thinking / on_tool_call / on_tool_result）用于 Orchestrator
+    把内部事件流式上报给 L4。hook 抛异常不影响主链路。
     """
 
     def __init__(
@@ -48,6 +58,9 @@ class ConversationEngine:
         max_iterations: int = DEFAULT_MAX_ITERATIONS,
         executor: ToolExecutor | None = None,
         guard: ToolGuard | None = None,
+        on_thinking: ThinkingHook | None = None,
+        on_tool_call: ToolCallHook | None = None,
+        on_tool_result: ToolResultHook | None = None,
     ):
         self.model = model
         self.api_key = api_key
@@ -57,6 +70,18 @@ class ConversationEngine:
         self.max_iterations = max_iterations
         self.executor = executor
         self.guard = guard
+        self.on_thinking = on_thinking
+        self.on_tool_call = on_tool_call
+        self.on_tool_result = on_tool_result
+
+    async def _safe_hook(self, hook, *args) -> None:
+        """调用可选 hook，失败仅 warning。"""
+        if hook is None:
+            return
+        try:
+            await hook(*args)
+        except Exception as exc:
+            logger.warning("engine hook failed", hook=getattr(hook, "__name__", "?"), error=str(exc))
 
     # -- 单轮对话（自行管理 messages）--------------------------------------
 
@@ -69,6 +94,7 @@ class ConversationEngine:
         iteration = 0
         while iteration < self.max_iterations:
             iteration += 1
+            await self._safe_hook(self.on_thinking, f"调用模型(第 {iteration} 轮)")
             result = await litellm_chat(
                 messages=messages,
                 model=self.model,
@@ -142,10 +168,13 @@ class ConversationEngine:
     async def _execute_tool(self, tc: dict, messages: list[dict]) -> str:
         """执行单个工具调用，返回结果字符串。"""
         func_name = tc["function"]["name"]
+        call_id = tc.get("id", "")
         try:
             func_args = json.loads(tc["function"]["arguments"])
         except (json.JSONDecodeError, KeyError):
             func_args = {}
+
+        await self._safe_hook(self.on_tool_call, call_id, func_name, func_args)
 
         # 安全门
         if self.guard:
@@ -153,6 +182,7 @@ class ConversationEngine:
             if allowed is not True:
                 reason = allowed if isinstance(allowed, str) else "工具调用被拒绝"
                 logger.warning("Tool guard blocked", tool=func_name, reason=reason)
+                await self._safe_hook(self.on_tool_result, call_id, reason, reason)
                 return reason
 
         # 执行
@@ -161,9 +191,14 @@ class ConversationEngine:
                         args_preview=str(func_args)[:200])
             try:
                 result = await self.executor(func_name, func_args)
+                await self._safe_hook(self.on_tool_result, call_id, result, None)
                 return result
             except Exception as e:
                 logger.exception("Tool executor failed", tool=func_name)
-                return f"工具执行错误：{e}"
+                err_msg = f"工具执行错误：{e}"
+                await self._safe_hook(self.on_tool_result, call_id, err_msg, str(e))
+                return err_msg
 
-        return f"工具 {func_name} 未配置执行器"
+        missing = f"工具 {func_name} 未配置执行器"
+        await self._safe_hook(self.on_tool_result, call_id, missing, missing)
+        return missing
