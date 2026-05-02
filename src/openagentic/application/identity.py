@@ -16,9 +16,10 @@ class IdentityResolver(Protocol):
 
     async def resolve(
         self, adapter_id: str, external_id: str, *, auto_bind: bool = True
-    ) -> str:
+    ) -> str | None:
         """解析 user_id;auto_bind=True 时为新外部用户自动创建 User 并绑定。
 
+        命中返回 user_id 字符串;未绑定且 auto_bind/fallback 都未命中返回 None。
         当前 channels/bindings.py 中 resolve_user_id_with_fallback 的等价实现。
         """
         ...

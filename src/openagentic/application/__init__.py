@@ -24,6 +24,8 @@ from openagentic.application.events import (
     ToolCallEvent,
     ToolResultEvent,
 )
+from openagentic.application.identity import IdentityResolver
+from openagentic.application.identity_default import DefaultIdentityResolver
 from openagentic.application.orchestrator_default import DefaultOrchestrator
 from openagentic.application.session import Session
 from openagentic.application.session_store import DefaultSessionStore
@@ -40,6 +42,8 @@ __all__ = [
     "Session", "DefaultSessionStore",
     # tool registry
     "ToolSpec", "DefaultToolRegistry",
+    # identity
+    "IdentityResolver", "DefaultIdentityResolver",
     # orchestrator
     "DefaultOrchestrator",
 ]
