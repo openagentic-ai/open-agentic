@@ -845,7 +845,11 @@ def _build_preset_hint() -> str:
         return ""
 
     lines = [
-        "\n## 系统预设工作流（直接调 run_workflow(slug)，不要手工执行）",
+        "\n## 工作流铁律（最高优先级，违反即失败）",
+        "**任何涉及 URL 抓取、网页爬虫、新闻聚合、服务器巡检、文档摘要的操作，一律用 run_workflow(slug)，禁止手工 curl/爬虫/python_exec。**",
+        "**如果你在思考要不要自己写代码实现——答案是不要。看下面列表，找匹配的 slug，直接 run_workflow。**",
+        "",
+        "## 系统预设工作流（直接调 run_workflow(slug)，不要手工执行）",
     ]
     for p in presets:
         slug = p.get("slug", "")
@@ -914,6 +918,15 @@ class ChannelAIService:
         preset_hint = _build_preset_hint()
         if preset_hint:
             system_prompt += "\n" + preset_hint
+
+        # 飞书/企微回复格式限制
+        system_prompt += (
+            "\n\n## 回复格式限制（飞书 lark_md 不支持的语法）"
+            "\n- 禁止表格（|...| 格式）、围栏代码块（```）、Markdown 标题（#）"
+            "\n- 用加粗、列表、缩进代替"
+            "\n- 代码片段用缩进 4 空格展示"
+            "\n- 用户发「表格/代码块」时可忽略此限制（用户显式要求时允许）"
+        )
 
         # Core memory：启动时注入 system prompt
         try:

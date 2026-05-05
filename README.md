@@ -151,11 +151,12 @@ L1 Infra   db / llm / concurrency (已有保持)
 
 ### 待修：生产 bug
 
-- [ ] **#1 15 服部署**：`/opt/open-agentic` 更新代码 + `alembic upgrade head` + `systemctl restart`
-- [ ] **#2 LLM 不用 list_workflows**：preset 提示已注入 system prompt，需验证实际效果
-- [ ] **#3 DAG 被绕过**：同 #2，preset hints 兜底
-- [ ] **#4 sender_open_id 注入**：contextvars 链路已就绪，pr
-- [ ] **#5 飞书 markdown 渲染**：`feishu_card_utils.py` + `feishu.py:_send_via_cli`，下次单 PR
+- [x] **#1 15 服部署**（2026-05-05）：已 pull + alembic + 代码最新
+- [x] **#2 LLM 不用 list_workflows**（2026-05-05）：preset hints + workflow 铁律 prompt 强化，禁止手工 curl/爬虫
+- [x] **#3 DAG 被绕过**（2026-05-05）：同 #2，铁律 + 列表提示兜底
+- [x] **#4 sender_open_id 注入**（2026-05-05）：contextvars 链路完整（channel_runner → wf_service），`resolve_user_id_with_fallback` 已接入
+- [x] **#5 飞书 markdown 渲染**（2026-05-05）：`feishu_card_utils.py` 清理表格/代码块/标题 + channel_runner system prompt 格式约束
+- [ ] **L3-5 实战验证**：飞书 agent 自改 workflow 推送，等用户触发测试
 
 ### 上线动作（合并完上述 11-14 + bug 修复后一次性做）
 
@@ -209,7 +210,7 @@ journalctl -u openagentic-feishu.service -f
 | **5 多租户+可观测** | ✅ 单租户级 | 行级 user_id 隔离 ✓；tenant/request_id contextvar ✓；Prometheus `/metrics` ✓；structlog 注入 request_id+tenant_id ✓ |
 | **5.5 CLI 增强** | ✅ | `/compact` `/context` `/btw` `/cost` `/permissions` `/diff` `/review` + procedural 自动注入 + `write_file` diff + 6 个内置 SKILL |
 | **6 前后端闭环** | ✅ | 知识库上传 API 对齐；Skills/Channels/Sessions/Devices 全 CRUD 上线；前端全部接入真实 API；Android 客户端可用 |
-| **7 Workflow 扩展** | 🔄 进行中 | System-Seed 预设工作流（3 preset + lifespan upsert）；并发底座 `ConcurrencyGate`；sender context 注入；飞书 bot → DAG 链路；suspended 状态机 + runtime 挂起；`feishu`/`wecom`/`approval`/`human_input` 4 新节点类型 |
+| **7 Workflow 扩展** | ✅ | System-Seed 预设工作流（3 preset + lifespan upsert）；并发底座 `ConcurrencyGate`；sender context 注入；飞书 bot → DAG 链路；suspended 状态机 + runtime 挂起；resume 接口；`feishu`/`wecom`/`approval`/`human_input` 4 新节点类型；workflow 自管理 4 工具；31 条测试；prompt 铁律防 DAG 绕过 + lark_md 格式约束 |
 | **8 Harness Engineering** | ✅ | SkillLoader 渐进加载 / ContextManager 上下文工程（工具输出压缩+历史摘要+快照恢复）/ EvaluatorNode 工作流评估（LLM 评分→阈值重试）/ ToolGateway 控制执行分离（鉴权→审批→沙箱执行→追踪）；对标 OpenAI Agents SDK v2 + Anthropic Harness Design；全部 env-var 默认关闭，零破坏 |
 
 ### CLI 当前能力
