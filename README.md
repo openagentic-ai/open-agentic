@@ -89,6 +89,7 @@ L1 Infra   db / llm / concurrency (已有保持)
 
 ## 最近更新
 
+- **2026-05-05**：Harness Engineering 4 模块（SkillLoader 渐进加载 / ContextManager 上下文工程 / EvaluatorNode 工作流评估 / ToolGateway 控制执行分离），对标 OpenAI Agents SDK v2 + Anthropic Harness Design
 - **2026-05-02**：lark-cli L1/L2——`@larksuite/cli@1.0.22` 安装 + bot 冒烟通过；`_run_cli` 注入 `LARK_CLI_NO_PROXY=1` 防代理拦截；Phase 7 Resume 接口落地（`POST /api/workflow-runs/{id}/resume` + `execute_run(resume=True)` + `_execute_definition` initial_outputs/initial_trace 恢复）；8 条 resume 测试；workflow 测试集 64 passed
 - **2026-05-01**：CLI `/plan` 命令（Plan Mode）；飞书渠道测试补齐（71 条）；workflow 自管理 4 工具 + admin 旁路
 - **2026-04-30**：飞书 agent `save_memory` 工具；Core Memory 种子化；思考卡片覆盖机制；ConversationEngine 工具循环上限收束；模型白名单校验；飞书 bot systemd 服务化部署
@@ -209,6 +210,7 @@ journalctl -u openagentic-feishu.service -f
 | **5.5 CLI 增强** | ✅ | `/compact` `/context` `/btw` `/cost` `/permissions` `/diff` `/review` + procedural 自动注入 + `write_file` diff + 6 个内置 SKILL |
 | **6 前后端闭环** | ✅ | 知识库上传 API 对齐；Skills/Channels/Sessions/Devices 全 CRUD 上线；前端全部接入真实 API；Android 客户端可用 |
 | **7 Workflow 扩展** | 🔄 进行中 | System-Seed 预设工作流（3 preset + lifespan upsert）；并发底座 `ConcurrencyGate`；sender context 注入；飞书 bot → DAG 链路；suspended 状态机 + runtime 挂起；`feishu`/`wecom`/`approval`/`human_input` 4 新节点类型 |
+| **8 Harness Engineering** | ✅ | SkillLoader 渐进加载 / ContextManager 上下文工程（工具输出压缩+历史摘要+快照恢复）/ EvaluatorNode 工作流评估（LLM 评分→阈值重试）/ ToolGateway 控制执行分离（鉴权→审批→沙箱执行→追踪）；对标 OpenAI Agents SDK v2 + Anthropic Harness Design；全部 env-var 默认关闭，零破坏 |
 
 ### CLI 当前能力
 
