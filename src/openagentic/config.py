@@ -21,8 +21,8 @@ class Settings(BaseSettings):
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
-    # LLM
-    LITELLM_DEFAULT_MODEL: str = "ollama/qwen3:14b"
+    # LLM (LiteLLM 统一网关，任意 provider 改 .env 即切)
+    LITELLM_DEFAULT_MODEL: str = "openai/deepseek-v4-flash"
     OLLAMA_API_BASE: str = "http://localhost:11434"
     MODEL_PROVIDER_CONFIG_PATH: str = ".openagentic/model_providers.json"
     OPENAI_API_KEY: str = ""
@@ -31,7 +31,7 @@ class Settings(BaseSettings):
 
     # CLI (`openagentic` ReAct：单条用户消息内「模型↔工具」最大轮数，防死循环)
     CLI_REACT_MAX_ITERATIONS: int = 1000
-    CLI_DEFAULT_MODEL: str = "qwen3:14b"
+    CLI_DEFAULT_MODEL: str = "deepseek-v4-flash"
     OPENAGENTIC_API_BASE: str = ""
 
     # CLI env-var override (like Claude Code's ANTHROPIC_* vars)
