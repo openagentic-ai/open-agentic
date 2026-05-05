@@ -122,6 +122,11 @@ def _validate_node_config(node_id: str, node_type: str, config: dict[str, Any]) 
                 raise ValueError(f"Node '{node_id}' (feishu card) requires config.content")
         elif not isinstance(subcommand, str) or not subcommand.strip():
             raise ValueError(f"Node '{node_id}' (type={node_type}) requires config.subcommand")
+    elif node_type == "evaluator":
+        if not config.get("target_node"):
+            raise ValueError(f"Node '{node_id}' (type=evaluator) requires config.target_node")
+        if not config.get("criteria"):
+            raise ValueError(f"Node '{node_id}' (type=evaluator) requires config.criteria")
     elif node_type == "value":
         if "value" not in config:
             raise ValueError(f"Node '{node_id}' (type=value) requires config.value")
@@ -156,7 +161,7 @@ def validate_definition(definition: dict[str, Any]) -> None:
             raise ValueError("Each node must contain a non-empty id")
         if node_id in node_ids:
             raise ValueError(f"Duplicate node id: {node_id}")
-        if node_type not in {"value", "tool", "llm", "approval", "human_input", "feishu", "wecom"}:
+        if node_type not in {"value", "tool", "llm", "approval", "human_input", "feishu", "wecom", "evaluator"}:
             raise ValueError(f"Unsupported node type: {node_type}")
         # 创建期就拦下缺 config 的节点，避免运行时秒挂导致用户被骗"已启动"。
         _validate_node_config(node_id, node_type, node.get("config") or {})
@@ -579,6 +584,12 @@ async def _execute_definition(
 
         rendered = _render_value(node.get("config", {}), render_context)
 
+        # evaluator 预处理：解析 target_node，注入其输出作为 target_output
+        if node_type_name == "evaluator":
+            target_node_id = rendered.get("target_node")
+            if target_node_id and target_node_id in outputs:
+                rendered["target_output"] = outputs[target_node_id]
+
         retries = int(rendered.get("retries", 0) or 0)
         timeout_sec = float(rendered.get("timeout_sec", 60) or 60)
         attempts = 0
@@ -619,6 +630,39 @@ async def _execute_definition(
                     return None, trace
 
                 outputs[node_id] = output
+
+                # evaluator 后处理：passed=false 时触发目标节点重试
+                is_evaluator = node_type_name == "evaluator"
+                eval_passed = is_evaluator and isinstance(output, dict) and output.get("passed")
+                eval_retries_left = 0
+                if is_evaluator and isinstance(output, dict) and not output.get("passed"):
+                    eval_max_retries = int(rendered.get("max_retries", 2) or 2)
+                    eval_retries_used = int(rendered.get("_eval_retries_used", 0) or 0)
+                    eval_retries_left = eval_max_retries - eval_retries_used
+                    if eval_retries_left > 0 and target_node_id and target_node_id in nodes:
+                        # 重新执行 target_node
+                        target = nodes[target_node_id]
+                        target_rendered = _render_value(target.get("config", {}), render_context)
+                        logger.info("evaluator retrying target", node_id=node_id,
+                                    target_node=target_node_id, retries_left=eval_retries_left)
+                        try:
+                            target_output = await asyncio.wait_for(
+                                _execute_node(node_type=target["type"], config=target_rendered),
+                                timeout=float(target_rendered.get("timeout_sec", 60) or 60),
+                            )
+                            outputs[target_node_id] = target_output
+                            # 更新 rendered 中的 target_output 并重试 evaluator
+                            rendered["target_output"] = target_output
+                            rendered["_eval_retries_used"] = eval_retries_used + 1
+                            # 回到 while 循环重试 evaluator
+                            del outputs[node_id]  # 清除本次 evaluator 结果
+                            attempts = 0  # 重置重试计数
+                            continue
+                        except Exception as target_exc:
+                            logger.error("evaluator target retry failed", target_node=target_node_id,
+                                        error=str(target_exc))
+                            break
+
                 trace.append(
                     {
                         "node_id": node_id,
@@ -868,6 +912,18 @@ async def _execute_node(node_type: str, config: dict[str, Any]) -> Any:
             "prompt": config.get("prompt", ""),
             "input_config": config.get("input_config", {}),
         }
+
+    if node_type == "evaluator":
+        # evaluator 节点：LLM 对 target_node 输出按 criteria 评分
+        from openagentic.workflow.evaluator import execute_evaluator
+        return await execute_evaluator(
+            target_output=config.get("target_output"),
+            criteria=config.get("criteria", ""),
+            min_score=float(config.get("min_score", 0.7)),
+            model=config.get("model"),
+            api_base=config.get("api_base"),
+            api_key=config.get("api_key"),
+        )
 
     raise ValueError(f"Unsupported node type: {node_type}")
 

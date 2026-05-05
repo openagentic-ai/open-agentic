@@ -35,6 +35,10 @@ ToolGuard = Callable[[str, dict], Awaitable[bool | str]]
 ThinkingHook = Callable[[str], Awaitable[None]]                       # (text)
 ToolCallHook = Callable[[str, str, dict], Awaitable[None]]            # (call_id, tool_name, arguments)
 ToolResultHook = Callable[[str, str, str | None], Awaitable[None]]    # (call_id, result, error)
+# 用户消息到达时触发，可注入动态 system prompt（SkillLoader/ContextManager 等场景）。
+# 签名: async (user_message: str) -> str | None
+# 返回的字符串会被追加到 system prompt；返回 None 表示无注入。
+BeforeChatHook = Callable[[str], Awaitable[str | None]]
 
 DEFAULT_MAX_ITERATIONS = 5
 
@@ -61,6 +65,7 @@ class ConversationEngine:
         on_thinking: ThinkingHook | None = None,
         on_tool_call: ToolCallHook | None = None,
         on_tool_result: ToolResultHook | None = None,
+        on_before_chat: BeforeChatHook | None = None,
     ):
         self.model = model
         self.api_key = api_key
@@ -73,6 +78,7 @@ class ConversationEngine:
         self.on_thinking = on_thinking
         self.on_tool_call = on_tool_call
         self.on_tool_result = on_tool_result
+        self.on_before_chat = on_before_chat
 
     async def _safe_hook(self, hook, *args) -> None:
         """调用可选 hook，失败仅 warning。"""
@@ -83,6 +89,16 @@ class ConversationEngine:
         except Exception as exc:
             logger.warning("engine hook failed", hook=getattr(hook, "__name__", "?"), error=str(exc))
 
+    async def _safe_hook_with_return(self, hook, *args) -> str | None:
+        """调用可选 hook 并返回结果，失败仅 warning 且返回 None。"""
+        if hook is None:
+            return None
+        try:
+            return await hook(*args)
+        except Exception as exc:
+            logger.warning("engine hook failed", hook=getattr(hook, "__name__", "?"), error=str(exc))
+            return None
+
     # -- 单轮对话（自行管理 messages）--------------------------------------
 
     async def chat(self, messages: list[dict]) -> str:
@@ -91,6 +107,17 @@ class ConversationEngine:
         messages: [{"role": "system"|"user"|"assistant"|"tool", ...}]
         返回 assistant 的文本回复（不含 tool_calls）。
         """
+        # 动态 system prompt 注入（SkillLoader / ContextManager 等）
+        # 只在首轮调用前注入一次，避免每轮重复追加
+        if self.on_before_chat and messages:
+            injected = await self._safe_hook_with_return(self.on_before_chat, messages)
+            if injected:
+                # 追加到 system prompt（如果存在 system 消息则合并，否则新建）
+                if messages[0].get("role") == "system":
+                    messages[0]["content"] = messages[0]["content"] + "\n" + injected
+                else:
+                    messages.insert(0, {"role": "system", "content": injected})
+
         iteration = 0
         while iteration < self.max_iterations:
             iteration += 1
