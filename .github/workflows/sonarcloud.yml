@@ -33,7 +33,7 @@ jobs:
         env:
           PYTHONPATH: src
         run: |
-          pytest --cov=src/openagentic --cov-report=xml:coverage.xml --cov-report=term-missing -k not docker_compose_health_smoke and not alembic_upgrade_head_smoke_real_db
+          pytest --cov=src/openagentic --cov-report=xml:coverage.xml --cov-report=term-missing -k "not docker_compose_health_smoke and not alembic_upgrade_head_smoke_real_db"
 
       - name: Warn if SONAR_TOKEN is missing
         if: ${{ env.SONAR_TOKEN == '' }}
