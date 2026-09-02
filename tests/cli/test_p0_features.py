@@ -111,7 +111,7 @@ def test_cost_tracker_unknown_pricing_marks_unknown():
         usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1, total_tokens=2)
     )
     with mock.patch("litellm.completion_cost", side_effect=Exception("no pricing")):
-        cost_tracker.record("ollama/qwen3:14b", fake_resp)
+        cost_tracker.record("ollama/qwen3.8:27b", fake_resp)
     snap = cost_tracker.summary()
     assert snap["totals"]["cost_known"] is False
     assert snap["totals"]["total_tokens"] == 2

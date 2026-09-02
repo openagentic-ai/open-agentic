@@ -49,6 +49,10 @@ async def litellm_chat(
     is_reasoning = is_deepseek_reasoning_model(model)
     send_messages = ensure_reasoning_content(messages) if is_reasoning else messages
 
+    # ollama profile 指向 OpenAI 兼容端点（Xinference）时，LiteLLM 需 openai 协议前缀才走 /v1/chat/completions
+    if api_base and model.startswith("ollama/"):
+        model = "openai/" + model.split("/", 1)[1]
+
     kwargs: dict = {
         "model": model,
         "messages": send_messages,

@@ -72,3 +72,41 @@ def test_env_bootstrap_updates_stale_default_to_deepseek(monkeypatch):
         assert deepseek.api_key == "sk-deepseek-abc12345"
         assert deepseek.api_base == "https://api.deepseek.com/v1"
 
+
+def test_resolve_runtime_ollama_profile_rewrites_openai_protocol(monkeypatch):
+    """ollama profile 指向 OpenAI 兼容端点（Xinference）时，模型名重写为 openai/ 前缀"""
+    for key in ("OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_CHAT_MODEL", "OLLAMA_API_BASE"):
+        monkeypatch.delenv(key, raising=False)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = f"{tmpdir}/providers.json"
+        store = ProviderConfigStore(path)
+        store.upsert_profile(
+            "ollama",
+            api_base="http://localhost:9997/v1",
+            api_key="xf-local-key-12345678",
+            models=["ollama/Qwen3.8-27B"],
+            enabled=True,
+        )
+        model, api_base, api_key = store.resolve_runtime("ollama/Qwen3.8-27B")
+        assert model == "openai/Qwen3.8-27B"
+        assert api_base == "http://localhost:9997/v1"
+        assert api_key == "xf-local-key-12345678"
+
+
+def test_resolve_runtime_ollama_profile_keeps_non_ollama_model(monkeypatch):
+    """非 ollama/ 前缀的模型名不被重写"""
+    for key in ("OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_CHAT_MODEL", "OLLAMA_API_BASE"):
+        monkeypatch.delenv(key, raising=False)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = f"{tmpdir}/providers.json"
+        store = ProviderConfigStore(path)
+        store.upsert_profile(
+            "ollama",
+            api_base="http://localhost:9997/v1",
+            api_key="xf-local-key-12345678",
+            models=["ollama/Qwen3.8-27B"],
+            enabled=True,
+        )
+        model, api_base, api_key = store.resolve_runtime("openai/deepseek-v4-flash")
+        assert model == "openai/deepseek-v4-flash"
+        assert api_base == "https://api.openai.com/v1"

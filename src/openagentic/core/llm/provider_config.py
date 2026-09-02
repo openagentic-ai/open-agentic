@@ -165,7 +165,7 @@ DEFAULT_PROFILES: list[ProviderProfile] = [
         id="ollama",
         display_name="Ollama (local)",
         api_base=SETTINGS.OLLAMA_API_BASE,
-        models=["ollama/qwen3:14b", "ollama/deepseek-r1:32b"],
+        models=["ollama/qwen3.8:27b"],
     ),
 ]
 
@@ -336,6 +336,9 @@ class ProviderConfigStore:
         if profile:
             api_base = profile.api_base or None
             api_key = profile.api_key or None
+            # ollama profile 指向 OpenAI 兼容端点（Xinference）时，LiteLLM 需 openai 协议前缀
+            if provider_id == "ollama" and api_base and model_id.startswith("ollama/"):
+                model_id = "openai/" + model_id.split("/", 1)[1]
             return model_id, api_base, api_key
         if model_id.startswith("ollama/"):
             return model_id, SETTINGS.OLLAMA_API_BASE, None
