@@ -364,13 +364,13 @@ REPL 采用 Producer-Consumer 并发模型。模型执行长任务时，**按一
 | 日常对话 / 分类器 | `deepseek/deepseek-v4-flash` |
 | 复杂任务 | `deepseek/deepseek-v4-pro` |
 
-**Ollama（本地）**：
+**Xinference（本地）**：
 
 | 模型 | 说明 |
 |------|------|
-| `ollama/qwen3:14b` | Qwen3 14B（带思考） |
-| `ollama/qwen3:4b` | Qwen3 4B（轻量） |
-| `ollama/deepseek-r1:32b` | DeepSeek R1 32B |
+| `ollama/Qwen3.8-27B` | Qwen3.8 27B（Dense 多模态，Agent 能力，vLLM 引擎） |
+
+本地推理走 Xinference：`http://localhost:9997/v1`（OpenAI 兼容 API），API Key 见服务器 `.openagentic/model_providers.json` 的 ollama profile。
 
 ## API 端点
 
