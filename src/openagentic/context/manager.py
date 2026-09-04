@@ -221,6 +221,10 @@ class ContextManager:
 
     # ── Engine hook ────────────────────────────────────────
 
+    def as_before_chat_hook(self):
+        """返回可直接注入 ConversationEngine(on_before_chat=...) 的 callback。"""
+        return self.before_chat_hook
+
     async def before_chat_hook(self, messages: list[dict]) -> str | None:
         """ConversationEngine 的 on_before_chat callback。
 

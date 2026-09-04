@@ -404,9 +404,15 @@ def estimate_tokens(messages: list[dict]) -> int:
 
 def working_memory_compressible(
     messages: list[dict],
-    max_tokens: int = 6000,
+    max_tokens: int | None = None,
 ) -> bool:
-    """Check if working memory needs compression."""
+    """Check if working memory needs compression.
+
+    max_tokens 默认读 OPENAGENTIC_WORKING_MEMORY_MAX_TOKENS(估算token, 默认6000),
+    按接入模型的实际窗口可配置——不在代码写死。
+    """
+    if max_tokens is None:
+        max_tokens = int(os.environ.get("OPENAGENTIC_WORKING_MEMORY_MAX_TOKENS", "6000"))
     return estimate_tokens(messages) > max_tokens
 
 
@@ -445,6 +451,11 @@ async def compress_working_memory(
         if m.get("role") == "system" and "[Conversation Summary]" in (m.get("content") or ""):
             existing_summary = m.get("content", "")
             break
+    else:
+        # 新格式: 上一轮摘要已合并进 messages[0] 的 [Conversation Summary] 段
+        content0 = messages[0].get("content", "") if messages else ""
+        if "[Conversation Summary]" in content0:
+            existing_summary = content0.split("[Conversation Summary]", 1)[1].strip()
 
     summary_prefix = (
         "Previous summary:\n" + existing_summary + "\n\n"
@@ -475,11 +486,8 @@ async def compress_working_memory(
         # If summarization fails, just truncate
         summary = "[Summarization failed — conversation truncated]"
 
-    # Rebuild messages: system + summary + recent
-    compressed = [messages[0]]  # keep system prompt
-    compressed.append({
-        "role": "system",
-        "content": f"[Conversation Summary]\n{summary}",
-    })
-    compressed.extend(recent)
-    return compressed
+    # Rebuild messages: summary 合并进 system(位置0) ——
+    # strict_system_first 模型(Qwen3.8)拒绝位置 1 的 system 消息
+    head = dict(messages[0])
+    head["content"] = head.get("content", "") + "\n\n[Conversation Summary]\n" + summary
+    return [head, *recent]

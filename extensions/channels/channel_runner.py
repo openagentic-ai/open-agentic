@@ -43,7 +43,7 @@ _thinking_card_msg_id: contextvars.ContextVar[str] = contextvars.ContextVar(
     "channel_thinking_card_msg_id", default=""
 )
 
-MAX_HISTORY = 20
+MAX_HISTORY = int(os.environ.get("OPENAGENTIC_CHANNEL_MAX_HISTORY", "20"))
 MAX_TOOL_ITERATIONS = 30
 
 # ── 公共工具定义 ──────────────────────────────────────────────────────────
@@ -938,6 +938,16 @@ class ChannelAIService:
             logger.warning("core memory injection failed", error=str(exc))
 
         from openagentic.agent.engine import ConversationEngine
+        # OPENAGENTIC_CONTEXT_MANAGER=1 时挂 ContextManager hook:
+        # 每轮 LLM 调用前同步截断超长工具输出(OPENAGENTIC_CONTEXT_TOOL_OUTPUT_MAX 可调),
+        # 防 agent 工具循环中途塞爆小窗口模型
+        cm = None
+        if os.environ.get("OPENAGENTIC_CONTEXT_MANAGER") == "1":
+            try:
+                from openagentic.context.manager import ContextManager
+                cm = ContextManager()
+            except Exception as exc:
+                logger.warning("ContextManager init failed", error=str(exc))
         self.engine = ConversationEngine(
             model=self._model,
             api_key=self._api_key,
@@ -946,8 +956,10 @@ class ChannelAIService:
             system_prompt=system_prompt,
             executor=execute_tool,
             max_iterations=MAX_TOOL_ITERATIONS,
+            on_before_chat=cm.as_before_chat_hook() if cm else None,
         )
         self._histories: dict[str, list[dict]] = {}
+        self._summaries: dict[str, str] = {}  # 跨轮累积的 working memory 摘要
 
     async def reply(
         self,
@@ -1159,9 +1171,16 @@ class ChannelAIService:
         except Exception as exc:
             logger.warning("procedural memory injection failed", error=str(exc))
 
+        # 注入上轮压缩产出的累积摘要(放 system 末尾, 位置0内合并——严格 system-first 模型要求)
+        summary_text = self._summaries.get(chat_id, "")
+        if summary_text:
+            messages[0]["content"] += "\n\n[Conversation Summary]\n" + summary_text
+
         messages.append({"role": "user", "content": user_text})
 
-        # Working memory compression
+        # Working memory compression —— 结果持久化回会话(摘要入缓存+历史截为 recent),
+        # 否则每轮都从全量历史重建→反复压缩且摘要永不累积; 触发阈值可用
+        # OPENAGENTIC_WORKING_MEMORY_MAX_TOKENS 按模型窗口配置
         if working_memory_compressible(messages):
             try:
                 messages[:] = await compress_working_memory(
@@ -1170,6 +1189,12 @@ class ChannelAIService:
                     api_base=self._api_base,
                     api_key=self._api_key,
                 )
+                head = messages[0].get("content", "")
+                if "[Conversation Summary]" in head:
+                    self._summaries[chat_id] = head.split("[Conversation Summary]", 1)[1].strip()
+                    self._histories[chat_id] = [
+                        m for m in messages[1:] if m.get("role") in ("user", "assistant")
+                    ]
             except Exception as exc:
                 logger.warning("working memory compression failed", error=str(exc))
 
@@ -1179,9 +1204,10 @@ class ChannelAIService:
             logger.exception("LLM call failed")
             reply = f"抱歉，AI 调用失败：{e}"
 
-        history.append({"role": "user", "content": user_text})
-        history.append({"role": "assistant", "content": reply})
-        self._histories[chat_id] = history[-MAX_HISTORY:]
+        hist = self._histories.setdefault(chat_id, [])
+        hist.append({"role": "user", "content": user_text})
+        hist.append({"role": "assistant", "content": reply})
+        self._histories[chat_id] = hist[-MAX_HISTORY:]
 
         # 自动保存 episodic memory——下次对话可通过 search_episodes 回忆上下文
         try:
