@@ -1143,7 +1143,7 @@ class ChannelAIService:
                 ctx = "## Relevant Past Experiences\n\n"
                 for i, ep in enumerate(eps, 1):
                     ctx += f"{i}. {ep['title']}\n   {ep['summary'][:300]}\n\n"
-                messages.insert(1, {"role": "system", "content": ctx})
+                messages[0]["content"] += "\n\n" + ctx  # 合并进主 system(位置0): 严格 system-first 模型(Qwen3.8)拒绝位置1的system
         except Exception as exc:
             logger.warning("episodic memory injection failed", error=str(exc))
 
@@ -1155,7 +1155,7 @@ class ChannelAIService:
                 ctx = "## Relevant Procedures\n\n"
                 for i, p in enumerate(procs, 1):
                     ctx += f"{i}. {p['name']}\n   {p['content'][:300]}\n\n"
-                messages.insert(1, {"role": "system", "content": ctx})
+                messages[0]["content"] += "\n\n" + ctx  # 合并进主 system(位置0): 严格 system-first 模型(Qwen3.8)拒绝位置1的system
         except Exception as exc:
             logger.warning("procedural memory injection failed", error=str(exc))
 
