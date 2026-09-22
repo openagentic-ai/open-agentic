@@ -143,3 +143,46 @@ async def test_compose_returns_none_when_all_empty():
     # 单个钩子时 compose_hooks 直接返回原函数（不做无谓包装）
     assert await compose_hooks(a, None)([]) is None
     assert compose_hooks(None) is None
+
+
+# --- 注入量上限 -------------------------------------------------------
+
+async def test_context_respects_total_char_cap(mgr):
+    """注入 system 的上下文必须有总长上限——补充轮放大 top_k 后会接近 1 万字符，
+    既吃 token 又淹没用户真正的问题。"""
+    text = await prepare_context(
+        "用 systemd", memory=mgr, sufficiency_enabled=False, max_context_chars=200,
+    )
+    assert text is not None
+    assert len(text) <= 200 + 80, f"没受上限约束: {len(text)}"
+
+
+async def test_cap_keeps_top_ranked_chunks(mgr):
+    """截断要保留排在前面的（分数高的），不是简单砍尾巴。"""
+    text = await prepare_context(
+        "用 systemd", memory=mgr, sufficiency_enabled=False, max_context_chars=120,
+    )
+    assert text and "systemd" in text, "得分最高的那条应被保留"
+
+
+# --- 补充策略收紧 -----------------------------------------------------
+
+async def test_supplement_uses_smaller_multiplier(mgr):
+    """补充轮不该把 top_k 放大 4 倍——关键词检索下假命中会被放大成噪音。"""
+    jev = _FakeJev({"enough": {"type": "noul", "noul": 0.1}})
+    calls: list = []
+
+    orig = prep.retrieve
+
+    async def spy(query, **kw):
+        calls.append(kw.get("top_k"))
+        return await orig(query, **kw)
+
+    prep.retrieve = spy
+    try:
+        await prepare_context("用 systemd", memory=mgr, sufficiency_enabled=True,
+                              jev=jev, top_k=3, max_rounds=1)
+    finally:
+        prep.retrieve = orig
+    assert len(calls) >= 2
+    assert calls[1] <= calls[0] * 2, f"放大倍数过大: {calls}"

@@ -649,6 +649,41 @@ tiers:
 | **System-1** | **RLCD**（校准决策） | 非自回归、一次前向 | **只判断**，给校准概率 | Jev |
 | **System-2** | **RLHF**（人类反馈） | 自回归、逐 token | **能生成**、能深度推理 | 本地 27B / 云端模型 |
 
+#### 为什么是 decide / think 两个 primitive
+
+RLCD 路线最大的价值**不是替代 RAG**，而是把 AI Agent 里最模糊的一层——「prompt」——
+拆成两个清晰的 primitive：
+
+| primitive | 模型 | 特性 | 职责 |
+|---|---|---|---|
+| **decide** | RLCD（System-1） | 便宜、快、可校准、**可大规模调用** | 所有封闭式判断 |
+| **think** | RLHF（System-2） | 贵、慢、能力极强 | 真正需要智能的那部分 |
+
+**今天 Agent 的「判断」散在两个地方**：一部分写死在 prompt 里（「当 X 时你应该 Y」），
+一部分交给 LLM 在同一次前向里顺带决定。两者都不好——prompt 里的判断**不可验证、不可校准**；
+LLM 顺带做的判断**不可解释、不可缓存、不可度量**，而且代价和生成一样贵。
+
+**终局是 System-1 把 LLM 从 90% 的琐碎判断里解放出来，只让它做那 10% 真正需要智能的事。**
+这才是 RLCD + RLHF 结合后最大的架构收益。
+
+由此推出三条设计约束：
+
+1. **decide 必须廉价到可以大规模调用**，否则「每个决策点都过一遍」不成立。
+   手段：一处实现多处复用、sha256 缓存、**一次调用 fan-out 多个问题**（一次 ~1s 而非 N 次）
+2. **度量指标是「省下了多少次 think」，不是「延迟增加了多少」。**
+   `route` 判 direct → 整个请求不调 LLM，省下的是一次完整的 System-2 调用。
+   用纯成本视角看，是否掉净收益为正的东西
+3. **decide 架构对检索质量比 RAG 更敏感**：检索假命中 → decide 判错 →
+   补充策略把噪音再放大一轮。所以**检索质量是这套架构的前置条件**，不是锦上添花
+
+代码里的对应：
+
+| 位置 | 角色 |
+|---|---|
+| `control_plane/system1.py` | **decide** 的四个 primitive：verify / route / sufficiency / need_retrieval |
+| `agent/engine.py` | **think** 引擎（LLM + 工具循环） |
+| `retrieval/prepare.py` | 两者的编排：decide 决定取什么上下文 → think 生成 → decide 验证 |
+
 目标循环：
 
 ```

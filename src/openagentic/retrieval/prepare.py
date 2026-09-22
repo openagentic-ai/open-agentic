@@ -38,21 +38,35 @@ _INSUFFICIENT_NOTE = (
 )
 
 
-def _format_chunks(chunks: list[Chunk], *, insufficient: bool = False) -> str:
+def _format_chunks(
+    chunks: list[Chunk], *, insufficient: bool = False, max_chars: int = 3000,
+) -> str:
+    """按 score 降序拼上下文，并受总长上限约束。
+
+    截断保留**分数最高**的（chunks 已排序），不是砍尾巴——低分块本来就是噪音。
+    """
     lines = ["## 检索到的上下文"]
     if insufficient:
         lines.append(_INSUFFICIENT_NOTE)
+    used = sum(len(x) + 1 for x in lines)
 
     by_source: dict[str, list[Chunk]] = {}
     for c in chunks:
         by_source.setdefault(c.source, []).append(c)
 
     for source, group in by_source.items():
-        lines.append(f"\n### {_SOURCE_TITLES.get(source, source)}")
+        header = f"\n### {_SOURCE_TITLES.get(source, source)}"
+        block: list[str] = []
         for i, c in enumerate(group, 1):
             title = f" {c.title}" if c.title else ""
-            lines.append(f"{i}.{title}")
-            lines.append(f"   {c.text[:400]}")
+            entry = f"{i}.{title}\n   {c.text[:400]}"
+            if used + len(entry) > max_chars:
+                break
+            block.append(entry)
+            used += len(entry) + 1
+        if block:
+            lines.append(header)
+            lines += block
 
     return "\n".join(lines)
 
@@ -66,6 +80,8 @@ async def prepare_context(
     route_enabled: bool | None = None,
     sufficiency_enabled: bool | None = None,
     max_rounds: int | None = None,
+    max_context_chars: int | None = None,
+    supplement_multiplier: int | None = None,
     jev: Any = _UNSET,
 ) -> str | None:
     """备好上下文文本；不需要检索或无命中时返回 None。
@@ -80,6 +96,10 @@ async def prepare_context(
         sufficiency_enabled = bool(cfg and cfg.system1.sufficiency.enabled)
     if max_rounds is None:
         max_rounds = cfg.system1.sufficiency.max_rounds if cfg else 1
+    if max_context_chars is None:
+        max_context_chars = cfg.system1.sufficiency.max_context_chars if cfg else 3000
+    if supplement_multiplier is None:
+        supplement_multiplier = cfg.system1.sufficiency.supplement_multiplier if cfg else 2
     if top_k == 3 and cfg is not None:
         top_k = cfg.system1.sufficiency.top_k
     if route_enabled:
@@ -91,24 +111,26 @@ async def prepare_context(
     if not chunks:
         return None
     if not sufficiency_enabled:
-        return _format_chunks(chunks)
+        return _format_chunks(chunks, max_chars=max_context_chars)
 
-    text = _format_chunks(chunks)
+    text = _format_chunks(chunks, max_chars=max_context_chars)
     enough = await judge_sufficient(query, text, jev=jev)
     if enough is not False:  # None（判定失败）按「够」处理——fail-open
         return text
 
     # 补充上下文：放宽检索范围再试；仍不够则带标记返回，让 System-2 知道别编
     for _ in range(max(0, max_rounds)):
-        wider = await retrieve(query, sources=sources, top_k=top_k * 4, memory=memory)
+        wider = await retrieve(
+            query, sources=sources, top_k=top_k * supplement_multiplier, memory=memory,
+        )
         if not wider:
             break
         chunks = wider
-        text = _format_chunks(chunks)
+        text = _format_chunks(chunks, max_chars=max_context_chars)
         if await judge_sufficient(query, text, jev=jev) is not False:
             return text
 
-    return _format_chunks(chunks, insufficient=True)
+    return _format_chunks(chunks, insufficient=True, max_chars=max_context_chars)
 
 
 # --- 钩子合成 ---------------------------------------------------------

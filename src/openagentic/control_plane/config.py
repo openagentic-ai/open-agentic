@@ -68,6 +68,12 @@ class SufficiencyConfig:
     enabled: bool = False
     top_k: int = 3
     max_rounds: int = 1   # 补充轮数上限（每轮 = 一次检索 + 一次判定）
+    # 补充轮的放大倍数。**不宜大**：关键词检索下假命中会被放大成噪音，
+    # 而 decide 架构对这种噪音比 RAG 更敏感（判错会再放大一轮）。
+    supplement_multiplier: int = 2
+    # 注入 system 的上下文总长上限。不设的话补充轮能到近 1 万字符——
+    # 既吃 KV 预算，又淹没用户真正的问题。
+    max_context_chars: int = 3000
 
 
 @dataclass(frozen=True)
@@ -141,6 +147,10 @@ def _parse(data: dict) -> ControlPlaneConfig:
         enabled=bool(suf_raw.get("enabled", False)),
         top_k=int(suf_raw.get("top_k", SufficiencyConfig.top_k)),
         max_rounds=int(suf_raw.get("max_rounds", SufficiencyConfig.max_rounds)),
+        supplement_multiplier=int(suf_raw.get(
+            "supplement_multiplier", SufficiencyConfig.supplement_multiplier)),
+        max_context_chars=int(suf_raw.get(
+            "max_context_chars", SufficiencyConfig.max_context_chars)),
     )
 
     esc = data.get("escalation") or {}

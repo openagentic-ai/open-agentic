@@ -35,6 +35,8 @@ system1:
     enabled: true
     top_k: 3
     max_rounds: 1     # 补充轮数上限
+    supplement_multiplier: 2   # 补充轮放大倍数，不宜大——假命中会被放大成噪音
+    max_context_chars: 3000    # 注入 system 的总长上限
   route:
     # 加在请求最前面，开了等于每个请求都 +1 次调用——代价最贵，暂不开
     enabled: false
