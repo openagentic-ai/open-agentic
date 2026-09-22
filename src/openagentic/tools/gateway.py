@@ -16,14 +16,15 @@
 
 from __future__ import annotations
 
-import logging
+import structlog
+
 import os
 import time
 from typing import Callable, Awaitable
 
 from openagentic.tools.sandbox import ToolResult, ToolSandbox, SubprocessSandbox
 
-logger = logging.getLogger("openagentic.tools.gateway")
+logger = structlog.get_logger("openagentic.tools.gateway")
 
 # ── 环境变量 ──────────────────────────────────────────────
 ENABLED = os.environ.get("OPENAGENTIC_TOOL_GATEWAY", "0") == "1"

@@ -221,7 +221,7 @@ class WeComChannel(Channel):
 
         # 尝试使用 pycryptodome
         try:
-            from Crypto.Cipher import AES  # type: ignore[import-untyped]
+            from Crypto.Cipher import AES
             cipher = AES.new(key, AES.MODE_CBC, iv)
             plain = cipher.decrypt(ciphertext)
             return self._strip_pkcs7(plain)
@@ -231,8 +231,8 @@ class WeComChannel(Channel):
         # 尝试使用 cryptography
         try:
             from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-            cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
-            decryptor = cipher.decryptor()
+            cipher_ctx = Cipher(algorithms.AES(key), modes.CBC(iv))
+            decryptor = cipher_ctx.decryptor()
             plain = decryptor.update(ciphertext) + decryptor.finalize()
             return self._strip_pkcs7(plain)
         except ImportError:

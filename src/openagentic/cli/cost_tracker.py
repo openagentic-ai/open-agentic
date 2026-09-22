@@ -11,6 +11,8 @@ calls `reset()`.
 
 from __future__ import annotations
 
+from typing import cast
+
 import structlog
 from dataclasses import dataclass, field
 from threading import Lock
@@ -98,7 +100,7 @@ def summary() -> dict[str, Any]:
             agg_total += t.total_tokens
             agg_cost += t.cost_usd
             any_cost_known = any_cost_known or t.cost_known
-    models.sort(key=lambda m: m["total_tokens"], reverse=True)
+    models.sort(key=lambda m: cast(int, m["total_tokens"]), reverse=True)
     return {
         "by_model": models,
         "totals": {

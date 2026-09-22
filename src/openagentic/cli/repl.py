@@ -72,7 +72,7 @@ async def main_loop(
     env_base_url: str | None = None,
     env_auth_token: str | None = None,
 ):  # noqa: C901
-    session = PromptSession(completer=SlashCompleter())
+    session: PromptSession[str] = PromptSession(completer=SlashCompleter())
     queue: asyncio.Queue = asyncio.Queue()
 
     requested_provider = provider

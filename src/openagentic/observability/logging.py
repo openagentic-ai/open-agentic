@@ -6,6 +6,7 @@ structlog 配置：每条日志自动带 `request_id` 与 `tenant_id`（如有�
 
 import logging
 from pathlib import Path
+from typing import Any
 
 import structlog
 
@@ -54,7 +55,7 @@ def configure_logging(*, json_logs: bool = False, level: str = "INFO",
     """
     log_level = getattr(logging, level.upper(), logging.INFO)
 
-    shared_processors = [
+    shared_processors: list[Any] = [
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),

@@ -77,12 +77,12 @@ def register_channel_routes(app: FastAPI) -> dict[str, Channel]:
 
     if not _registry:
         logger.info("No channel configured (set FEISHU_APP_ID or WECOM_CORP_ID to activate)")
-        app._channels_registered = True
+        setattr(app, "_channels_registered", True)
         return _registry
 
     router = build_channel_router(_registry, _agent_callback)
     app.include_router(router)
-    app._channels_registered = True
+    setattr(app, "_channels_registered", True)
     return _registry
 
 

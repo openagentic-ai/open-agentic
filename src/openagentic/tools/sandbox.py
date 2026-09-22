@@ -12,12 +12,13 @@
 
 from __future__ import annotations
 
+import structlog
+
 import asyncio
-import logging
 from dataclasses import dataclass
 from typing import Protocol
 
-logger = logging.getLogger("openagentic.tools.sandbox")
+logger = structlog.get_logger("openagentic.tools.sandbox")
 
 
 @dataclass
@@ -163,6 +164,12 @@ class SubprocessSandbox:
                     success=True,
                     output=f"File written: {path} ({len(content)} chars)",
                     duration_ms=elapsed,
+                )
+            else:
+                return ToolResult(
+                    success=False,
+                    output="",
+                    error=f"Unknown file operation: {tool_name}",
                 )
         except Exception as exc:
             elapsed = (asyncio.get_event_loop().time() - start) * 1000

@@ -351,8 +351,8 @@ class MemoryManager:
                 lines.append("## Episodes")
                 for ep in eps:
                     content = ep.read_text(encoding="utf-8")
-                    entry = MemoryEntry.from_markdown(content, str(ep))
-                    title = entry.key if entry else ep.stem
+                    ep_entry = MemoryEntry.from_markdown(content, str(ep))
+                    title = ep_entry.key if ep_entry else ep.stem
                     lines.append(f"- [{title}](episodes/{ep.name})")
                 lines.append("")
 
@@ -364,8 +364,8 @@ class MemoryManager:
                 lines.append("## Procedures")
                 for p in procs:
                     content = p.read_text(encoding="utf-8")
-                    entry = MemoryEntry.from_markdown(content, str(p))
-                    name = entry.key if entry else p.stem
+                    proc_entry = MemoryEntry.from_markdown(content, str(p))
+                    name = proc_entry.key if proc_entry else p.stem
                     lines.append(f"- [{name}](procedures/{p.name})")
                 lines.append("")
 

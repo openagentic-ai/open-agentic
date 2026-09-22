@@ -197,7 +197,7 @@ def _handle_permissions(args: str) -> None:  # noqa: C901
 
     if sub in ("allow-path", "deny-path") and len(parts) >= 3:
         tool = parts[1]
-        path = " ".join(parts[2:])
+        path_value = " ".join(parts[2:])
         if tool not in perm.GATED_TOOLS:
             _console.print(f"  [red]unknown tool: {tool}[/red]")
             return
@@ -206,10 +206,10 @@ def _handle_permissions(args: str) -> None:  # noqa: C901
             return
         cfg = perm.load()
         target = cfg.tools[tool].allow_paths if sub == "allow-path" else cfg.tools[tool].deny_paths
-        if path not in target:
-            target.append(path)
+        if path_value not in target:
+            target.append(path_value)
             perm.save(cfg)
-        _console.print(f"  [green]{tool}.{sub.replace('-', '_')}s += {path}[/green]")
+        _console.print(f"  [green]{tool}.{sub.replace('-', '_')}s += {path_value}[/green]")
         return
 
     if sub in ("allow-prefix", "deny-prefix") and len(parts) >= 3:

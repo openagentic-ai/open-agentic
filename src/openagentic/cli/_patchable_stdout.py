@@ -14,6 +14,7 @@ Markdown) survives, which is safe under ``patch_stdout``.
 from __future__ import annotations
 
 import sys
+from typing import IO, cast
 
 
 class _PatchableStdout:
@@ -41,4 +42,7 @@ class _PatchableStdout:
 
 
 # Singleton — every Console instance shares the same delegating wrapper.
-_patchable_stdout = _PatchableStdout()
+# Rich 的 Console 要求 file 是 IO[str]；本类只实现写侧
+# （write/flush/isatty/encoding/errors），刻意不实现 read/seek，
+# 这里按写侧契约声明，运行时行为不变。
+_patchable_stdout: IO[str] = cast("IO[str]", _PatchableStdout())

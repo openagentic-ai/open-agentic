@@ -492,28 +492,28 @@ async def execute_tool(
 
         elif name == "core_memory_search":
             mgr = _get_memory_manager()
-            results = mgr.search_core(
+            core_results = mgr.search_core(
                 args["query"],
                 args.get("category"),
                 int(args.get("top_k", 5)),
             )
-            if not results:
+            if not core_results:
                 return "No matching core memories found."
             lines = ["Core memory search results:"]
-            for e in results:
+            for e in core_results:
                 lines.append(f"- [{e.category}] {e.key}: {e.value[:200]}")
             return "\n".join(lines)
 
         elif name == "episodic_search":
             mgr = _get_memory_manager()
-            results = mgr.search_episodes(
+            ep_results = mgr.search_episodes(
                 args["query"],
                 int(args.get("top_k", 3)),
             )
-            if not results:
+            if not ep_results:
                 return "No matching past episodes found."
             lines = ["Past episode results:"]
-            for ep in results:
+            for ep in ep_results:
                 lines.append(f"- {ep['title']}: {ep['summary'][:250]}")
             return "\n".join(lines)
 
@@ -522,30 +522,30 @@ async def execute_tool(
             tags = args.get("tags", [])
             if isinstance(tags, str):
                 tags = json.loads(tags) if tags.startswith("[") else [tags]
-            fp = mgr.save_episode(args["title"], args["summary"], tags)
-            return f"OK: episode saved → {fp}"
+            ep_fp = mgr.save_episode(args["title"], args["summary"], tags)
+            return f"OK: episode saved → {ep_fp}"
 
         elif name == "procedural_save":
             mgr = _get_memory_manager()
             steps = args.get("steps", [])
             if isinstance(steps, str):
                 steps = json.loads(steps) if steps.startswith("[") else [steps]
-            fp = mgr.save_procedure(
+            proc_fp = mgr.save_procedure(
                 args["name"], args["description"], args["trigger_pattern"], steps,
             )
-            return f"OK: procedure '{args['name']}' saved → {fp}"
+            return f"OK: procedure '{args['name']}' saved → {proc_fp}"
 
         elif name == "procedural_search":
             mgr = _get_memory_manager()
-            results = mgr.search_procedures(
+            proc_results = mgr.search_procedures(
                 args["query"],
                 int(args.get("top_k", 3)),
             )
-            if not results:
+            if not proc_results:
                 return "No matching procedures found."
             lines = ["Procedure search results:"]
-            for p in results:
-                lines.append(f"- {p['name']}: {p['content'][:250]}")
+            for proc in proc_results:
+                lines.append(f"- {proc['name']}: {proc['content'][:250]}")
             return "\n".join(lines)
 
         return f"Unknown tool: {name}"

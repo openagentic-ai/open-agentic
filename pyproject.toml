@@ -84,3 +84,9 @@ skips = ["B404", "B602", "B603", "B607"]
 
 [project.scripts]
 openagentic = "openagentic_entry:main"
+
+[[tool.mypy.overrides]]
+# Windows 专用模块：asyncio.WindowsSelectorEventLoopPolicy / msvcrt.* 都只在
+# Windows 上存在，在 Linux CI 上静态检查必然误报。运行时按平台动态导入。
+module = ["openagentic.cli._platform_windows"]
+ignore_errors = true

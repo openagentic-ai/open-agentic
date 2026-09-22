@@ -122,7 +122,7 @@ async def execute_agent(
     return execution
 
 
-def _filter_tool_names(tool_names: list[str]) -> list[str]:
+def _filter_tool_names(tool_names: list[str] | None) -> list[str]:
     """过滤并去重工具名，只保留当前注册表存在的工具。"""
     if not tool_names:
         return []

@@ -15,13 +15,14 @@
 
 from __future__ import annotations
 
+import structlog
+
 import json
-import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-logger = logging.getLogger("openagentic.context")
+logger = structlog.get_logger("openagentic.context")
 
 # ── 环境变量 ──────────────────────────────────────────────
 ENABLED = os.environ.get("OPENAGENTIC_CONTEXT_MANAGER", "0") == "1"

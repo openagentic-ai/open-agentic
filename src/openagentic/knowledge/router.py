@@ -99,7 +99,7 @@ async def add_document(
             filename=payload.filename,
             content=payload.content,
             content_type=payload.content_type,
-            parts=payload.parts,
+            parts=[p.model_dump() for p in payload.parts] if payload.parts else None,
             metadata=payload.metadata,
         )
     except ValueError as e:
