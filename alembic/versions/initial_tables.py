@@ -19,9 +19,18 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    message_role_enum = sa.Enum("system", "user", "assistant", "tool", name="messagerole")
-    agent_status_enum = sa.Enum("online", "idle", "offline", name="agentstatus")
-    execution_status_enum = sa.Enum("success", "failed", name="executionstatus")
+    # create_type=False：这三个类型由下面显式 .create(checkfirst=True) 建；
+    # 若交给 create_table 自动建，同一个类型会被建两次 → DuplicateObjectError
+    # → 整个迁移事务回滚，库永久为空。这个初始迁移此前从未成功跑过。
+    message_role_enum = postgresql.ENUM(
+        "system", "user", "assistant", "tool", name="messagerole", create_type=False
+    )
+    agent_status_enum = postgresql.ENUM(
+        "online", "idle", "offline", name="agentstatus", create_type=False
+    )
+    execution_status_enum = postgresql.ENUM(
+        "success", "failed", name="executionstatus", create_type=False
+    )
 
     message_role_enum.create(op.get_bind(), checkfirst=True)
     agent_status_enum.create(op.get_bind(), checkfirst=True)

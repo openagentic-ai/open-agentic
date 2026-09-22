@@ -20,8 +20,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    workflow_run_status_enum = sa.Enum(
-        "pending", "running", "success", "failed", "cancelled", name="workflowrunstatus"
+    # create_type=False：同 add_knowledge_tables —— 避免 create_table 重复建类型
+    workflow_run_status_enum = postgresql.ENUM(
+        "pending", "running", "success", "failed", "cancelled",
+        name="workflowrunstatus", create_type=False,
     )
     workflow_run_status_enum.create(op.get_bind(), checkfirst=True)
 

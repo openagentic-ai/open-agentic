@@ -23,8 +23,11 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
-    knowledge_status_enum = sa.Enum(
-        "pending", "processing", "ready", "failed", name="knowledgedocumentstatus"
+    # create_type=False：类型由下一行显式 .create(checkfirst=True) 建；
+    # 交给 create_table 自动建会建两次 → DuplicateObjectError → 整个迁移回滚
+    knowledge_status_enum = postgresql.ENUM(
+        "pending", "processing", "ready", "failed",
+        name="knowledgedocumentstatus", create_type=False,
     )
     knowledge_status_enum.create(op.get_bind(), checkfirst=True)
 
