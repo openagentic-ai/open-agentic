@@ -35,6 +35,38 @@ def ensure_reasoning_content(messages: list[dict[str, Any]]) -> list[dict[str, A
     return patched
 
 
+
+async def _escalate_if_configured(kwargs: dict, cp_cfg) -> Any | None:
+    """本地后端失败时转云端。
+
+    未配置升级目标、或升级自身也失败，一律返回 None——由调用方抛出原始错误，
+    避免用云端故障掩盖本地故障的真因。配置解析失败同样静默回落。
+    """
+    from openagentic.control_plane import escalation_target
+
+    target = escalation_target(cp_cfg)
+    if not target:
+        return None
+
+    try:
+        from openagentic.concurrency import get_default_gate
+        from openagentic.control_plane import gate_category
+        from openagentic.core.llm.provider_config import get_provider_store
+
+        esc_model, esc_base, esc_key = get_provider_store().resolve_runtime(target)
+        esc_kwargs = {**kwargs, "model": esc_model}
+        if esc_base:
+            esc_kwargs["api_base"] = esc_base
+        if esc_key:
+            esc_kwargs["api_key"] = esc_key
+
+        async with get_default_gate().acquire(gate_category(esc_base, cp_cfg)):
+            return await litellm.acompletion(**esc_kwargs)
+    except Exception:
+        logger.warning("escalation failed", target=target, exc_info=True)
+        return None
+
+
 async def litellm_chat(
     messages: list[dict[str, Any]],
     model: str,
@@ -75,14 +107,17 @@ async def litellm_chat(
     from openagentic.concurrency import get_default_gate
     from openagentic.control_plane import gate_category, load_control_plane_config
 
+    cp_cfg = load_control_plane_config()
     # 按后端选配额类别：本地推理后端序列槽位有限，不能按云端 QPS 配（控制面未启用则返回 "llm"）
-    category = gate_category(api_base, load_control_plane_config())
+    category = gate_category(api_base, cp_cfg)
     try:
         async with get_default_gate().acquire(category):
             response = await litellm.acompletion(**kwargs)
     except Exception:
-        logger.exception("litellm_chat failed")
-        raise
+        response = await _escalate_if_configured(kwargs, cp_cfg)
+        if response is None:
+            logger.exception("litellm_chat failed")
+            raise
 
     # Best-effort cost tracking
     try:
