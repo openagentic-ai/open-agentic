@@ -123,7 +123,7 @@ async def litellm_chat(
     try:
         from openagentic.cli import cost_tracker
         cost_tracker.record(model, response)
-    except Exception:
+    except Exception:  # nosec B110 — 记账是 best-effort，失败不得阻断 LLM 调用
         pass
 
     choice = response.choices[0]

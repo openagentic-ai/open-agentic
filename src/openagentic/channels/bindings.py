@@ -153,7 +153,7 @@ async def _feishu_lookup_name(external_id: str) -> str:
                 user_info = user_data.get("data", {}).get("user", {})
                 name = user_info.get("name", "")
                 return name
-    except Exception:
+    except Exception:  # nosec B110 — 取名失败回落空串，不阻断消息处理
         pass
     return ""
 

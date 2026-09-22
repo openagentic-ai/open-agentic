@@ -41,7 +41,7 @@ class _FileWriter:
             line = JSONRenderer()(_logger, method_name, event_dict)
             self._f.write(line + "\n")
             self._f.flush()
-        except Exception:
+        except Exception:  # nosec B110 — 落盘失败不得阻断日志管道
             pass
         return event_dict  # 透传，不阻断后续 processor
 

@@ -91,7 +91,7 @@ async def ensure_vector_indexes(db: AsyncSession) -> list[str]:
         try:
             await db.execute(text(sql))
             created.append(index_name)
-        except Exception:
+        except Exception:  # nosec B112 — 部分环境（SQLite/测试库）不支持 pgvector 索引，跳过该索引继续
             # Some environments (SQLite/test DB) do not support pgvector indexes.
             continue
     return created

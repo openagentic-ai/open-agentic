@@ -34,7 +34,8 @@ class WindowsCliPlatform(CliPlatformBase):
     def clear_screen(self) -> None:
         import os
 
-        os.system("cls")
+        os.system("cls")  # nosec B605 — Windows 清屏只有这一种做法
+
 
     # -- terminal: key reading -----------------------------------------------
 
