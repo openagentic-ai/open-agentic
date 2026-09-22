@@ -679,9 +679,22 @@ tiers:
 |---|---|---|
 | System-1 验证 / 打分 | ✅ **已落地** | `control_plane/system1.py::verify_output`，接进 `ConversationEngine(on_verify=...)` |
 | 不可信 → 带反馈重想 | ✅ **已落地** | 判定结果回注 prompt，同模型重生；重试用尽返回最后候选，不报错 |
-| System-1 判断 / 路由 | ⚠️ 有实现未接线 | `system1.route_message()` 已实现并测试，默认关闭（多一次判定 = +1 秒） |
-| System-1 信息够不够 | ⚠️ 有实现未接线 | `system1.judge_sufficient()` 已实现并测试；引擎层暂无检索，故默认关闭 |
-| Retrieval | ❌ 不在引擎层 | 检索目前只在 CLI / 渠道层各自实现，三处互不共享 |
+| **Retrieval** | ✅ **已收归** | 新增 `retrieval/`：三处旧实现（CLI / channel_runner / orchestrator）统一走 `prepare_context` |
+| System-1 判断 / 路由 | ⚠️ 有实现未开启 | `system1.need_retrieval()` / `route_message()` 已实现并测试，配置里默认关（多一次判定 = +1 秒） |
+| System-1 信息够不够 | ⚠️ 有实现未开启 | `system1.judge_sufficient()` 已实现并测试，配置里默认关；不开也能正常检索，只是不做充分性判定 |
+
+前置阶段的完整形态（`retrieval/prepare.py`）：
+
+```
+System-1 要不要检索 → retrieve() → System-1 够不够 → 不够则补充上下文 → 拼文本注入 system
+```
+
+**引擎零改动**——返回的字符串直接当 `on_before_chat` 用（它本来就是「循环前返回文本注入
+system」）。多个钩子（如 `ContextManager`）用 `compose_hooks` 合成，失败互相隔离。
+
+**knowledge（向量检索）尚未接入**：核查发现整条链路是断的——PostgreSQL 没在跑、
+Xinference 没注册 embedding 模型、embedder 协议也打错了地址。接入位留在
+`retrieve()` 的 `db` / `kb_ids` 参数上。
 | System-2 复杂推理 | ✅ 已有 | `ConversationEngine` 的 LLM + 工具循环 |
 
 **分级触发**（核心取舍）：判定要 +1 秒且按次计费，不能每条都过。
