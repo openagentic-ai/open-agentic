@@ -55,8 +55,26 @@ class VerifyConfig:
 
 
 @dataclass(frozen=True)
+class RouteConfig:
+    """要不要检索的判定。加在请求最前面，开了等于每个请求 +1 次 Jev 调用。"""
+
+    enabled: bool = False
+
+
+@dataclass(frozen=True)
+class SufficiencyConfig:
+    """够不够的判定，以及判不够时怎么补充上下文。"""
+
+    enabled: bool = False
+    top_k: int = 3
+    max_rounds: int = 1   # 补充轮数上限（每轮 = 一次检索 + 一次判定）
+
+
+@dataclass(frozen=True)
 class System1Config:
     verify: VerifyConfig = field(default_factory=VerifyConfig)
+    route: RouteConfig = field(default_factory=RouteConfig)
+    sufficiency: SufficiencyConfig = field(default_factory=SufficiencyConfig)
 
 
 @dataclass(frozen=True)
@@ -115,6 +133,16 @@ def _parse(data: dict) -> ControlPlaneConfig:
         high_risk_chars=int(v_raw.get("high_risk_chars", VerifyConfig.high_risk_chars)),
     )
 
+    r_raw = s1_raw.get("route") or {}
+    route = RouteConfig(enabled=bool(r_raw.get("enabled", False)))
+
+    suf_raw = s1_raw.get("sufficiency") or {}
+    sufficiency = SufficiencyConfig(
+        enabled=bool(suf_raw.get("enabled", False)),
+        top_k=int(suf_raw.get("top_k", SufficiencyConfig.top_k)),
+        max_rounds=int(suf_raw.get("max_rounds", SufficiencyConfig.max_rounds)),
+    )
+
     esc = data.get("escalation") or {}
     escalation = EscalationConfig(
         enabled=bool(esc.get("enabled", False)),
@@ -123,5 +151,5 @@ def _parse(data: dict) -> ControlPlaneConfig:
     return ControlPlaneConfig(
         tiers=tiers,
         escalation=escalation,
-        system1=System1Config(verify=verify),
+        system1=System1Config(verify=verify, route=route, sufficiency=sufficiency),
     )

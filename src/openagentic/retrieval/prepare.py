@@ -19,6 +19,7 @@ from typing import Any, Awaitable, Callable
 
 import structlog
 
+from openagentic.control_plane.config import load_control_plane_config
 from openagentic.control_plane.system1 import _UNSET, judge_sufficient, need_retrieval
 from openagentic.retrieval import SOURCES, Chunk, retrieve
 
@@ -62,12 +63,25 @@ async def prepare_context(
     sources: tuple[str, ...] = SOURCES,
     top_k: int = 3,
     memory: Any = None,
-    route_enabled: bool = False,
-    sufficiency_enabled: bool = False,
-    max_rounds: int = 1,
+    route_enabled: bool | None = None,
+    sufficiency_enabled: bool | None = None,
+    max_rounds: int | None = None,
     jev: Any = _UNSET,
 ) -> str | None:
-    """备好上下文文本；不需要检索或无命中时返回 None。"""
+    """备好上下文文本；不需要检索或无命中时返回 None。
+
+    三个开关默认从控制面配置读（`system1.route` / `system1.sufficiency`）；
+    显式传 True/False 可覆盖——单测用得上，也方便临时试跑。
+    """
+    cfg = load_control_plane_config()
+    if route_enabled is None:
+        route_enabled = bool(cfg and cfg.system1.route.enabled)
+    if sufficiency_enabled is None:
+        sufficiency_enabled = bool(cfg and cfg.system1.sufficiency.enabled)
+    if max_rounds is None:
+        max_rounds = cfg.system1.sufficiency.max_rounds if cfg else 1
+    if top_k == 3 and cfg is not None:
+        top_k = cfg.system1.sufficiency.top_k
     if route_enabled:
         need = await need_retrieval(query, jev=jev)
         if need is False:
