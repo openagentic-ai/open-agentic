@@ -53,7 +53,11 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Run pip-audit
-        run: pip-audit
+        # PYSEC-2026-1325（ecdsa）上游明确表示不会修：Minerva 时序攻击影响的是
+        # SigningKey.sign_digest() 签名路径，而本项目只用 JWT 验签、不做签名；
+        # ecdsa 还是 python-jose 的无条件传递依赖（即便已用 [cryptography] 后端）。
+        # 仅忽略这一条，其余漏洞照常拦截。
+        run: pip-audit --ignore-vuln PYSEC-2026-1325
 
   api-dynamic-check:
     name: Dynamic API Check (Schemathesis)
@@ -90,11 +94,12 @@ jobs:
           python - <<'PY'
           import json
 
+          # 只保留无需鉴权的公开端点。
+          # /api/sessions 与 /api/channels 要求 get_current_user，不带 token 必然 401，
+          # 不属于公开端点——不能为了让检查通过而放开鉴权。
           keep_paths = {
               "/health",
               "/api/models",
-              "/api/sessions",
-              "/api/channels",
               "/api/presence",
           }
 
