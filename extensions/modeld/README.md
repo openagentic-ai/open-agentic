@@ -50,6 +50,28 @@ curl -s http://127.0.0.1:9998/gpu
 只有真打一次补全才能回答「现在能不能用」。
 补全会占用序列槽位（本地 vLLM 只有 2 个），所以结果按 `probe.cache_ttl_sec` 缓存，`/healthz` 与 `/ensure` 共用。
 
+## 守护循环
+
+模型不可用时，此前没有任何东西负责把它拉起来，全靠人手动敲 curl。
+开启 `watch` 后 modeld 会周期性执行一次 ensure：
+
+```yaml
+watch:
+  enabled: true
+  interval_sec: 60
+```
+
+行为：
+
+- 模型就绪 → 什么都不做（探测结果按 `probe.cache_ttl_sec` 缓存，不会频繁打模型）
+- 模型不可用且显存够 → 拉起
+- 模型不可用但显存不够 → **只记日志**，写明缺口和被谁占了；**不杀别的进程**
+
+默认 `enabled: false`——在共享 GPU 上自动拉起模型是策略决定，不替用户做主。
+
+单次失败只记日志不退出循环，否则一次网络抖动就会永久失去守护。
+ensure 全程在线程里跑（拉起含最长 900 秒的阻塞调用），不会卡住 modeld 自己的 HTTP 接口。
+
 ## 配置
 
 `extensions/modeld/modeld.yaml`（mode 600，含 Xinference 凭证）。改参数不用动代码。

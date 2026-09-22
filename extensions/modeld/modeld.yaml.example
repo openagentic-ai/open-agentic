@@ -1,0 +1,32 @@
+# modeld 配置模板。复制为 modeld.yaml 后填凭证——该文件含密钥，已在 .gitignore 中。
+
+xinference:
+  base_url: "http://127.0.0.1:9997"
+  username: "admin"
+  password: "<Xinference 管理员密码>"
+  api_key: "<Xinference API key>"
+
+gpu:
+  # nvidia-smi 报的总量与 vLLM 实际可用量之差 = 驱动/CUDA 上下文开销。
+  # 预检必须按 vLLM 的口径算，否则会误判成"显存够"。
+  driver_overhead_mib: 459
+
+probe:
+  # 探测打的是真实补全、会占序列槽位，TTL 内复用结果
+  cache_ttl_sec: 5
+  # 拉起模型最长等多久（19GB 权重实测约 3.5 分钟）
+  launch_timeout_sec: 900
+
+watch:
+  # 守护循环：定期确保模型可用。默认关；在共享 GPU 上自动拉起是策略决定
+  enabled: false
+  interval_sec: 60
+
+models:
+  - model_uid: "Qwen3.8-27B"
+    model_name: "Qwen3.8-27B"
+    model_engine: "vllm"
+    gpu_memory_utilization: 0.95
+    max_model_len: 32768
+    max_num_seqs: 2
+    enforce_eager: true

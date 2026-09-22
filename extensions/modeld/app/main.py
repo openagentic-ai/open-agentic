@@ -6,23 +6,23 @@ modeld HTTP 接口。三个端点：
 - `GET  /gpu`      显存全貌 + 占用者（诊断用）
 - `POST /ensure`   确保模型可用：够显存就拉起，不够就明确拒绝并说明被谁占了
 
-依赖全部可注入（client / gpu_state），便于单测。
+策略逻辑在 `app/service.py`，守护循环在 `app/watch.py`。依赖全部可注入，便于单测。
 """
 
 from __future__ import annotations
 
+import asyncio
 import time
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from app.config import ModeldConfig
-from app.gpu import check_capacity, query_state
+from app.gpu import query_state
+from app.service import ensure_model
+from app.watch import run_watch_loop
 from app.xinference import XinferenceClient
-
-
-def _users_payload(g) -> list[dict]:
-    return [{"pid": u.pid, "name": u.name, "used_mib": u.used_mib} for u in g.users]
 
 
 def _cached_probe(client, spec, ttl_sec: float):
@@ -50,7 +50,25 @@ def create_app(cfg: ModeldConfig, *, client=None, gpu_state=None) -> FastAPI:
     spec = cfg.primary
     probe = _cached_probe(client, spec, cfg.probe.cache_ttl_sec)
 
-    app = FastAPI(title="modeld", version="0.1.0")
+    def _ensure():
+        return ensure_model(cfg, client=client, gpu_state=gpu_state, probe=probe, spec=spec)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        stop = asyncio.Event()
+        task = None
+        if cfg.watch.enabled:
+            task = asyncio.create_task(
+                run_watch_loop(_ensure, cfg.watch.interval_sec, stop)
+            )
+        try:
+            yield
+        finally:
+            if task is not None:
+                stop.set()
+                await task
+
+    app = FastAPI(title="modeld", version="0.2.0", lifespan=lifespan)
 
     @app.get("/healthz")
     def healthz() -> dict:
@@ -69,55 +87,12 @@ def create_app(cfg: ModeldConfig, *, client=None, gpu_state=None) -> FastAPI:
             "total_mib": g.total_mib,
             "used_mib": g.used_mib,
             "free_mib": g.free_mib,
-            "users": _users_payload(g),
+            "users": [{"pid": u.pid, "name": u.name, "used_mib": u.used_mib} for u in g.users],
         }
 
     @app.post("/ensure")
     def ensure():
-        st = probe()
-        if st.usable:
-            return {"model_uid": spec.model_uid, "state": "ready", "action": "none"}
-
-        g = gpu_state()
-        verdict = check_capacity(
-            free_mib=g.free_mib,
-            total_mib=g.total_mib,
-            utilization=spec.gpu_memory_utilization,
-            driver_overhead_mib=cfg.gpu.driver_overhead_mib,
-        )
-        if not verdict.ok:
-            # 不够就直接说清楚被谁占了，不去撞 vLLM 那个语焉不详的报错
-            return JSONResponse(
-                status_code=409,
-                content={
-                    "model_uid": spec.model_uid,
-                    "state": st.state,
-                    "action": "refused",
-                    "reason": verdict.reason(),
-                    "required_mib": verdict.required_mib,
-                    "free_mib": verdict.free_mib,
-                    "shortfall_mib": verdict.shortfall_mib,
-                    "users": _users_payload(g),
-                },
-            )
-
-        http_status, body = client.launch(spec)
-        if http_status >= 400:
-            return JSONResponse(
-                status_code=502,
-                content={
-                    "model_uid": spec.model_uid,
-                    "state": "down",
-                    "action": "launch_failed",
-                    "http_status": http_status,
-                    "detail": body[:500],
-                },
-            )
-        return {
-            "model_uid": spec.model_uid,
-            "state": "launching",
-            "action": "launched",
-            "http_status": http_status,
-        }
+        r = _ensure()
+        return JSONResponse(status_code=r.status_code, content=r.payload)
 
     return app

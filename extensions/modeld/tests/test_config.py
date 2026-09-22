@@ -83,3 +83,20 @@ def test_no_models_raises(tmp_path):
     p.write_text("xinference:\n  base_url: x\nmodels: []\n", encoding="utf-8")
     with pytest.raises(ValueError):
         load_config(p)
+
+
+def test_watch_defaults_to_disabled(tmp_path):
+    """默认不启用守护——在共享 GPU 上自动拉起模型是策略决定，不该默认替用户做主。"""
+    p = tmp_path / "m.yaml"
+    p.write_text(VALID, encoding="utf-8")
+    cfg = load_config(p)
+    assert cfg.watch.enabled is False
+    assert cfg.watch.interval_sec > 0
+
+
+def test_watch_parsed_from_yaml(tmp_path):
+    p = tmp_path / "m.yaml"
+    p.write_text(VALID + "\nwatch:\n  enabled: true\n  interval_sec: 30\n", encoding="utf-8")
+    cfg = load_config(p)
+    assert cfg.watch.enabled is True
+    assert cfg.watch.interval_sec == 30

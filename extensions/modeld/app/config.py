@@ -32,6 +32,17 @@ class ProbeConfig:
 
 
 @dataclass(frozen=True)
+class WatchConfig:
+    """守护循环：定期确保模型可用。
+
+    默认关闭——在共享 GPU 上自动拉起模型是策略决定，不该默认替用户做主。
+    """
+
+    enabled: bool = False
+    interval_sec: float = 60.0
+
+
+@dataclass(frozen=True)
 class ModelSpec:
     model_uid: str
     model_name: str
@@ -64,6 +75,7 @@ class ModeldConfig:
     models: tuple[ModelSpec, ...] = field(default_factory=tuple)
     gpu: GpuConfig = field(default_factory=GpuConfig)
     probe: ProbeConfig = field(default_factory=ProbeConfig)
+    watch: WatchConfig = field(default_factory=WatchConfig)
 
     @property
     def primary(self) -> ModelSpec:
@@ -102,6 +114,7 @@ def load_config(path: str | Path) -> ModeldConfig:
 
     gpu_raw = data.get("gpu") or {}
     probe_raw = data.get("probe") or {}
+    watch_raw = data.get("watch") or {}
 
     return ModeldConfig(
         xinference=XinferenceConfig(
@@ -115,5 +128,9 @@ def load_config(path: str | Path) -> ModeldConfig:
         probe=ProbeConfig(
             cache_ttl_sec=float(probe_raw.get("cache_ttl_sec", 5.0)),
             launch_timeout_sec=float(probe_raw.get("launch_timeout_sec", 900.0)),
+        ),
+        watch=WatchConfig(
+            enabled=bool(watch_raw.get("enabled", False)),
+            interval_sec=float(watch_raw.get("interval_sec", 60.0)),
         ),
     )
