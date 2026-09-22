@@ -49,3 +49,8 @@ openapi.public.json
 .openagentic/model_providers.json
 .env.bak
 .env.bak.*
+
+# modeld 本地配置（含 Xinference 凭证）
+extensions/modeld/modeld.yaml
+.openagentic/model_providers.json.bak
+.openagentic/model_providers.json.bak-*

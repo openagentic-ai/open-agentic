@@ -1,0 +1,16 @@
+[Unit]
+Description=modeld — 本地模型调度器（显存预检 + 健康探测 + 拉起）
+After=network-online.target xinference.service
+Wants=xinference.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/modeld
+ExecStart=/usr/bin/python3 -m app.serve
+Restart=on-failure
+RestartSec=5
+Environment=MODELD_CONFIG=/opt/modeld/modeld.yaml
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
