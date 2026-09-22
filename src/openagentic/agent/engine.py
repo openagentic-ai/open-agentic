@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import structlog
-from typing import Callable, Awaitable
+from typing import Callable, Awaitable, Protocol
 
 from openagentic.agent.llm import litellm_chat
 
@@ -39,8 +39,21 @@ ToolResultHook = Callable[[str, str, str | None], Awaitable[None]]    # (call_id
 # 签名: async (user_message: str) -> str | None
 # 返回的字符串会被追加到 system prompt；返回 None 表示无注入。
 BeforeChatHook = Callable[[str], Awaitable[str | None]]
+class VerifyVerdictLike(Protocol):
+    """System-1 判定的结构化契约。
+
+    用 Protocol 而非直接引用 control_plane 的类型——引擎不该反向依赖控制面，
+    任何提供 `passed` / `feedback_prompt` 的对象都能当裁决用。
+    """
+
+    passed: bool
+    feedback_prompt: str
+
+
+VerifyHook = Callable[[str, list[dict]], Awaitable["VerifyVerdictLike | None"]]
 
 DEFAULT_MAX_ITERATIONS = 5
+DEFAULT_MAX_VERIFY_RETRIES = 1
 
 
 class ConversationEngine:
@@ -66,6 +79,8 @@ class ConversationEngine:
         on_tool_call: ToolCallHook | None = None,
         on_tool_result: ToolResultHook | None = None,
         on_before_chat: BeforeChatHook | None = None,
+        on_verify: VerifyHook | None = None,
+        max_verify_retries: int = DEFAULT_MAX_VERIFY_RETRIES,
     ):
         self.model = model
         self.api_key = api_key
@@ -79,6 +94,8 @@ class ConversationEngine:
         self.on_tool_call = on_tool_call
         self.on_tool_result = on_tool_result
         self.on_before_chat = on_before_chat
+        self.on_verify = on_verify
+        self.max_verify_retries = max_verify_retries
 
     async def _safe_hook(self, hook, *args) -> None:
         """调用可选 hook，失败仅 warning。"""
@@ -97,6 +114,16 @@ class ConversationEngine:
             return await hook(*args)
         except Exception as exc:
             logger.warning("engine hook failed", hook=getattr(hook, "__name__", "?"), error=str(exc))
+            return None
+
+    async def _verify(self, content: str, messages: list[dict]):
+        """System-1 验证。未配置 / 抛异常一律返回 None —— 判定不能阻塞主流程。"""
+        if self.on_verify is None:
+            return None
+        try:
+            return await self.on_verify(content, messages)
+        except Exception as exc:
+            logger.warning("engine on_verify failed, failing open", error=str(exc))
             return None
 
     # -- 单轮对话（自行管理 messages）--------------------------------------
@@ -119,6 +146,7 @@ class ConversationEngine:
                     messages.insert(0, {"role": "system", "content": injected})
 
         iteration = 0
+        verify_retries = 0
         while iteration < self.max_iterations:
             iteration += 1
             await self._safe_hook(self.on_thinking, f"调用模型(第 {iteration} 轮)")
@@ -134,8 +162,23 @@ class ConversationEngine:
             tool_calls = msg.get("tool_calls", [])
             thinking = msg.get("thinking", "")
 
-            # 纯文本 → 结束
+            # 纯文本 → System-1 验证后结束
             if content and not tool_calls:
+                verdict = await self._verify(content, messages)
+                # 判不可信 → 带反馈重想；跑满迭代预算或重试上限则直接返回最后候选
+                # （输出永远优于报错，不能因为没过校验就把请求耗死）
+                if (
+                    verdict is not None
+                    and not verdict.passed
+                    and verify_retries < self.max_verify_retries
+                    and iteration < self.max_iterations
+                ):
+                    verify_retries += 1
+                    messages.append({
+                        "role": "user",
+                        "content": verdict.feedback_prompt or "请重做上一次的回答。",
+                    })
+                    continue
                 return content
 
             # 工具调用 → 执行并追加

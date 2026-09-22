@@ -948,6 +948,14 @@ class ChannelAIService:
                 cm = ContextManager()
             except Exception as exc:
                 logger.warning("ContextManager init failed", error=str(exc))
+        # System-1 验证（Jev）。未配置控制面则返回 None，行为与从前一致。
+        try:
+            from openagentic.control_plane.system1 import build_verify_hook
+            verify_hook = build_verify_hook()
+        except Exception as exc:
+            logger.warning("System-1 verify hook init failed", error=str(exc))
+            verify_hook = None
+
         self.engine = ConversationEngine(
             model=self._model,
             api_key=self._api_key,
@@ -957,6 +965,7 @@ class ChannelAIService:
             executor=execute_tool,
             max_iterations=MAX_TOOL_ITERATIONS,
             on_before_chat=cm.as_before_chat_hook() if cm else None,
+            on_verify=verify_hook,
         )
         self._histories: dict[str, list[dict]] = {}
         self._summaries: dict[str, str] = {}  # 跨轮累积的 working memory 摘要

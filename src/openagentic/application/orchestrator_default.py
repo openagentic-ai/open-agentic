@@ -174,6 +174,13 @@ class DefaultOrchestrator:
             executor = await self._build_executor(session)
             tools_schema = self._tool_registry.litellm_schema_for(session.adapter_id)
 
+            try:
+                from openagentic.control_plane.system1 import build_verify_hook
+                verify_hook = build_verify_hook()
+            except Exception as exc:
+                logger.warning("System-1 verify hook init failed", error=str(exc))
+                verify_hook = None
+
             engine = ConversationEngine(
                 model=self._model,
                 api_key=self._api_key,
@@ -186,6 +193,7 @@ class DefaultOrchestrator:
                 on_thinking=on_thinking,
                 on_tool_call=on_tool_call,
                 on_tool_result=on_tool_result,
+                on_verify=verify_hook,
             )
 
             # ── background task 跑 chat,完成后投终态 ─────────────────────

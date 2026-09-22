@@ -26,9 +26,13 @@ ENV_BASE_URL = "JEV_BASE_URL"
 ENV_MODEL = "JEV_MODEL"
 ENV_PROXY = "JEV_PROXY"
 ENV_TIMEOUT = "JEV_TIMEOUT_SEC"
+ENV_MAX_CHARS = "JEV_MAX_OUTPUT_CHARS"
 
 DEFAULT_BASE = "https://api.typesafe.ai"
 DEFAULT_MODEL = "jev-latest"
+# RLCD 模型窗口很小（同类模型：英文 512 / 其他语言 1024 token）；
+# 超长输入在这里统一截断，作为边界防护，避免整条判定失效。
+DEFAULT_MAX_CHARS = 10000
 
 
 def jev_enabled() -> bool:
@@ -65,6 +69,34 @@ def build_jev(cache_dir: str | Path | None = None, opener: Any = None) -> "JevCl
     )
 
 
+def _max_chars() -> int:
+    try:
+        raw = int(os.environ.get(ENV_MAX_CHARS, "") or DEFAULT_MAX_CHARS)
+    except ValueError:
+        return DEFAULT_MAX_CHARS
+    return raw if raw > 0 else DEFAULT_MAX_CHARS
+
+
+def _truncate(text: str, limit: int) -> str:
+    """保留头尾——判据常分布在结论（头）与细节（尾），掐中间损失最小。"""
+    if limit <= 0 or len(text) <= limit:
+        return text
+    head = limit // 2
+    tail = limit - head
+    return text[:head] + "\n... [省略中间] ...\n" + text[-tail:]
+
+
+def _truncate_deep(value: Any, limit: int) -> Any:
+    """递归截断任意嵌套结构里的字符串——截断是边界防护，不该只认某个字段名。"""
+    if isinstance(value, str):
+        return _truncate(value, limit)
+    if isinstance(value, dict):
+        return {k: _truncate_deep(v, limit) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_truncate_deep(v, limit) for v in value]
+    return value
+
+
 def _digest(payload: dict) -> str:
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()
     return hashlib.sha256(blob).hexdigest()
@@ -81,8 +113,10 @@ class JevClient:
         cache_dir: str | Path | None = None,
         opener: Any = None,
         max_retries: int = 2,
+        max_chars: int | None = None,
     ):
         self.base = base.rstrip("/")
+        self.max_chars = max_chars if max_chars is not None else _max_chars()
         self.key = key
         self.model = model
         self.timeout = timeout
@@ -144,7 +178,11 @@ class JevClient:
         if not self.key:
             return None
 
-        payload = {"model": self.model, "state": state, "questions": questions}
+        payload = {
+            "model": self.model,
+            "state": _truncate_deep(state, self.max_chars),
+            "questions": _truncate_deep(questions, self.max_chars),
+        }
         ck = _digest(payload)
         cached = self._load_cache().get(ck)
         if cached is not None:

@@ -125,3 +125,56 @@ def test_ask_writes_cost_ledger(cache_dir):
     ledger = cache_dir / "jev_log.jsonl"
     assert ledger.exists()
     assert "input_tokens" in ledger.read_text(encoding="utf-8")
+
+
+# --- 输入截断 ---------------------------------------------------------
+
+def test_long_string_is_truncated(cache_dir, monkeypatch):
+    """RLCD 模型窗口很小，超长输入必须截断，否则可能整条判定失效。"""
+    monkeypatch.setenv("JEV_MAX_OUTPUT_CHARS", "100")
+    op = _FakeOpener()
+    c = JevClient(base="https://api.example", key="k", cache_dir=cache_dir, opener=op)
+    captured = {}
+
+    def _capture(req, timeout=None):
+        captured["body"] = json.loads(req.data)
+        return _FakeResponse({"answers": {"meets": {"noul": 0.5}}})
+
+    op.open = _capture
+    c.ask(state={"output": "甲" * 500}, questions={"meets": {"type": "noul"}})
+
+    sent = captured["body"]["state"]["output"]
+    assert len(sent) < 500, "没截断"
+    assert "省略" in sent, "缺省略标记"
+    assert sent.startswith("甲") and sent.endswith("甲"), "应保留头尾"
+
+
+def test_short_string_untouched(cache_dir, monkeypatch):
+    monkeypatch.setenv("JEV_MAX_OUTPUT_CHARS", "10000")
+    op = _FakeOpener()
+    c = JevClient(base="https://api.example", key="k", cache_dir=cache_dir, opener=op)
+    captured = {}
+
+    def _capture(req, timeout=None):
+        captured["body"] = json.loads(req.data)
+        return _FakeResponse({"answers": {"meets": {"noul": 0.5}}})
+
+    op.open = _capture
+    c.ask(state={"output": "短文本"}, questions={"meets": {"type": "noul"}})
+    assert captured["body"]["state"]["output"] == "短文本"
+
+
+def test_nested_state_strings_also_truncated(cache_dir, monkeypatch):
+    """截断是边界防护，不该只认顶层 output 字段。"""
+    monkeypatch.setenv("JEV_MAX_OUTPUT_CHARS", "50")
+    op = _FakeOpener()
+    c = JevClient(base="https://api.example", key="k", cache_dir=cache_dir, opener=op)
+    captured = {}
+
+    def _capture(req, timeout=None):
+        captured["body"] = json.loads(req.data)
+        return _FakeResponse({"answers": {"x": {"noul": 0.5}}})
+
+    op.open = _capture
+    c.ask(state={"a": {"b": "乙" * 300}}, questions={"x": {"type": "noul"}})
+    assert len(captured["body"]["state"]["a"]["b"]) < 300

@@ -640,6 +640,72 @@ tiers:
 | `OPENAGENTIC_CONTROL_PLANE_CONFIG` | YAML 路径；**不设 = 不启用** |
 | `OPENAGENTIC_GATE_LLM_LOCAL_CONCURRENCY` | 本地类别并发（默认 2） |
 
+### System-1 / System-2 循环
+
+两种模型各司其职，**判断与生成分离**：
+
+| | 训练方式 | 形态 | 能力 | 对应 |
+|---|---|---|---|---|
+| **System-1** | **RLCD**（校准决策） | 非自回归、一次前向 | **只判断**，给校准概率 | Jev |
+| **System-2** | **RLHF**（人类反馈） | 自回归、逐 token | **能生成**、能深度推理 | 本地 27B / 云端模型 |
+
+目标循环：
+
+```
+                    System-1
+                   判断 / 路由
+                       ↓
+                    Retrieval
+                       ↓
+                    System-1
+                   信息够不够
+                       ↓
+                    System-2
+                  真正复杂推理
+                       ↓
+                    System-1
+                   验证 / 打分
+                       ↓
+               ┌───────┴───────┐
+               ↓               ↓
+            可信              不可信
+               ↓               ↓
+            返回            System-2 重想
+```
+
+**当前落地情况**（目标 ≠ 现状，如实标注）：
+
+| 环节 | 状态 | 说明 |
+|---|---|---|
+| System-1 验证 / 打分 | ✅ **已落地** | `control_plane/system1.py::verify_output`，接进 `ConversationEngine(on_verify=...)` |
+| 不可信 → 带反馈重想 | ✅ **已落地** | 判定结果回注 prompt，同模型重生；重试用尽返回最后候选，不报错 |
+| System-1 判断 / 路由 | ⚠️ 有实现未接线 | `system1.route_message()` 已实现并测试，默认关闭（多一次判定 = +1 秒） |
+| System-1 信息够不够 | ⚠️ 有实现未接线 | `system1.judge_sufficient()` 已实现并测试；引擎层暂无检索，故默认关闭 |
+| Retrieval | ❌ 不在引擎层 | 检索目前只在 CLI / 渠道层各自实现，三处互不共享 |
+| System-2 复杂推理 | ✅ 已有 | `ConversationEngine` 的 LLM + 工具循环 |
+
+**分级触发**（核心取舍）：判定要 +1 秒且按次计费，不能每条都过。
+默认 `trigger: high_risk`——**动过工具**（不可逆风险）或**输出偏长**才过 System-1；
+普通短问答直出。
+
+**RLCD 的硬约束**：System-1 不生成文本，所以 `feedback` 必须从它返回的
+`choice` 标签**合成**，不能让模型写。这也是 `feedback_prompt` 存在的理由。
+
+配置（`.openagentic/control_plane.yaml`）：
+
+```yaml
+system1:
+  verify:
+    enabled: true
+    criteria: "回答必须切题、不得编造、与上下文一致"
+    min_score: 0.7          # noul 概率低于此判为不可信
+    max_retries: 1          # 重想上限（会消耗 max_iterations，默认才 5，别调大）
+    trigger: high_risk      # high_risk | always | off
+    high_risk_chars: 800
+```
+
+**向后兼容**：`on_verify` 不传或控制面未启用 → 引擎行为与从前**逐条一致**。
+
 ### 判定层：Jev
 
 生成由 LLM，判定由 Jev——封闭选项（`choice` / `score` / `noul`）返回带 confidence 的

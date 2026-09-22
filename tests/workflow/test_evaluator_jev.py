@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 
+from openagentic.control_plane import system1 as _s1
 from openagentic.workflow import evaluator as ev
 
 
@@ -34,7 +35,7 @@ ANSWERS = {
 @pytest.fixture
 def jev_ready(monkeypatch):
     fake = _FakeJev(ANSWERS)
-    monkeypatch.setattr(ev, "build_jev", lambda: fake)
+    monkeypatch.setattr(_s1, "build_jev", lambda: fake)
     return fake
 
 
@@ -47,7 +48,7 @@ async def test_uses_jev_when_available(jev_ready):
 
 
 async def test_jev_below_threshold_fails(monkeypatch):
-    monkeypatch.setattr(ev, "build_jev", lambda: _FakeJev({
+    monkeypatch.setattr(_s1, "build_jev", lambda: _FakeJev({
         "meets": {"type": "noul", "noul": 0.3, "confidence": 0.9},
         "quality": {"type": "choice", "choice": "poor", "confidence": 0.9},
     }))
@@ -57,7 +58,7 @@ async def test_jev_below_threshold_fails(monkeypatch):
 
 
 async def test_falls_back_to_llm_when_jev_absent(monkeypatch):
-    monkeypatch.setattr(ev, "build_jev", lambda: None)
+    monkeypatch.setattr(_s1, "build_jev", lambda: None)
     called = {}
 
     async def _fake_chat(messages, model, api_base, api_key, tools=None):
@@ -72,7 +73,7 @@ async def test_falls_back_to_llm_when_jev_absent(monkeypatch):
 
 async def test_falls_back_to_llm_when_jev_raises(monkeypatch):
     """Jev 抛异常不能让评估整个失败——宽容策略：回落 LLM。"""
-    monkeypatch.setattr(ev, "build_jev", lambda: _FakeJev(fail=True))
+    monkeypatch.setattr(_s1, "build_jev", lambda: _FakeJev(fail=True))
     called = {}
 
     async def _fake_chat(messages, model, api_base, api_key, tools=None):

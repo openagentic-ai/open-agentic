@@ -75,3 +75,44 @@ def test_loads_tiers_and_escalation(monkeypatch, yaml_file):
 
     assert cfg.escalation.enabled is True
     assert cfg.escalation.target_model == "deepseek/deepseek-v4-flash"
+
+
+# --- system1 配置段 ---------------------------------------------------
+
+SYSTEM1_YAML = """
+version: 1
+tiers:
+  local:
+    gate_category: llm_local
+    concurrency: 2
+    endpoints: ["127.0.0.1:9997"]
+system1:
+  verify:
+    enabled: true
+    criteria: "必须引用来源"
+    min_score: 0.8
+    max_retries: 2
+    trigger: always
+    high_risk_chars: 500
+"""
+
+
+def test_system1_defaults_to_disabled(monkeypatch, yaml_file):
+    """不配 system1 段 → 验证默认关闭，引擎行为与从前一致。"""
+    monkeypatch.setenv("OPENAGENTIC_CONTROL_PLANE_CONFIG", str(yaml_file))
+    cfg = load_control_plane_config()
+    assert cfg.system1.verify.enabled is False
+
+
+def test_system1_parsed(monkeypatch, tmp_path):
+    p = tmp_path / "cp.yaml"
+    p.write_text(SYSTEM1_YAML, encoding="utf-8")
+    monkeypatch.setenv("OPENAGENTIC_CONTROL_PLANE_CONFIG", str(p))
+    cfg = load_control_plane_config()
+    v = cfg.system1.verify
+    assert v.enabled is True
+    assert v.criteria == "必须引用来源"
+    assert v.min_score == 0.8
+    assert v.max_retries == 2
+    assert v.trigger == "always"
+    assert v.high_risk_chars == 500

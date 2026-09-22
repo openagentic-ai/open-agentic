@@ -19,7 +19,6 @@ evaluator 节点类型：
 
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 from typing import Any
@@ -27,7 +26,7 @@ from typing import Any
 import structlog
 
 from openagentic.agent.llm import litellm_chat
-from openagentic.control_plane.jev import build_jev
+from openagentic.control_plane.system1 import verify_output
 
 logger = structlog.get_logger("openagentic.workflow.evaluator")
 
@@ -35,67 +34,18 @@ logger = structlog.get_logger("openagentic.workflow.evaluator")
 _JSON_RE = re.compile(r"\{[\s\S]*\"score\"[\s\S]*\"feedback\"[\s\S]*\}", re.MULTILINE)
 
 
-# Jev 的 choice 候选——有序分档，与下面 LLM 提示词里的评分指南保持一致
-_JEV_QUALITY_LEGEND = {
-    "excellent": "完全满足标准，超出预期",
-    "good": "基本满足，有小瑕疵",
-    "partial": "部分满足，有明显不足",
-    "poor": "严重不满足，需要重做",
-}
-
-
 async def _evaluate_with_jev(output_str: str, criteria: str, min_score: float) -> dict | None:
-    """用 Jev 的封闭判定打分。
+    """走 System-1 的封闭判定（实现见 control_plane/system1.py，此处只做字典适配）。
 
-    `noul` = 「输出是否满足标准」的校准概率，直接对上 min_score 阈值。
-    Jev 未配置 / 返回空 / 抛异常一律返回 None，由调用方回落到 LLM 路径——
-    判定失败不能阻塞流程。
-
-    走 to_thread：Jev 客户端是阻塞 urllib。
+    判定失败 / Jev 不可用一律返回 None，由调用方回落到 LLM 路径——判定不阻塞流程。
     """
-    jev = build_jev()
-    if jev is None:
+    verdict = await verify_output(output_str, criteria, min_score)
+    if verdict is None:
         return None
-
-    try:
-        answers = await asyncio.to_thread(
-            jev.ask,
-            {"criteria": criteria, "output": output_str},
-            {
-                "meets": {
-                    "type": "noul",
-                    "instructions": "判断「输出」是否满足「标准」。",
-                },
-                "quality": {
-                    "type": "choice",
-                    "instructions": "对「输出」的质量分档。",
-                    "criteria": _JEV_QUALITY_LEGEND,
-                },
-            },
-        )
-    except Exception:
-        logger.warning("evaluator: jev call failed, falling back to LLM", exc_info=True)
-        return None
-
-    if not isinstance(answers, dict) or "meets" not in answers:
-        return None
-
-    meets = answers.get("meets") or {}
-    try:
-        score = float(meets.get("noul", 0.0))
-    except (TypeError, ValueError):
-        return None
-    score = max(0.0, min(1.0, score))
-
-    quality = (answers.get("quality") or {}).get("choice", "")
-    detail = _JEV_QUALITY_LEGEND.get(quality) or quality or "未分档"
-    conf = meets.get("confidence")
-    conf_str = f"，置信度 {float(conf):.2f}" if isinstance(conf, (int, float)) else ""
-
     return {
-        "score": score,
-        "feedback": f"Jev 判定：{detail}（满足标准的概率 {score:.2f}{conf_str}）",
-        "passed": score >= min_score,
+        "score": verdict.score,
+        "feedback": verdict.feedback,
+        "passed": verdict.passed,
     }
 
 

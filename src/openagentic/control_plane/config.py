@@ -40,9 +40,30 @@ class EscalationConfig:
 
 
 @dataclass(frozen=True)
+class VerifyConfig:
+    """System-1 验证节点的策略。
+
+    分级触发是核心：每次 Jev 判定要 +1 秒且计费，不能每条都过。
+    """
+
+    enabled: bool = False
+    criteria: str = "回答必须切题、不得编造、与上下文一致"
+    min_score: float = 0.7
+    max_retries: int = 1
+    trigger: str = "high_risk"   # high_risk | always | off
+    high_risk_chars: int = 800
+
+
+@dataclass(frozen=True)
+class System1Config:
+    verify: VerifyConfig = field(default_factory=VerifyConfig)
+
+
+@dataclass(frozen=True)
 class ControlPlaneConfig:
     tiers: dict[str, TierConfig] = field(default_factory=dict)
     escalation: EscalationConfig = field(default_factory=EscalationConfig)
+    system1: System1Config = field(default_factory=System1Config)
 
 
 def load_control_plane_config(path: str | Path | None = None) -> ControlPlaneConfig | None:
@@ -83,9 +104,24 @@ def _parse(data: dict) -> ControlPlaneConfig:
             endpoints=tuple(str(e) for e in (spec.get("endpoints") or ())),
         )
 
+    s1_raw = data.get("system1") or {}
+    v_raw = s1_raw.get("verify") or {}
+    verify = VerifyConfig(
+        enabled=bool(v_raw.get("enabled", False)),
+        criteria=str(v_raw.get("criteria") or VerifyConfig.criteria),
+        min_score=float(v_raw.get("min_score", VerifyConfig.min_score)),
+        max_retries=int(v_raw.get("max_retries", VerifyConfig.max_retries)),
+        trigger=str(v_raw.get("trigger") or VerifyConfig.trigger),
+        high_risk_chars=int(v_raw.get("high_risk_chars", VerifyConfig.high_risk_chars)),
+    )
+
     esc = data.get("escalation") or {}
     escalation = EscalationConfig(
         enabled=bool(esc.get("enabled", False)),
         target_model=str(esc.get("target_model") or ""),
     )
-    return ControlPlaneConfig(tiers=tiers, escalation=escalation)
+    return ControlPlaneConfig(
+        tiers=tiers,
+        escalation=escalation,
+        system1=System1Config(verify=verify),
+    )
