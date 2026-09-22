@@ -114,8 +114,16 @@ async def add_document(
             await db.flush()
             return doc
 
-        # 与配置的 embedding_model 对齐，确保检索向量空间一致。
-        embeddings = await embed_texts(chunks, model=kb.embedding_model)
+        # 向量是**可选增强**：Jev 精排方案下召回（n-gram）与精排（Jev）都不依赖它。
+        # embedding 服务不可用时降级为不存向量（列本身可空）——否则一次
+        # embedding 故障会让整个文档无法入库，连带检索也一起废掉。
+        try:
+            embeddings = await embed_texts(chunks, model=kb.embedding_model)
+        except Exception:
+            logger.warning(
+                "embedding unavailable; chunks stored without vectors", exc_info=True
+            )
+            embeddings = [None] * len(chunks)
 
         for i, (chunk_content, embedding) in enumerate(zip(chunks, embeddings)):
             chunk = Chunk(
