@@ -15,5 +15,16 @@ tiers:
 
 # 本地不可用时的升级目标（暂未启用，等 modeld 的 ensure 接进来再开）
 escalation:
-  enabled: false
+  enabled: true
   target_model: "deepseek/deepseek-v4-flash"
+
+# System-1 验证（RLCD / Jev）—— 分级调用：不是每条都过，只在高风险时判定
+system1:
+  verify:
+    enabled: true
+    # 校验标准：会原样写进 Jev 的问题里
+    criteria: "回答必须切题、不得编造、与上下文一致"
+    min_score: 0.7          # noul 概率低于此判为不可信，触发带反馈重想
+    max_retries: 1          # 重想次数上限（会消耗 max_iterations，默认才 5，别调大）
+    trigger: high_risk      # high_risk（动过工具或输出偏长才过）| always | off
+    high_risk_chars: 800
