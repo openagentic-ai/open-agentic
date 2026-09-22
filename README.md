@@ -259,6 +259,11 @@ docker compose up -d    # 启动 PostgreSQL + FastAPI
 PYTHONPATH=src uvicorn openagentic.main:app --host 0.0.0.0 --port 8000
 ```
 
+> **`.env` 会被写回 `os.environ`**（`openagentic.config.load_env_file()`，模块导入即生效）。
+> `Settings` 用的 pydantic `env_file` 只填充 Settings 对象、不写回进程环境，而控制面 / Jev
+> 这类按「环境变量激活」设计的模块读的是 `os.environ`——不写回它们会**静默不启用**。
+> 优先级：已存在的环境变量优先，systemd `EnvironmentFile` 与 CLI 显式传入的值不会被 `.env` 覆盖。
+
 - Swagger：`http://<host>:8000/docs`
 - 健康检查：`http://<host>:8000/health`
 - 前端：`cd ui && npm install && npm run dev`
@@ -456,7 +461,8 @@ extensions/              # 扩展模块（与 core 完全解耦）
 │   ├── feishu.py        # 飞书渠道（SDK WebSocket + 卡片 + CLI）
 │   ├── wecom.py         # 企业微信渠道（XML 解密 + CLI）
 │   └── router.py        # 动态路由工厂
-└── android/             # Android 客户端（聊天/Settings/多语言/SSE，完整可用）
+├── android/             # Android 客户端（聊天/Settings/多语言/SSE，完整可用）
+└── modeld/             # 本地模型调度器（显存预检 + 健康探测 + 守护循环，独立进程）
 scripts/
 └── run_feishu_ws.py     # 飞书独立运行脚本（不依赖 PostgreSQL）
 tests/
@@ -669,8 +675,11 @@ modeld 把它提前变成一句人话：
 探测走的是 `max_tokens=1` 的真实补全（`/v1/models` 列出模型 ≠ 可用，加载中也会被列出），
 结果按 `probe.cache_ttl_sec` 缓存——探测会占序列槽位，不能裸奔。
 
-**待接**：`escalation`（本地不可用自动升级云端）策略已实现并测试，但 `litellm_chat` 尚未接线，
-当前 `enabled: false`。modeld 的 `/ensure` 也还没有后台守护定期调用。
+`escalation`（本地不可用自动升级云端）已接线：本地后端失败时按配置转云端，
+**升级自身也失败则抛原始错误**，不用云端故障掩盖本地真因。未配置升级时行为与从前一致。
+
+modeld 的守护循环（`watch.enabled`）会周期性执行 ensure，模型掉了自动拉起；
+显存不够时只记日志说明被谁占了，**不杀别的进程**。默认关闭，需在配置里显式打开。
 
 ## 何时使用
 ...

@@ -1,6 +1,30 @@
 """模块说明（中文）：`src/openagentic/config.py`。\n\n该文件集中管理运行时配置与环境变量读取。\n"""
 
+from pathlib import Path
+
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
+
+
+def load_env_file(path: str | Path | None = None) -> None:
+    """把 `.env` 写回 `os.environ`。
+
+    pydantic 的 `env_file` 只把值读进 Settings 对象，**不写回进程环境**；
+    而控制面 / Jev 这些按「环境变量激活」设计的模块读的是 `os.environ`——
+    不写回就意味着它们静默不启用（2026-09-23 实际踩到：控制面代码正确、
+    测试全绿，但线上根本没激活）。
+
+    `override=False`：已存在的环境变量优先，systemd `EnvironmentFile` 与
+    CLI 显式传入的值不该被 `.env` 覆盖。文件缺失/非法静默忽略。
+    """
+    try:
+        load_dotenv(path, override=False)
+    except Exception:  # nosec B110 — .env 缺失/非法不得影响应用启动
+        pass
+
+
+# 模块导入即生效——任何 import openagentic.config 的入口都拿到完整环境
+load_env_file()
 
 
 class Settings(BaseSettings):
