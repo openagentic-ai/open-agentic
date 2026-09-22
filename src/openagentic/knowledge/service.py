@@ -114,15 +114,14 @@ async def add_document(
             await db.flush()
             return doc
 
-        # 向量是**可选增强**：Jev 精排方案下召回（n-gram）与精排（Jev）都不依赖它。
-        # embedding 服务不可用时降级为不存向量（列本身可空）——否则一次
-        # embedding 故障会让整个文档无法入库，连带检索也一起废掉。
-        try:
+        # 向量是**可选增强**，按配置决定做不做：
+        # - 配了 embedding_model → 照旧生成，失败**向上抛**（文档标记失败，响亮失败）
+        # - 没配 → 跳过。Jev 精排方案下召回（n-gram）与精排（Jev）都不依赖向量，
+        #   不该因为 embedding 服务不可用就整份文档入不了库
+        embeddings: list[Any]
+        if kb.embedding_model:
             embeddings = await embed_texts(chunks, model=kb.embedding_model)
-        except Exception:
-            logger.warning(
-                "embedding unavailable; chunks stored without vectors", exc_info=True
-            )
+        else:
             embeddings = [None] * len(chunks)
 
         for i, (chunk_content, embedding) in enumerate(zip(chunks, embeddings)):
