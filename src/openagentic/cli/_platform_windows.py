@@ -36,7 +36,6 @@ class WindowsCliPlatform(CliPlatformBase):
 
         os.system("cls")  # nosec B605 — Windows 清屏只有这一种做法
 
-
     # -- terminal: key reading -----------------------------------------------
 
     def read_nav_key(self) -> str:
