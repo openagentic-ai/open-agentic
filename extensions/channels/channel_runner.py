@@ -1154,31 +1154,17 @@ class ChannelAIService:
             *history[-MAX_HISTORY:],
         ]
 
-        # Episodic / Procedural memory：原 MemoryManager 是同步文件 I/O，
-        # 直接 await 会阻塞 event loop 拖慢所有其他用户；用 to_thread 隔离到线程池。
+        # Episodic / Procedural 检索：统一走 retrieval.prepare_context（原先此处各写一遍）。
+        # 原 MemoryManager 是同步文件 I/O，直接 await 会阻塞 event loop 拖慢所有其他用户；
+        # prepare_context 内部的检索已用 to_thread 隔离到线程池。
+        # 无 DB，knowledge 会被安静跳过。
         try:
-            eps = await asyncio.to_thread(
-                MemoryManager().search_episodes, user_text, 3
-            )
-            if eps:
-                ctx = "## Relevant Past Experiences\n\n"
-                for i, ep in enumerate(eps, 1):
-                    ctx += f"{i}. {ep['title']}\n   {ep['summary'][:300]}\n\n"
+            from openagentic.retrieval.prepare import prepare_context
+            ctx = await prepare_context(user_text)
+            if ctx:
                 messages[0]["content"] += "\n\n" + ctx  # 合并进主 system(位置0): 严格 system-first 模型(Qwen3.8)拒绝位置1的system
         except Exception as exc:
-            logger.warning("episodic memory injection failed", error=str(exc))
-
-        try:
-            procs = await asyncio.to_thread(
-                MemoryManager().search_procedures, user_text, 3
-            )
-            if procs:
-                ctx = "## Relevant Procedures\n\n"
-                for i, p in enumerate(procs, 1):
-                    ctx += f"{i}. {p['name']}\n   {p['content'][:300]}\n\n"
-                messages[0]["content"] += "\n\n" + ctx  # 合并进主 system(位置0): 严格 system-first 模型(Qwen3.8)拒绝位置1的system
-        except Exception as exc:
-            logger.warning("procedural memory injection failed", error=str(exc))
+            logger.warning("context preparation failed", error=str(exc))
 
         # 注入上轮压缩产出的累积摘要(放 system 末尾, 位置0内合并——严格 system-first 模型要求)
         summary_text = self._summaries.get(chat_id, "")

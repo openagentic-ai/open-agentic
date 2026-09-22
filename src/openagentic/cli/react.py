@@ -23,6 +23,7 @@ from openagentic.memory.manager import (
     working_memory_compressible,
     compress_working_memory,
 )
+from openagentic.retrieval.prepare import prepare_context
 
 logger = structlog.get_logger(__name__)
 _console = Console(file=_patchable_stdout)
@@ -125,27 +126,15 @@ async def react_loop(
     if plan_mode:
         messages.insert(1, {"role": "system", "content": PLAN_MODE_SYSTEM_PROMPT})
 
-    # ── Episodic memory injection: search past episodes relevant to user_input ──
+    # ── 上下文准备：检索既往经验与可复用流程，注入 system ──
+    # 统一走 retrieval.prepare_context（原先这里各写一遍检索），
+    # 注入位置与检索源保持不变。CLI 路径没有 DB，knowledge 会被安静跳过。
     try:
-        eps = MemoryManager().search_episodes(user_input, top_k=3)
-        if eps:
-            ctx = "## Relevant Past Experiences\n\n"
-            for i, ep in enumerate(eps, 1):
-                ctx += f"{i}. {ep['title']}\n   {ep['summary'][:300]}\n\n"
+        ctx = await prepare_context(user_input, memory=MemoryManager())
+        if ctx:
             messages.insert(1, {"role": "system", "content": ctx})
     except Exception as exc:
-        logger.warning("episodic memory injection failed", error=str(exc), exc_info=True)
-
-    # ── Procedural memory injection: search reusable procedures matching user_input ──
-    try:
-        procs = MemoryManager().search_procedures(user_input, top_k=3)
-        if procs:
-            ctx = "## Relevant Procedures\n\n"
-            for i, p in enumerate(procs, 1):
-                ctx += f"{i}. {p['name']}\n   {p['content'][:300]}\n\n"
-            messages.insert(1, {"role": "system", "content": ctx})
-    except Exception as exc:
-        logger.warning("procedural memory injection failed", error=str(exc), exc_info=True)
+        logger.warning("context preparation failed", error=str(exc), exc_info=True)
 
     # ── Working memory compression: compress if over token budget ──
     if working_memory_compressible(messages):

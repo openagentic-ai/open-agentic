@@ -104,31 +104,20 @@ class DefaultOrchestrator:
         """复用 MemoryManager 注入 episodic/procedural 上下文。失败仅 warning。"""
         if not self._enable_memory:
             return
+        # 统一走 retrieval.prepare_context（原先此处各写一遍检索）。
+        # 注入位置与检索源保持不变；本路径有 DB，但 knowledge 链路未修通，暂不传 db。
         try:
-            from openagentic.memory.manager import MemoryManager
+            from openagentic.retrieval.prepare import prepare_context
         except Exception as exc:
-            logger.debug("memory module unavailable", error=str(exc))
+            logger.debug("retrieval module unavailable", error=str(exc))
             return
 
         try:
-            eps = await asyncio.to_thread(MemoryManager().search_episodes, user_text, 3)
-            if eps:
-                ctx = "## Relevant Past Experiences\n\n"
-                for i, ep in enumerate(eps, 1):
-                    ctx += f"{i}. {ep['title']}\n   {ep['summary'][:300]}\n\n"
+            ctx = await prepare_context(user_text)
+            if ctx:
                 messages.insert(1, {"role": "system", "content": ctx})
         except Exception as exc:
-            logger.warning("episodic memory injection failed", error=str(exc))
-
-        try:
-            procs = await asyncio.to_thread(MemoryManager().search_procedures, user_text, 3)
-            if procs:
-                ctx = "## Relevant Procedures\n\n"
-                for i, p in enumerate(procs, 1):
-                    ctx += f"{i}. {p['name']}\n   {p['content'][:300]}\n\n"
-                messages.insert(1, {"role": "system", "content": ctx})
-        except Exception as exc:
-            logger.warning("procedural memory injection failed", error=str(exc))
+            logger.warning("context preparation failed", error=str(exc))
 
     async def reply(self, session: Session, user_text: str) -> AsyncIterator[ReplyEvent]:
         """流式回复,事件序列: thinking* (tool_call tool_result)* final|error。"""
