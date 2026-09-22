@@ -217,3 +217,27 @@ def build_verify_hook(cfg: ControlPlaneConfig | None = _UNSET):
         return await verify_output(content, v.criteria, v.min_score)
 
     return on_verify
+
+
+# --- 判定四：要不要检索 -----------------------------------------------
+
+async def need_retrieval(text: str, *, jev: Any = _UNSET) -> bool | None:
+    """回答这条消息前是否需要先检索上下文。
+
+    与 `route_message` 分开而不是合并：两者默认都关着，
+    合并成一次 fan-out 是后续优化，先把语义分清楚。
+    """
+    answers = await _ask(
+        {"message": text},
+        {"need_retrieval": {
+            "type": "noul",
+            "instructions": "回答这条消息之前，是否需要先检索资料或历史记录？",
+        }},
+        jev,
+    )
+    if not isinstance(answers, dict) or "need_retrieval" not in answers:
+        return None
+    val = (answers.get("need_retrieval") or {}).get("noul")
+    if not isinstance(val, (int, float)):
+        return None
+    return float(val) >= SUFFICIENT_THRESHOLD

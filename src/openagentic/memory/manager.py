@@ -53,6 +53,9 @@ class MemoryEntry:
     created: str = ""
     updated: str = ""
     file_path: str = ""
+    # 检索命中分（关键词计数）。存储时恒为 0，仅检索结果携带——
+    # 「上下文够不够」的判定需要这个信号，此前算了却丢弃。
+    score: float = 0.0
 
     def to_frontmatter(self) -> str:
         now = datetime.now(timezone.utc).isoformat()
@@ -184,7 +187,11 @@ class MemoryManager:
                 if score > 0:
                     results.append((entry, score))
         results.sort(key=lambda x: (-x[1], x[0].importance))
-        return [e for e, _ in results[:top_k]]
+        hits = []
+        for entry, score in results[:top_k]:
+            entry.score = float(score)
+            hits.append(entry)
+        return hits
 
     def list_core(self, category: str | None = None, limit: int = 20) -> list[MemoryEntry]:
         """List core memory entries, sorted by importance desc."""
@@ -255,6 +262,7 @@ class MemoryManager:
                     "title": fp.stem,
                     "summary": body[:500],
                     "file": str(fp),
+                    "score": float(score),
                 }, score))
         results.sort(key=lambda x: -x[1])
         return [r for r, _ in results[:top_k]]
@@ -317,6 +325,7 @@ class MemoryManager:
                     "name": fp.stem,
                     "content": body[:500],
                     "file": str(fp),
+                    "score": float(score),
                 }, score))
         results.sort(key=lambda x: -x[1])
         return [r for r, _ in results[:top_k]]

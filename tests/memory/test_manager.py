@@ -124,3 +124,62 @@ class TestTokenEstimation:
     def test_not_compressible(self):
         msgs = [{"role": "user", "content": "hello"}]
         assert not working_memory_compressible(msgs, max_tokens=5000)
+
+
+class TestRetrievalScores:
+    """检索分数契约。
+
+    三个检索函数原先都算了 score 再丢弃（只用于内部排序）。
+    「上下文够不够」的判定需要这个信号，所以要把它们暴露出来——
+    且不能让现有调用方（按 key 取值的那些）受影响。
+    """
+
+    @pytest.fixture
+    def mgr(self, tmp_path: Path):
+        return MemoryManager(base_dir=tmp_path / ".openagentic" / "memory")
+
+    def test_search_core_exposes_score(self, mgr: MemoryManager):
+        mgr.save_core_memory("lang", "Chinese", "preference", 0.9)
+        res = mgr.search_core("Chinese")
+        assert res, "应该搜到"
+        assert hasattr(res[0], "score"), "core 检索要暴露 score"
+        assert res[0].score > 0
+
+    def test_search_episodes_exposes_score(self, mgr: MemoryManager):
+        mgr.save_episode("部署经验", "用 systemd 管服务", ["deploy"])
+        res = mgr.search_episodes("systemd")
+        assert res
+        assert "score" in res[0]
+        assert res[0]["score"] > 0
+
+    def test_search_procedures_exposes_score(self, mgr: MemoryManager):
+        mgr.save_procedure("回滚流程", "如何回滚", "服务挂了", ["stop", "start"])
+        res = mgr.search_procedures("回滚")
+        assert res
+        assert "score" in res[0]
+        assert res[0]["score"] > 0
+
+    def test_existing_key_access_still_works(self, mgr: MemoryManager):
+        """加 score 不能影响按 key 取值的现有调用方。
+
+        注意既有行为：episode 的 `title` 是**文件名 stem**（日期 slug），
+        非 ASCII 名字会被 slug 成 `____`，真实标题在 summary 正文里。
+        本用例只锁「键还在、能被取值」，不锁 slug 细节。
+        """
+        mgr.save_episode("部署经验", "内容A", [])
+        ep = mgr.search_episodes("内容A")[0]
+        assert set(ep) >= {"title", "summary", "file"}
+        assert "内容A" in ep["summary"]
+
+        mgr.save_procedure("回滚流程", "描述B", "触发B", ["步骤1"])
+        proc = mgr.search_procedures("描述B")[0]
+        assert set(proc) >= {"name", "content", "file"}
+        assert "描述B" in proc["content"]
+
+    def test_score_ordering_preserved(self, mgr: MemoryManager):
+        """分数暴露后排序语义不变：命中多的仍在前。"""
+        mgr.save_episode("弱命中", "关键词只出现一次", [])
+        mgr.save_episode("强命中", "关键词 关键词 关键词 关键词", [])
+        res = mgr.search_episodes("关键词")
+        assert len(res) == 2
+        assert res[0]["score"] >= res[1]["score"]
