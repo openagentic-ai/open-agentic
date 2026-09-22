@@ -60,6 +60,14 @@ testpaths = ["tests"]
 target-version = "py312"
 line-length = 100
 
+[tool.ruff.lint]
+# 显式声明规则集。此前未声明，规则完全由安装到的 ruff 版本决定；
+# 而 dev 依赖写的是 ruff>=0.8.0（无上界），CI 装到新版本后默认规则从
+# E4/E7/E9/F 扩到 B/I/UP/RUF 等，一次代码没改 CI 就红了。
+# 这里锁定团队实际遵循的集合：pycodestyle 错误 + Pyflakes。
+# 需要收紧时在此处显式加类别，不要再依赖版本默认值。
+select = ["E4", "E7", "E9", "F"]
+
 [tool.mypy]
 python_version = "3.12"
 files = ["src/openagentic"]
