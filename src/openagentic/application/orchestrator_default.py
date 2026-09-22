@@ -152,7 +152,6 @@ class DefaultOrchestrator:
 
             # ── 构造 engine + queue + hooks ─────────────────────────────
             queue: asyncio.Queue[ReplyEvent | None] = asyncio.Queue()
-            sentinel: object = object()
 
             async def _emit(ev: ReplyEvent) -> None:
                 await queue.put(ev)

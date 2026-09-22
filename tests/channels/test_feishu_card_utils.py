@@ -5,7 +5,6 @@ _build_card, build_thinking_card, build_answer_card,
 _sanitize_for_lark_md, _table_to_text, _HEADING_RE, _HR_RE。
 """
 
-import re
 
 from extensions.channels.feishu_card_utils import (
     _build_card,

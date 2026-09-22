@@ -7,9 +7,8 @@ mock async_session + wf_service 层，与 test_presets.py 风格一致。
 from __future__ import annotations
 
 import uuid
-import json
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -25,9 +24,6 @@ from extensions.channels.channel_runner import (
     _read_file,
     _run_lark_cli,
     _current_user_id,
-    _current_platform,
-    _current_sender_open_id,
-    _current_chat_id,
     _build_preset_hint,
     BASE_TOOLS,
     WORKFLOW_TOOLS,
@@ -257,7 +253,6 @@ class TestResolveWorkflow:
         monkeypatch.setattr(
             "openagentic.workflow.service.get_workflow", mock_get_workflow
         )
-        from extensions.channels.channel_runner import _resolve_workflow
         result = await _resolve_workflow(MagicMock(), str(wf_id), user_id)
         assert result is expected_wf
 
@@ -269,7 +264,6 @@ class TestResolveWorkflow:
         mock_db.execute = AsyncMock(
             return_value=SimpleNamespace(scalar_one_or_none=lambda: expected_wf)
         )
-        from extensions.channels.channel_runner import _resolve_workflow
         result = await _resolve_workflow(mock_db, "news.tech_weekly", user_id)
         assert result is expected_wf
 
@@ -280,7 +274,6 @@ class TestResolveWorkflow:
         mock_db.execute = AsyncMock(
             return_value=SimpleNamespace(scalar_one_or_none=lambda: None)
         )
-        from extensions.channels.channel_runner import _resolve_workflow
         result = await _resolve_workflow(mock_db, "nonexistent.slug", user_id)
         assert result is None
 

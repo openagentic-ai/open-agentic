@@ -8,7 +8,6 @@ import json
 
 import pytest
 
-from extensions.channels.base import IncomingMessage
 from extensions.channels.feishu import (
     _parse_content,
     _extract_post_text,

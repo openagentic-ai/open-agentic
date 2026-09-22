@@ -7,11 +7,11 @@
 
 from __future__ import annotations
 
-contextlib_cm = __import__("contextlib")
-
-import pytest
+import contextlib
 
 import litellm
+import pytest
+
 from openagentic.agent.llm import litellm_chat
 
 
@@ -24,7 +24,7 @@ class _RecordingGate:
     def acquire(self, category: str = "default"):
         self.categories.append(category)
 
-        @contextlib_cm.asynccontextmanager
+        @contextlib.asynccontextmanager
         async def _cm():
             yield
 

@@ -32,7 +32,7 @@ from __future__ import annotations
 import asyncio
 import structlog
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Awaitable, Callable, TypeVar
+from typing import AsyncIterator, Awaitable, Callable, TypeVar
 
 from openagentic.concurrency.config import GateConfig
 from openagentic.concurrency.limiter import CategoryLimiter

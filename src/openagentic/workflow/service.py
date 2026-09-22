@@ -633,7 +633,6 @@ async def _execute_definition(
 
                 # evaluator 后处理：passed=false 时触发目标节点重试
                 is_evaluator = node_type_name == "evaluator"
-                eval_passed = is_evaluator and isinstance(output, dict) and output.get("passed")
                 eval_retries_left = 0
                 if is_evaluator and isinstance(output, dict) and not output.get("passed"):
                     eval_max_retries = int(rendered.get("max_retries", 2) or 2)
