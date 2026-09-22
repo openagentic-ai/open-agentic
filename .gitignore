@@ -47,3 +47,5 @@ openapi.public.json
 .claude/
 .openagentic/.last_editable_install
 .openagentic/model_providers.json
+.env.bak
+.env.bak.*

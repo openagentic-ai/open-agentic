@@ -1,0 +1,19 @@
+# openagentic 控制面策略——改这里调整后端分层与升级行为，不用动代码
+version: 1
+
+# 后端分层：哪些端点算"本地"（走受限配额），哪些走云端配额
+tiers:
+  local:
+    gate_category: llm_local      # 对齐 vLLM max_num_seqs，见 OPENAGENTIC_GATE_LLM_LOCAL_CONCURRENCY
+    concurrency: 2
+    endpoints:
+      - "127.0.0.1:9997"
+      - "localhost:9997"
+  cloud:
+    gate_category: llm
+    concurrency: 30
+
+# 本地不可用时的升级目标（暂未启用，等 modeld 的 ensure 接进来再开）
+escalation:
+  enabled: false
+  target_model: "deepseek/deepseek-v4-flash"

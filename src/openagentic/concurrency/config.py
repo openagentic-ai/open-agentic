@@ -51,6 +51,7 @@ class GateConfig:
     - 排队上限 200：突发短峰时不立即拒，长峰时拒掉防雪崩
     - 默认 timeout 180s：与现有飞书层 wait_for 对齐
     - LLM 30 并发 + 50/s 令牌桶：保护 provider QPS
+    - llm_local 2 并发：本地 vLLM 序列槽位有限，按 max_num_seqs 对齐
     - subprocess 10 并发：保护机器 CPU/IO
     - io 50 并发：文件 I/O 异步化后的水位
     """
@@ -61,6 +62,8 @@ class GateConfig:
     categories: dict[str, CategoryConfig] = field(default_factory=lambda: {
         "default": CategoryConfig(concurrency=100),
         "llm": CategoryConfig(concurrency=30, rate_per_sec=50.0, burst=30),
+        # 本地推理后端（vLLM）序列槽位有限，不能按云端 QPS 配
+        "llm_local": CategoryConfig(concurrency=2),
         "subprocess": CategoryConfig(concurrency=10),
         "io": CategoryConfig(concurrency=50),
     })
@@ -75,6 +78,7 @@ class GateConfig:
             OPENAGENTIC_GATE_DEFAULT_TIMEOUT        默认超时（秒）
             OPENAGENTIC_GATE_LLM_CONCURRENCY        LLM 类别并发
             OPENAGENTIC_GATE_LLM_RATE               LLM 类别令牌桶补充速率
+            OPENAGENTIC_GATE_LLM_LOCAL_CONCURRENCY  本地推理后端类别并发（对齐 vLLM max_num_seqs）
             OPENAGENTIC_GATE_SUBPROCESS_CONCURRENCY 子进程类别并发
             OPENAGENTIC_GATE_IO_CONCURRENCY         文件 I/O 类别并发
         """
@@ -101,6 +105,12 @@ class GateConfig:
                         defaults.categories["llm"].rate_per_sec or 0.0,
                     ) or None,
                     burst=defaults.categories["llm"].burst,
+                ),
+                "llm_local": CategoryConfig(
+                    concurrency=_env_int(
+                        "OPENAGENTIC_GATE_LLM_LOCAL_CONCURRENCY",
+                        defaults.categories["llm_local"].concurrency,
+                    ),
                 ),
                 "subprocess": CategoryConfig(
                     concurrency=_env_int(

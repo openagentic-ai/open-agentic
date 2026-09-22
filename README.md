@@ -432,6 +432,7 @@ src/openagentic/
 ├── cli/                 # CLI ReAct（repl、react、tools、providers、model_router 等）
 ├── channels/            # 渠道配置 DB 模型 + 管理 CRUD
 ├── concurrency/         # 并发治理网关（全局信号量 + 类别配额 + 会话串行）
+├── control_plane/       # 控制面策略（后端分层配额，YAML 驱动，未配置不启用）
 ├── core/
 │   ├── auth/            # JWT + bcrypt
 │   ├── chat/            # 会话+消息+SSE + sessions 兼容路由
@@ -593,6 +594,63 @@ allowed-tools: [...]       # 可选，限定可用工具列表
 ---
 
 # git-commit
+
+## 本地模型调度（控制面 + modeld）
+
+本地推理后端和云端 provider 的资源形状完全不同——云端要防 QPS，本地要防序列槽位打满。
+这一层把「哪个后端、走多少并发、挂了怎么办」从代码里抽出来，做成可配置策略。
+
+### 两块职责
+
+| 组件 | 角色 | 位置 |
+|---|---|---|
+| `control_plane/` | **策略**：按后端端点选配额类别、决定升级目标 | 本仓库 |
+| `modeld` | **执行**：显存预检、健康探测、拉起模型 | `/opt/modeld`（独立进程） |
+
+**为什么分开**：模型加载要 2–3 分钟、模型进程活几小时，而请求只活几秒。
+把「加载」塞进请求调用栈是层次错配；而把启停逻辑放进应用进程，会让模型的问题拖垮应用。
+
+### 后端分层
+
+配置在 `.openagentic/control_plane.yaml`。**不配置该环境变量则控制面整体不启用，行为与从前完全一致。**
+
+```yaml
+tiers:
+  local:
+    gate_category: llm_local   # 本地 vLLM 序列槽位有限
+    concurrency: 2
+    endpoints:
+      - "127.0.0.1:9997"
+  cloud:
+    gate_category: llm
+    concurrency: 30
+```
+
+`litellm_chat()` 按 `api_base` 命中哪个 tier 选配额类别：本地后端只有 2 个序列槽位
+（对齐 vLLM `max_num_seqs`），云端维持 30 并发。改之前 30 个并发会灌进只有 2 个槽位的 vLLM。
+
+| 环境变量 | 作用 |
+|---|---|
+| `OPENAGENTIC_CONTROL_PLANE_CONFIG` | YAML 路径；**不设 = 不启用** |
+| `OPENAGENTIC_GATE_LLM_LOCAL_CONCURRENCY` | 本地类别并发（默认 2） |
+
+### 为什么需要 modeld
+
+本地卡是**单卡多租户**。显存被别的进程占走时，vLLM 只抛一句
+`Engine core initialization failed`，真因埋在 systemd journal 里（排查成本极高）。
+modeld 把它提前变成一句人话：
+
+```json
+{"action":"refused",
+ "reason":"显存不足：空闲 15535 MiB，需要 22900 MiB（缺口 7365 MiB）",
+ "users":[{"pid":49260,"name":"VLLM::EngineCore","used_mib":8558}]}
+```
+
+探测走的是 `max_tokens=1` 的真实补全（`/v1/models` 列出模型 ≠ 可用，加载中也会被列出），
+结果按 `probe.cache_ttl_sec` 缓存——探测会占序列槽位，不能裸奔。
+
+**待接**：`escalation`（本地不可用自动升级云端）策略已实现并测试，但 `litellm_chat` 尚未接线，
+当前 `enabled: false`。modeld 的 `/ensure` 也还没有后台守护定期调用。
 
 ## 何时使用
 ...

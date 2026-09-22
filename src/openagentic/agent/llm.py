@@ -73,8 +73,12 @@ async def litellm_chat(
     # 走 LLM 类别配额（信号量 + 令牌桶）——保护 provider QPS、削峰填谷。
     # 每次 LLM 调用都过这一关：CLI 单次调用没影响，飞书/HTTP 高并发时自动限流。
     from openagentic.concurrency import get_default_gate
+    from openagentic.control_plane import gate_category, load_control_plane_config
+
+    # 按后端选配额类别：本地推理后端序列槽位有限，不能按云端 QPS 配（控制面未启用则返回 "llm"）
+    category = gate_category(api_base, load_control_plane_config())
     try:
-        async with get_default_gate().acquire("llm"):
+        async with get_default_gate().acquire(category):
             response = await litellm.acompletion(**kwargs)
     except Exception:
         logger.exception("litellm_chat failed")
