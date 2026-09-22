@@ -634,6 +634,26 @@ tiers:
 | `OPENAGENTIC_CONTROL_PLANE_CONFIG` | YAML 路径；**不设 = 不启用** |
 | `OPENAGENTIC_GATE_LLM_LOCAL_CONCURRENCY` | 本地类别并发（默认 2） |
 
+### 判定层：Jev
+
+生成由 LLM，判定由 Jev——封闭选项（`choice` / `score` / `noul`）返回带 confidence 的
+完整概率分布，一次调用可 fan-out 问一组问题。
+
+`workflow/evaluator.py` 优先走 Jev：`noul` = 「输出是否满足标准」的校准概率，
+直接对上 `min_score` 阈值；另问一个 `choice` 分档用于生成 feedback。
+**Jev 未配置 / 返回空 / 抛异常一律回落原有 LLM 自由打分**——判定失败不阻塞流程。
+接口语义（`min_score` / `passed` / `feedback`）不变，接入方无感。
+
+| 环境变量 | 作用 |
+|---|---|
+| `OPENAGENTIC_JEV_ENABLED` | **不设 = 不启用**，行为与从前完全一致 |
+| `JEV_API_KEY` / `TYPESAFE_API_KEY` | 后者为兼容回落 |
+| `JEV_BASE_URL` | 指向任何兼容端点即可；换本地模型只改这一个 |
+| `JEV_PROXY` | 服务器出境代理 |
+
+客户端零第三方依赖（urllib），带 sha256 缓存与成本账本（`logs/jev_cache.jsonl`、
+`logs/jev_log.jsonl`）。env 命名刻意不绑厂商——**Jev 将来开源或换端侧模型，只改 env 不改代码**。
+
 ### 为什么需要 modeld
 
 本地卡是**单卡多租户**。显存被别的进程占走时，vLLM 只抛一句
