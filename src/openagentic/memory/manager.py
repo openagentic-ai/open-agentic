@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from openagentic.config import SETTINGS
 
 # Known categories for core memory (mirrors Claude Code's types)
 CORE_CATEGORIES = ["user_profile", "project_fact", "preference", "reference"]
@@ -421,7 +422,7 @@ def working_memory_compressible(
     按接入模型的实际窗口可配置——不在代码写死。
     """
     if max_tokens is None:
-        max_tokens = int(os.environ.get("OPENAGENTIC_WORKING_MEMORY_MAX_TOKENS", "6000"))
+        max_tokens = SETTINGS.MEMORY_MAX_TOKENS
     return estimate_tokens(messages) > max_tokens
 
 
@@ -486,7 +487,7 @@ async def compress_working_memory(
         from openagentic.cli.llm import litellm_chat
         resp = await litellm_chat(
             [{"role": "user", "content": summarize_prompt}],
-            model=model or "deepseek/deepseek-v4-flash",
+            model=model or SETTINGS.LITELLM_DEFAULT_MODEL,
             api_base=api_base,
             api_key=api_key,
         )

@@ -7,6 +7,7 @@ from collections.abc import AsyncGenerator
 import litellm
 
 from openagentic.core.llm.provider_config import get_provider_store
+from openagentic.config import SETTINGS
 from openagentic.tenant import get_current_request_id, get_current_tenant_id
 
 logger = structlog.get_logger("openagentic.core.llm")
@@ -35,7 +36,7 @@ def _litellm_kwargs(model: str | None = None) -> dict:
 async def chat_completion(
     messages: list[dict],
     model: str | None = None,
-    temperature: float = 0.7,
+    temperature: float | None = None,
     max_tokens: int | None = None,
 ) -> dict:
     """Non-streaming chat completion."""
@@ -43,8 +44,8 @@ async def chat_completion(
     logger.info("chat_completion", model=kwargs.get("model"), msg_count=len(messages))
     response = await litellm.acompletion(
         messages=messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
+        temperature=SETTINGS.LLM_TEMPERATURE if temperature is None else temperature,
+        max_tokens=SETTINGS.LLM_MAX_TOKENS if max_tokens is None else max_tokens,
         **kwargs,
     )
     choice = response.choices[0]
@@ -68,15 +69,15 @@ async def chat_completion(
 async def chat_completion_stream(
     messages: list[dict],
     model: str | None = None,
-    temperature: float = 0.7,
+    temperature: float | None = None,
     max_tokens: int | None = None,
 ) -> AsyncGenerator[str, None]:
     """Streaming chat completion, yields SSE-formatted events."""
     kwargs = _litellm_kwargs(model)
     response = await litellm.acompletion(
         messages=messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
+        temperature=SETTINGS.LLM_TEMPERATURE if temperature is None else temperature,
+        max_tokens=SETTINGS.LLM_MAX_TOKENS if max_tokens is None else max_tokens,
         stream=True,
         **kwargs,
     )

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from openagentic.config import SETTINGS
 
 
 def _env_int(name: str, default: int) -> int:
@@ -85,20 +86,20 @@ class GateConfig:
         defaults = cls()
         return cls(
             global_concurrency=_env_int(
-                "OPENAGENTIC_GATE_GLOBAL_CONCURRENCY", defaults.global_concurrency
+                "OPENAGENTIC_GATE_GLOBAL_CONCURRENCY", SETTINGS.GATE_GLOBAL_CONCURRENCY
             ),
             max_queued=_env_int(
-                "OPENAGENTIC_GATE_MAX_QUEUED", defaults.max_queued
+                "OPENAGENTIC_GATE_MAX_QUEUED", SETTINGS.GATE_MAX_QUEUED
             ),
             default_timeout=_env_float(
-                "OPENAGENTIC_GATE_DEFAULT_TIMEOUT", defaults.default_timeout
+                "OPENAGENTIC_GATE_DEFAULT_TIMEOUT", SETTINGS.GATE_DEFAULT_TIMEOUT
             ),
             categories={
                 "default": defaults.categories["default"],
                 "llm": CategoryConfig(
                     concurrency=_env_int(
                         "OPENAGENTIC_GATE_LLM_CONCURRENCY",
-                        defaults.categories["llm"].concurrency,
+                        SETTINGS.GATE_LLM_CONCURRENCY,
                     ),
                     rate_per_sec=_env_float(
                         "OPENAGENTIC_GATE_LLM_RATE",
@@ -109,19 +110,19 @@ class GateConfig:
                 "llm_local": CategoryConfig(
                     concurrency=_env_int(
                         "OPENAGENTIC_GATE_LLM_LOCAL_CONCURRENCY",
-                        defaults.categories["llm_local"].concurrency,
+                        SETTINGS.GATE_LLM_LOCAL_CONCURRENCY,
                     ),
                 ),
                 "subprocess": CategoryConfig(
                     concurrency=_env_int(
                         "OPENAGENTIC_GATE_SUBPROCESS_CONCURRENCY",
-                        defaults.categories["subprocess"].concurrency,
+                        SETTINGS.GATE_SUBPROCESS_CONCURRENCY,
                     ),
                 ),
                 "io": CategoryConfig(
                     concurrency=_env_int(
                         "OPENAGENTIC_GATE_IO_CONCURRENCY",
-                        defaults.categories["io"].concurrency,
+                        SETTINGS.GATE_IO_CONCURRENCY,
                     ),
                 ),
             },

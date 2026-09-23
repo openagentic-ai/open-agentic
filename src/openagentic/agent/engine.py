@@ -20,6 +20,7 @@ import structlog
 from typing import Callable, Awaitable, Protocol
 
 from openagentic.agent.llm import litellm_chat
+from openagentic.config import SETTINGS
 
 logger = structlog.get_logger("openagentic.agent.engine")
 
@@ -52,7 +53,7 @@ class VerifyVerdictLike(Protocol):
 
 VerifyHook = Callable[[str, list[dict]], Awaitable["VerifyVerdictLike | None"]]
 
-DEFAULT_MAX_ITERATIONS = 5
+DEFAULT_MAX_ITERATIONS = SETTINGS.AGENT_MAX_ITERATIONS
 DEFAULT_MAX_VERIFY_RETRIES = 1
 
 

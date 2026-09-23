@@ -12,6 +12,7 @@ from openagentic.knowledge.chunker import chunk_text
 from openagentic.knowledge.embedder import embed_texts
 from openagentic.knowledge.search import ensure_vector_indexes, similarity_search
 from openagentic.knowledge.schemas import BatchDocumentUploadItem
+from openagentic.config import SETTINGS
 
 logger = structlog.get_logger(__name__)
 
@@ -21,18 +22,18 @@ async def create_knowledge_base(
     user_id: uuid.UUID,
     name: str,
     description: str | None = None,
-    embedding_model: str = "nomic-embed-text",
-    chunk_size: int = 500,
-    chunk_overlap: int = 50,
+    embedding_model: str | None = None,
+    chunk_size: int | None = None,
+    chunk_overlap: int | None = None,
 ) -> KnowledgeBase:
     """创建知识库配置（包含 embedding 模型和切块参数）。"""
     kb = KnowledgeBase(
         user_id=user_id,
         name=name,
         description=description,
-        embedding_model=embedding_model,
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
+        embedding_model=embedding_model or SETTINGS.EMBEDDING_MODEL,
+        chunk_size=chunk_size or SETTINGS.RETRIEVAL_CHUNK_SIZE,
+        chunk_overlap=chunk_overlap if chunk_overlap is not None else SETTINGS.RETRIEVAL_CHUNK_OVERLAP,
     )
     db.add(kb)
     await db.flush()
@@ -285,7 +286,7 @@ async def search(
     kb_id: uuid.UUID,
     user_id: uuid.UUID,
     query: str,
-    top_k: int = 5,
+    top_k: int | None = None,
     rerank: bool = True,
     rerank_top_n: int = 20,
 ) -> list[dict]:
@@ -298,7 +299,7 @@ async def search(
         db=db,
         knowledge_base_id=kb_id,
         query=query,
-        top_k=top_k,
+        top_k=top_k or SETTINGS.RETRIEVAL_TOP_K,
         embedding_model=kb.embedding_model,
         rerank=rerank,
         rerank_top_n=rerank_top_n,

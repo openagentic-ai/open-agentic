@@ -16,7 +16,8 @@ tiers:
 # 本地不可用时的升级目标（暂未启用，等 modeld 的 ensure 接进来再开）
 escalation:
   enabled: true
-  target_model: "deepseek/deepseek-v4-flash"
+  # 留空时读取根目录 openagentic.yaml 的 models.default
+  target_model: ""
 
 # System-1 验证（RLCD / Jev）—— 分级调用：不是每条都过，只在高风险时判定
 system1:

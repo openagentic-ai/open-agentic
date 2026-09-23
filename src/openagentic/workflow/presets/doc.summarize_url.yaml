@@ -23,7 +23,6 @@ definition:
     - id: summarize
       type: llm
       config:
-        model: deepseek/deepseek-v4-flash
         system_prompt: >
           你是信息摘要助手。把网页内容提取为 3-5 条关键要点，用中文输出。
           每条一句话，不要啰嗦。如果内容是错误或空白，请诚实告知。

@@ -29,7 +29,6 @@ definition:
     - id: analyze
       type: llm
       config:
-        model: deepseek/deepseek-v4-flash
         system_prompt: >
           你是运维巡检助手。根据 uptime / df / free 输出判断服务器健康状态。
           只报告异常指标（负载 > CPU 核数、磁盘 > 80%、内存 < 10% 可用），

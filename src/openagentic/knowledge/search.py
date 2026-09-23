@@ -7,18 +7,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from openagentic.knowledge.models import Chunk
 from openagentic.knowledge.embedder import embed_single
+from openagentic.config import SETTINGS
 
 
 async def similarity_search(
     db: AsyncSession,
     knowledge_base_id: uuid.UUID,
     query: str,
-    top_k: int = 5,
-    embedding_model: str = "nomic-embed-text",
+    top_k: int | None = None,
+    embedding_model: str | None = None,
     rerank: bool = True,
-    rerank_top_n: int = 20,
+    rerank_top_n: int | None = None,
 ) -> list[dict]:
     """Search for similar chunks using cosine distance."""
+    top_k = top_k or SETTINGS.RETRIEVAL_TOP_K
+    rerank_top_n = rerank_top_n or SETTINGS.RETRIEVAL_RERANK_TOP_N
     query_embedding = await embed_single(query, embedding_model)
     candidate_limit = max(top_k, rerank_top_n if rerank else top_k, top_k * 4)
 

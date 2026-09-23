@@ -24,6 +24,13 @@ from openagentic.application.events import (
     ToolCallEvent,
     ToolResultEvent,
 )
+from openagentic.application.capabilities import (
+    Capability,
+    CORE_CAPABILITIES,
+    ENDPOINTS,
+    EndpointDescriptor,
+    endpoint_descriptor,
+)
 from openagentic.application.identity import IdentityResolver
 from openagentic.application.identity_default import DefaultIdentityResolver
 from openagentic.application.orchestrator_default import DefaultOrchestrator
@@ -33,6 +40,8 @@ from openagentic.application.tool_registry import ToolSpec
 from openagentic.application.tool_registry_default import DefaultToolRegistry
 
 __all__ = [
+    "Capability", "CORE_CAPABILITIES", "ENDPOINTS",
+    "EndpointDescriptor", "endpoint_descriptor",
     # events
     "EventType", "ReplyEvent",
     "ThinkingEvent", "PartialEvent",

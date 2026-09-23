@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 from openagentic.control_plane.config import ControlPlaneConfig
+from openagentic.config import SETTINGS
 
 DEFAULT_CATEGORY = "llm"
 
@@ -33,4 +34,4 @@ def escalation_target(cfg: ControlPlaneConfig | None = None) -> str | None:
     """本地后端不可用时的升级目标模型 id；未配置升级返回 None。"""
     if cfg is None or not cfg.escalation.enabled:
         return None
-    return cfg.escalation.target_model or None
+    return cfg.escalation.target_model or SETTINGS.LITELLM_DEFAULT_MODEL

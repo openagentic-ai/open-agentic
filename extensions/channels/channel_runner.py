@@ -43,8 +43,9 @@ _thinking_card_msg_id: contextvars.ContextVar[str] = contextvars.ContextVar(
     "channel_thinking_card_msg_id", default=""
 )
 
-MAX_HISTORY = int(os.environ.get("OPENAGENTIC_CHANNEL_MAX_HISTORY", "20"))
-MAX_TOOL_ITERATIONS = 30
+from openagentic.config import SETTINGS
+MAX_HISTORY = SETTINGS.CHANNEL_MAX_HISTORY
+MAX_TOOL_ITERATIONS = SETTINGS.AGENT_MAX_ITERATIONS
 
 # ── 公共工具定义 ──────────────────────────────────────────────────────────
 
@@ -899,7 +900,7 @@ class ChannelAIService:
         channel_hints: list[str] | None = None,
     ):
         self._model = os.getenv("OPENAGENTIC_MODEL") or os.getenv(
-            "LITELLM_DEFAULT_MODEL", "deepseek/deepseek-v4-flash"
+            "LITELLM_DEFAULT_MODEL", SETTINGS.CHANNEL_MODEL
         )
         self._api_key = os.getenv("OPENAI_API_KEY")
         self._api_base = os.getenv("OPENAI_BASE_URL") if self._model.startswith("openai/") else None

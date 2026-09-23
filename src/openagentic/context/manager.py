@@ -21,14 +21,15 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+from openagentic.config import SETTINGS
 
 logger = structlog.get_logger("openagentic.context")
 
 # ── 环境变量 ──────────────────────────────────────────────
 ENABLED = os.environ.get("OPENAGENTIC_CONTEXT_MANAGER", "0") == "1"
-CONTEXT_MAX_TOKENS = int(os.environ.get("OPENAGENTIC_CONTEXT_MAX_TOKENS", "80000"))
-TOOL_OUTPUT_MAX_CHARS = int(os.environ.get("OPENAGENTIC_CONTEXT_TOOL_OUTPUT_MAX", "4000"))
-KEEP_RECENT = int(os.environ.get("OPENAGENTIC_CONTEXT_KEEP_RECENT", "10"))
+CONTEXT_MAX_TOKENS = SETTINGS.CONTEXT_MAX_TOKENS
+TOOL_OUTPUT_MAX_CHARS = SETTINGS.CONTEXT_TOOL_OUTPUT_MAX_CHARS
+KEEP_RECENT = SETTINGS.CONTEXT_KEEP_RECENT
 SNAPSHOT_DIR = Path(os.environ.get(
     "OPENAGENTIC_CONTEXT_SNAPSHOT_DIR",
     str(Path.home() / ".openagentic" / "snapshots"),

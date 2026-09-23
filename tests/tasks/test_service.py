@@ -1,5 +1,3 @@
-import pytest
-
 from openagentic.tasks.models import TaskStatus
 from openagentic.tasks.service import can_transition
 

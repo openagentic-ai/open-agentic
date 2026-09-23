@@ -5,8 +5,9 @@ import httpx
 from openagentic.config import SETTINGS
 
 
-async def embed_texts(texts: list[str], model: str = "nomic-embed-text") -> list[list[float]]:
+async def embed_texts(texts: list[str], model: str | None = None) -> list[list[float]]:
     """Generate embeddings for a list of texts using Ollama embed API."""
+    model = model or SETTINGS.EMBEDDING_MODEL
     embeddings: list[list[float]] = []
     async with httpx.AsyncClient(timeout=120.0) as client:
         for text in texts:
@@ -20,7 +21,7 @@ async def embed_texts(texts: list[str], model: str = "nomic-embed-text") -> list
     return embeddings
 
 
-async def embed_single(text: str, model: str = "nomic-embed-text") -> list[float]:
+async def embed_single(text: str, model: str | None = None) -> list[float]:
     """Generate embedding for a single text."""
     result = await embed_texts([text], model)
     return result[0]

@@ -26,6 +26,7 @@ from typing import Any
 import structlog
 
 from openagentic.agent.llm import litellm_chat
+from openagentic.config import SETTINGS
 from openagentic.control_plane.system1 import verify_output
 
 logger = structlog.get_logger("openagentic.workflow.evaluator")
@@ -114,7 +115,7 @@ async def execute_evaluator(
     try:
         resp = await litellm_chat(
             [{"role": "user", "content": prompt}],
-            model=model or "deepseek-v4-flash",
+            model=model or SETTINGS.EVALUATOR_MODEL,
             api_base=api_base,
             api_key=api_key,
         )

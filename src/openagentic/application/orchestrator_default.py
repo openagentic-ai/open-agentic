@@ -35,8 +35,10 @@ from openagentic.application.tool_registry_default import DefaultToolRegistry
 
 logger = structlog.get_logger("openagentic.application.orchestrator")
 
-MAX_HISTORY = 20  # 与 channel_runner 对齐
-DEFAULT_MAX_ITERATIONS = 30  # 与 channel_runner.MAX_TOOL_ITERATIONS 对齐
+MAX_HISTORY = SETTINGS.CHANNEL_MAX_HISTORY
+from openagentic.config import SETTINGS
+
+DEFAULT_MAX_ITERATIONS = SETTINGS.AGENT_MAX_ITERATIONS
 
 
 class DefaultOrchestrator:

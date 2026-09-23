@@ -165,7 +165,7 @@ DEFAULT_PROFILES: list[ProviderProfile] = [
         id="ollama",
         display_name="Ollama (local)",
         api_base=SETTINGS.OLLAMA_API_BASE,
-        models=["ollama/qwen3.8:27b"],
+        models=[SETTINGS.LOCAL_MODEL],
     ),
 ]
 
@@ -361,7 +361,8 @@ class ProviderConfigStore:
             if not profiles:
                 profiles = [ProviderProfile(**asdict(profile)) for profile in DEFAULT_PROFILES]
             cfg = ProviderConfig(
-                default_model=data.get("default_model", SETTINGS.LITELLM_DEFAULT_MODEL),
+                # 默认模型由根目录 openagentic.yaml 统一决定；JSON 只保存 provider 资料。
+                default_model=SETTINGS.LITELLM_DEFAULT_MODEL,
                 profiles=profiles,
             )
             cfg, changed = _apply_env_bootstrap(cfg)
@@ -408,4 +409,3 @@ def get_provider_store() -> ProviderConfigStore:
     if _store is None:
         _store = ProviderConfigStore(SETTINGS.MODEL_PROVIDER_CONFIG_PATH)
     return _store
-

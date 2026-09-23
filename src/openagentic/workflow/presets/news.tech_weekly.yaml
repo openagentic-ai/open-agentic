@@ -29,7 +29,6 @@ definition:
     - id: summarize
       type: llm
       config:
-        model: deepseek/deepseek-v4-flash
         system_prompt: >
           你是 AI/科技领域的深度新闻编辑。根据提供的 HN、arXiv、知乎热榜数据，
           整理一份信息密度极高的周报。规则：

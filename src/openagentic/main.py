@@ -173,7 +173,7 @@ def _setup_channel_routes(app: FastAPI) -> None:
     from extensions.channels.base import IncomingMessage
 
     _channel_engine = ConversationEngine(
-        model=SETTINGS.LITELLM_DEFAULT_MODEL,
+        model=SETTINGS.CHANNEL_MODEL,
         api_key=SETTINGS.OPENAI_API_KEY or "",
         tools=[],
         system_prompt=DEFAULT_SYSTEM_PROMPT + (

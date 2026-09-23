@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from pgvector.sqlalchemy import Vector
 
 from openagentic.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
+from openagentic.config import SETTINGS
 
 
 class KnowledgeBase(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -19,7 +20,7 @@ class KnowledgeBase(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    embedding_model: Mapped[str] = mapped_column(String(100), default="nomic-embed-text", nullable=False)
+    embedding_model: Mapped[str] = mapped_column(String(100), default=SETTINGS.EMBEDDING_MODEL, nullable=False)
     chunk_size: Mapped[int] = mapped_column(Integer, default=500, nullable=False)
     chunk_overlap: Mapped[int] = mapped_column(Integer, default=50, nullable=False)
     document_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

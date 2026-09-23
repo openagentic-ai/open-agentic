@@ -52,7 +52,6 @@ definition:
     - id: generate_topics
       type: llm
       config:
-        model: deepseek/deepseek-v4-flash
         system_prompt: >
           你是一个顶级视频内容策划，专精 AI/科技/效率工具赛道。
           根据当前 B站和知乎的热门内容，分析流量趋势，生成 5 个具体的视频选题方案。

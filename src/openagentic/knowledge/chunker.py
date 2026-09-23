@@ -1,12 +1,17 @@
 """模块说明（中文）：`src/openagentic/knowledge/chunker.py`。\n\n该文件属于知识库模块，处理文档、向量与检索能力。\n"""
 
 
-def chunk_text(text: str, chunk_size: int = 500, chunk_overlap: int = 50) -> list[str]:
+from openagentic.config import SETTINGS
+
+
+def chunk_text(text: str, chunk_size: int | None = None, chunk_overlap: int | None = None) -> list[str]:
     """Split text into overlapping chunks using recursive character splitting.
 
     Tries each separator in order of preference. If a resulting piece is still
     larger than chunk_size, it recurses with the next separator.
     """
+    chunk_size = chunk_size or SETTINGS.RETRIEVAL_CHUNK_SIZE
+    chunk_overlap = SETTINGS.RETRIEVAL_CHUNK_OVERLAP if chunk_overlap is None else chunk_overlap
     if not text or not text.strip():
         return []
 

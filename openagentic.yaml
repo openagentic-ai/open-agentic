@@ -1,0 +1,44 @@
+# OpenAgentic product configuration. Change model roles here to update all runtimes.
+models:
+  default: deepseek/deepseek-v4-flash
+  cli: deepseek/deepseek-v4-flash
+  complex: deepseek/deepseek-v4-pro
+  evaluator: deepseek/deepseek-v4-flash
+  channel: deepseek/deepseek-v4-flash
+  embedding: nomic-embed-text
+  local: ollama/Qwen3.8-27B
+
+llm:
+  temperature: 0.7
+  max_tokens: 4096
+  request_timeout_seconds: 180
+
+agent:
+  max_iterations: 30
+  max_verify_retries: 1
+
+context:
+  max_tokens: 80000
+  tool_output_max_chars: 4000
+  keep_recent_messages: 10
+  working_memory_max_tokens: 6000
+
+retrieval:
+  chunk_size: 500
+  chunk_overlap: 50
+  top_k: 5
+  rerank_top_n: 20
+
+channels:
+  max_history: 20
+  tool_timeout_seconds: 30
+  reply_timeout_seconds: 180
+
+concurrency:
+  global_concurrency: 100
+  max_queued: 200
+  default_timeout_seconds: 180
+  llm_concurrency: 30
+  llm_local_concurrency: 2
+  subprocess_concurrency: 10
+  io_concurrency: 50

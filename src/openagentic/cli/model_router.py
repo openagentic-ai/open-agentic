@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import Any
 
 import litellm
+from openagentic.config import SETTINGS
 
 from rich.console import Console
 
@@ -114,8 +115,8 @@ async def route_model(
     if not config:
         return current_model, None
 
-    complex_model = config.get("complex_model", "")
-    simple_model = config.get("simple_model", "")
+    complex_model = config.get("complex_model") or SETTINGS.COMPLEX_MODEL
+    simple_model = config.get("simple_model") or SETTINGS.LITELLM_DEFAULT_MODEL
     if not complex_model or not simple_model:
         return current_model, None
 

@@ -14,9 +14,9 @@ class KnowledgeBaseCreate(BaseModel):
     """创建知识库请求：名称、embedding 模型、分块参数。"""
     name: str = Field(..., max_length=255)
     description: Optional[str] = None
-    embedding_model: str = "nomic-embed-text"
-    chunk_size: int = Field(default=500, ge=100, le=5000)
-    chunk_overlap: int = Field(default=50, ge=0, le=500)
+    embedding_model: str | None = None
+    chunk_size: int | None = Field(default=None, ge=100, le=5000)
+    chunk_overlap: int | None = Field(default=None, ge=0, le=500)
 
 
 class KnowledgeBaseResponse(BaseModel):
