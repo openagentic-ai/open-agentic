@@ -8,7 +8,7 @@
 | 仓库 | [github.com/openagentic-ai/open-agentic](https://github.com/openagentic-ai/open-agentic) |
 | 许可证 | Apache 2.0 |
 
-## 多端共同底座（2026-05-01 进行中,ADR-001）
+## 多端共同底座（进行中，架构见 ADR-001）
 
 **当前产品验证方向**：本地优先的 personal agent。模型可运行在本机，也可由用户接入自己的 API；现有企业渠道、工作流和多租户底座继续保留，暂不把它们当作已验证的商业结论。
 
@@ -28,24 +28,22 @@ L1 Infra   db / llm / concurrency (已有保持)
 
 - **IM 走 Adapter,客户端(Web/Android)走 Gateway**——两条接入路径不同协议,共用 L3
 - **流式事件协议**:`reply() -> AsyncIterator[ReplyEvent]`,事件族 thinking/partial/tool_call/tool_result/final/error,各端自行渲染
-- **旧 `extensions/channels/` 保留不删**(将来可能复用),Phase 2 飞书迁完即空置
+- **`extensions/channels/` 仍承载飞书生产 Bot**；迁移到新 Adapter/Gateway 是后续规划
 
-### 统一能力矩阵（能力属于底座，端只提供入口）
+### 统一能力矩阵（规划状态，不代表端到端已验证）
 
-| | 飞书 | 企微 | 钉钉 | Web | **Android** | 小程序 | iOS/桌面 |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | 底座能力 | 飞书 | 企微 | 钉钉 | Web | Android | 小程序 | 桌面 |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| 对话 / 流式事件 | 接入 | 接入 | 接入 | 接入 | 接入 | 接入 | 接入 |
-| 记忆 / RAG | 共享 | 共享 | 共享 | 共享 | 共享 | 共享 | 共享 |
-| Workflow / 任务状态 | 共享 | 共享 | 共享 | 共享 | 共享 | 共享 | 共享 |
-| 办公工具 / 权限审批 | 共享 | 共享 | 共享 | 共享 | 共享 | 共享 | 共享 |
-| 数据分析 / 结构化结果 | 共享 | 共享 | 共享 | 共享 | 共享 | 共享 | 共享 |
+| 对话 / 流式事件 | 已运行 | 未跑通 | 未开始 | 未连通 | 未接 Agent | 规划 | 规划 |
+| 记忆 / RAG | 已接底座 | 骨架 | 未开始 | 待接入 | 待接入 | 规划 | 规划 |
+| Workflow / 任务状态 | 已运行 | 骨架 | 未开始 | 待接入 | 待接入 | 规划 | 规划 |
+| 办公工具 / 权限审批 | 已接入 | 骨架 | 未开始 | 待接入 | 待接入 | 规划 | 规划 |
+| 数据分析 / 结构化结果 | 规划 | 未开始 | 未开始 | 待接入 | 待接入 | 规划 | 规划 |
 | 端特有事件 | 消息 | 消息 | 消息 | 定时/浏览器 | 位置/通知/定时 | 消息/定时 | 文件/定时 |
 
-“接入”表示 Adapter/Gateway 的接入状态，不表示每个端重新实现一套能力；“共享”表示执行、记忆、权限和状态都由同一套 Application 底座负责。
+表格描述当前端到端状态；底座已有能力不等于各客户端已经接入。
 
-**Android = OpenAgentic Android Endpoint(不是手机助手产品)**: 跨端会话承接 + Workflow 移动触发器 + 企业 RAG + 位置/时间/事件触发自动跑 workflow。**永不做 mobile use agent**(C 形态),不抢豆包/AutoGLM 战场。**iOS 不做**(物理上做不了 cross-app 自动化)。**小程序 P1**(等 AI 备案)。
+**本地推理后端当前使用 Xinference + vLLM**。Android 仓库中的客户端代码仍调用旧的 Ollama 原生 `api/tags` / `api/chat` 接口，尚未迁移到 Xinference/OpenAgentic Gateway，也未接入 Agent。未来目标是 Android Endpoint，而不是 mobile use agent。**iOS 不做**，小程序列入后续规划。
 
 ### P0 交付盘(6 个月单人 + AI 协作上限)
 
@@ -79,7 +77,7 @@ L1 Infra   db / llm / concurrency (已有保持)
 8. **企微 `wecom-cli`** 不存在,Phase 4 重写走 OpenAPI
 9. **产品命名**(OpenAgentic / 智子 / 其他)创业 0→1 启动时再定
 
-### 已知现状盘点(各端真实状态,核查于 2026-05-01)
+### 各端真实状态（2026-09-24 复核代码与当前推理部署）
 
 | 端 | 代码量 | 真实状态 |
 |---|---|---|
@@ -87,7 +85,7 @@ L1 Infra   db / llm / concurrency (已有保持)
 | 企微 Bot | 294 行 | ⚠️ 骨架,wecom-cli 不存在,从未跑通 |
 | 钉钉 | 0 | ❌ 未开始 |
 | Web UI `ui/` | React+Vite 完整工程 | ⚠️ 样子货:假 telegram/discord 列表;`useWebSocket` 连不通后端 |
-| Android `extensions/android/` | Kotlin+Compose 完整工程 | ⚠️ 样子货:走 Ollama 协议,不接 agent |
+| Android `extensions/android/` | Kotlin+Compose 工程 | ⚠️ 客户端代码仍请求旧 Ollama API；当前推理后端是 Xinference + vLLM，客户端尚未接 Agent |
 
 ---
 
@@ -213,7 +211,7 @@ journalctl -u openagentic-feishu.service -f
 | **4.5 四层记忆** | ✅ 文件版 | Working/Core/Episodic/Procedural，`~/.openagentic/memory/` |
 | **5 多租户+可观测** | ✅ 单租户级 | 行级 user_id 隔离 ✓；tenant/request_id contextvar ✓；Prometheus `/metrics` ✓；structlog 注入 request_id+tenant_id ✓ |
 | **5.5 CLI 增强** | ✅ | `/compact` `/context` `/btw` `/cost` `/permissions` `/diff` `/review` + procedural 自动注入 + `write_file` diff + 6 个内置 SKILL |
-| **6 前后端闭环** | ✅ | 知识库上传 API 对齐；Skills/Channels/Sessions/Devices 全 CRUD 上线；前端全部接入真实 API；Android 客户端可用 |
+| **6 前后端闭环** | ⚠️ 部分完成 | 后端 CRUD 和前端页面已存在；Web UI WebSocket 尚未连通，Android 尚未接入 Agent |
 | **7 Workflow 扩展** | ✅ | System-Seed 预设工作流（3 preset + lifespan upsert）；并发底座 `ConcurrencyGate`；sender context 注入；飞书 bot → DAG 链路；suspended 状态机 + runtime 挂起；resume 接口；`feishu`/`wecom`/`approval`/`human_input` 4 新节点类型；workflow 自管理 4 工具；31 条测试；prompt 铁律防 DAG 绕过 + lark_md 格式约束 |
 | **8 Harness Engineering** | ✅ | SkillLoader 渐进加载 / ContextManager 上下文工程（工具输出压缩+历史摘要+快照恢复）/ EvaluatorNode 工作流评估（LLM 评分→阈值重试）/ ToolGateway 控制执行分离（鉴权→审批→沙箱执行→追踪）；对标 OpenAI Agents SDK v2 + Anthropic Harness Design；全部 env-var 默认关闭，零破坏 |
 
@@ -285,7 +283,7 @@ journalctl -u openagentic-feishu -f
 unit 的 `EnvironmentFile` 指向 `/etc/openagentic/.secrets`（可选：仅当需要
 `ANTHROPIC_AUTH_TOKEN` 等敏感凭证时创建，权限 `600 root:root`）。
 
-飞书 bot 作为独立进程运行在宿主机（非 Docker），通过 systemd 管理生命周期。FastAPI 后端跑在 Docker 容器。改代码后 `systemctl restart openagentic-feishu` 即可生效。详见 `.claude/CLAUDE.md`。
+飞书 bot 作为独立进程运行在宿主机（非 Docker），通过 systemd 管理生命周期。FastAPI 后端跑在 Docker 容器。改代码后 `systemctl restart openagentic-feishu` 即可生效。详见根目录 `CLAUDE.md`。
 
 ## CLI 模式
 
@@ -468,7 +466,7 @@ extensions/              # 扩展模块（与 core 完全解耦）
 │   ├── feishu.py        # 飞书渠道（SDK WebSocket + 卡片 + CLI）
 │   ├── wecom.py         # 企业微信渠道（XML 解密 + CLI）
 │   └── router.py        # 动态路由工厂
-├── android/             # Android 客户端（聊天/Settings/多语言/SSE，完整可用）
+├── android/             # Android 客户端原型（代码仍请求旧 Ollama API，未接当前推理链路及 Agent）
 └── modeld/             # 本地模型调度器（显存预检 + 健康探测 + 守护循环，独立进程）
 scripts/                 # 脚本清单见「开发与测试 → scripts/ 脚本清单」
 ├── run_feishu_ws.py             # 飞书 bot 主入口（systemd 管理，不依赖 PostgreSQL）
@@ -1066,9 +1064,9 @@ users ─┬─ api_keys              # JWT 认证
 - 跨端联动 `/desktop` `/mobile` `/chrome`、商业化 `/upgrade` `/passes`、第三方集成 `/install-github-app`、基础设施大工程 `/sandbox` `/heapdump`、依赖未建系统 `/loop` `/rewind`、多模态 `/voice`
 - 行为类（`/batch` `/simplify` `/security-review` `/debug` 等）→ 统一走 SKILL.md 路线，不做硬编码 slash
 
-### Phase 5.6：企业微信 + 飞书 渠道集成（已上线）
+### Phase 5.6：飞书渠道上线，企微保留骨架
 
-让 OpenAgentic 以飞书/企业微信为交互界面——用户发消息 → agent 处理 → 回复消息。同时支持 agent 调用飞书/企微 CLI 操作文档、日历、多维表格等。
+飞书已作为生产交互界面运行；企业微信目前只有未跑通的代码骨架，不能视为已上线渠道。
 
 #### 架构设计
 
@@ -1108,12 +1106,12 @@ src/openagentic/
 |---|------|------|
 | 1 | Channel 抽象基类 | `extensions/channels/base.py` — 生命周期 `start()`/`stop()` |
 | 2 | 飞书渠道 | WebSocket 长连接 + 交互卡片 + SDK 直发 + CLI 备选 |
-| 3 | 企业微信渠道 | XML 验签/解密 + `wecom-cli` 发送 |
+| 3 | 企业微信渠道 | XML 验签/解密骨架；`wecom-cli` 不存在，尚未跑通 |
 | 4 | FastAPI 渠道路由 | webhook 端点 + 生命周期集成 |
 | 5 | ConversationEngine | 共享底座：LLM 调用 + 工具循环，各渠道复用 |
 | 6 | Agent 身份准则 | `identity.py` — `build_system_prompt()` 统一入口 |
 | 7 | 飞书独立运行脚本 | `scripts/run_feishu_ws.py` — 不依赖 PostgreSQL |
-| 8 | 端到端验证 | 飞书消息 → 卡片思考 → AI 回复 → 原地替换 ✅ |
+| 8 | 端到端验证 | 飞书消息 → 卡片思考 → AI 回复 → 原地替换 ✅；企微尚未验证 |
 | 9 | 工具集成 | `run_command` + `read_file` + `lark-cli`（22 模块：日程/文档/多维表格/审批/消息/通讯录/云盘/邮箱/任务/知识库/表格/幻灯片/会议纪要/视频会议/白板/考勤/OKR/通用 API 等） |
 | 10 | DeepSeek thinking 兼容 | `reasoning_content` 空 content 引擎兜底处理 |
 | 11 | 飞书权限全开 | 131 个权限 scope，企业自建应用最大权限集 |
@@ -1124,8 +1122,8 @@ src/openagentic/
 
 | # | 任务 | 优先级 | 备注 |
 |---|------|--------|------|
-| 1 | 企业微信端到端验证 | P1 | 需企微开发者账号 |
-| 2 | ~~企微独立运行脚本~~ | ~~P2~~ | ✅ 已落地（`scripts/run_wecom_ws.py`，复用 `ChannelAIService`） |
+| 1 | 企业微信端到端验证 | P1 | 当前为骨架，需重新设计发送链路并准备企微开发者账号 |
+| 2 | 企微独立运行脚本 | P2 | 文件已存在；端到端尚未跑通，发送链路需重写 |
 | 3 | ~~Markdown 表格自动转卡片 component~~ | ~~P2~~ | ✅ 已落地（`feishu_card_utils.py`，含卡片 JSON 构建抽象） |
 | 4 | 飞书流式卡片（打字机效果） | P3 | 参考 `hermes-feishu-streaming-card` |
 | 5 | 钉钉渠道集成 | P3 | 待钉钉 CLI 成熟 |
@@ -1135,7 +1133,7 @@ src/openagentic/
 - MCP 协议通道
 - 多租户飞书/企微 app 绑定
 
-### Phase 6：前后端闭环（已完成）
+### Phase 6：前后端闭环（后端完成，客户端仍在打通）
 
 - [x] `ui/` 8 页面框架（Sessions、Settings、Skills、Channels、Devices 等）
 - [x] CLI Skills 系统（文件式 Claude Code 风格）
@@ -1145,7 +1143,7 @@ src/openagentic/
 - [x] Devices REST API（`GET /api/devices`），前端 DevicesPage 动态加载
 - [x] 知识库上传 API 前后端对齐（`POST /api/knowledge/documents/upload` multipart + `GET /api/knowledge/documents` + `DELETE /api/knowledge/documents/{id}` + `POST /api/knowledge/search`）
 - [x] 记忆系统 REST API（`/api/memory/` 完整 CRUD）
-- [x] Android 客户端（ChatScreen + Settings + 多语言 + SSE 流式，完整可用）
+- [ ] Android Agent 客户端（现有客户端代码仍请求旧 Ollama API；需接入当前 Xinference/vLLM 推理链路及 Agent Gateway）
 
 ### Phase 7：飞书 / 企微原生工作流（重新聚焦）
 
@@ -1166,7 +1164,7 @@ src/openagentic/
 | 节点 type | 子动作 | 用途 |
 |---|---|---|
 | `feishu` | `send_msg` / `send_card` / `bitable_read` / `bitable_write` / `doc_read` / `doc_write` / `calendar_create` / `cli` | 飞书全能力节点，统一调 lark-cli 22 模块 |
-| `wecom` | `send_msg` / `send_card` / `cli` | 企微全能力节点 |
+| `wecom` | `send_msg` / `send_card` / `cli` | 企微工作流骨架，尚未完成端到端验证 |
 | `approval` | provider: `feishu` / `wecom` | 触发飞书/企微原生审批 → run 进 suspended → 等回调 |
 | `human_input` | provider: `feishu` / `wecom` | 发卡片让指定用户填表单 → 等卡片提交 → 写回 nodes.<id> |
 | `subflow` | — | 一个 workflow 调用另一个 workflow（审批模板复用必需） |
