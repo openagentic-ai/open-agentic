@@ -162,10 +162,16 @@ DEFAULT_PROFILES: list[ProviderProfile] = [
         models=["qwen/qwen-max", "qwen/qwen-plus", "qwen/qwen3-32b"],
     ),
     ProviderProfile(
-        id="ollama",
-        display_name="Ollama (local)",
-        api_base=SETTINGS.OLLAMA_API_BASE,
+        id="local",
+        display_name="Xinference + vLLM (local)",
+        api_base=SETTINGS.XINFERENCE_API_BASE,
         models=[SETTINGS.LOCAL_MODEL],
+    ),
+    ProviderProfile(
+        id="ollama",
+        display_name="Ollama (development adapter)",
+        api_base=SETTINGS.OLLAMA_API_BASE,
+        models=["ollama/qwen3.8:27b"],
     ),
 ]
 
@@ -337,7 +343,7 @@ class ProviderConfigStore:
             api_base = profile.api_base or None
             api_key = profile.api_key or None
             # ollama profile 指向 OpenAI 兼容端点（Xinference）时，LiteLLM 需 openai 协议前缀
-            if provider_id == "ollama" and api_base and model_id.startswith("ollama/"):
+            if provider_id in {"local", "ollama"} and api_base and model_id.startswith(("local/", "ollama/")):
                 model_id = "openai/" + model_id.split("/", 1)[1]
             return model_id, api_base, api_key
         if model_id.startswith("ollama/"):

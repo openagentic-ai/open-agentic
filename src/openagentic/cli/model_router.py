@@ -69,7 +69,7 @@ async def triage_classify(
     """
     try:
         # ollama profile 指向 OpenAI 兼容端点（Xinference）时改用 openai 协议前缀
-        if api_base and simple_model.startswith("ollama/"):
+        if api_base and simple_model.startswith(("local/", "ollama/")):
             simple_model = "openai/" + simple_model.split("/", 1)[1]
         resp = await litellm.acompletion(
             model=simple_model,

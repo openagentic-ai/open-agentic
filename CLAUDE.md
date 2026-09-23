@@ -28,7 +28,8 @@
 - **钉钉**：尚未开始接入。
 - **Web UI**：React/Vite 工程和页面已存在，但当前是假 Telegram/Discord 列表，`useWebSocket` 尚未连通后端。
 - **本地推理**：当前后端使用 Xinference + vLLM。
-- **Android**：Kotlin/Compose 工程已存在；客户端代码仍请求旧 Ollama API，尚未接入当前推理链路和 Agent。
+- **Android**：Kotlin/Compose 客户端通过 OpenAgentic Gateway 认证、创建会话并调用 Agent；本地推理走 Xinference + vLLM。
+- **推理协议**：产品统一使用 OpenAI-compatible API；Ollama 仅作为开发适配器。
 
 ## 15 服部署
 - **唯一正本**：`/opt/open-agentic/`

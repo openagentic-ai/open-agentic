@@ -22,7 +22,7 @@ OpenAgentic 当前真实状态:
 - 飞书 Bot ✅ 已上线(\`extensions/channels/feishu.py\` 539 行 + systemd \`openagentic-feishu\`)
 - 企微 Bot ⚠️ 骨架(294 行,wecom-cli 不存在,从未跑通)
 - Web UI \`ui/\` ⚠️ 样子货(假 telegram/discord 列表;\`useWebSocket\` 连不通后端,后端无 \`/ws\`)
-- Android \`extensions/android/\` ⚠️ 样子货(走 Ollama 协议,不接 agent)
+- Android \`extensions/android/\` ✅ 已通过 Client Gateway 接入 Agent；本地推理走 Xinference + vLLM
 - 钉钉/iOS/小程序/桌面 ❌ 0
 
 \`extensions/channels/base.py\` 强约束 IM Webhook 范式(\`cli_binary()\` / \`verify_webhook\` / \`parse_message(body:dict)\` / \`send_message(text:str)\`),无法扩展到客户端。\`channel_runner.py\` 含飞书味硬编码(\`lark_cli\` / \`_thinking_card_msg_id\` 跨层泄漏到 \`workflow/service.py\`)。
@@ -170,7 +170,7 @@ extensions/adapters/               # 替代 channels/(channels/ 保留不删)
 - A. 现有 \`base.py\` 打补丁: 强约束 webhook 无法扩客户端
 - B. 简单 \`reply()->str\` 不做流式: Web/Android 实时渲染失效
 - C. UI/Android 当作普通 adapter: 强迫客户端实现假 \`webhook\`/\`cli_binary\`
-- D. 现有 \`extensions/android/\` 改造对接: 改造比重写还累(Ollama 协议要全删,聊天 UI 要重做对接 Gateway)
+- D. 现有 \`extensions/android/\` 已完成 Gateway 对接；Ollama 兼容层仅作为开发适配保留
 - E. Android 做成普通 Chat App(形态 A): 无差异化,被豆包/Kimi 碾压
 - F. Android 做 mobile use agent(形态 C): 字节级研发投入,单人做不出
 - G. iOS App: 物理上做不了 mobile use agent,且 B 端定位下优先级最低

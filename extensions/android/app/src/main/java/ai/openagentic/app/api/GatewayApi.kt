@@ -2,64 +2,28 @@ package ai.openagentic.app.api
 
 import com.google.gson.annotations.SerializedName
 import retrofit2.http.Body
-import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
+import retrofit2.http.Path
 
-data class LoginRequest(
-    val username: String,
-    val password: String,
-)
-
-data class LoginResponse(
+data class LoginRequest(val username: String, val password: String)
+data class TokenResponse(
     val token: String,
-    @SerializedName("expires_in") val expiresIn: Long,
-    @SerializedName("token_type") val tokenType: String,
+    @SerializedName("refresh_token") val refreshToken: String? = null,
+    @SerializedName("expires_in") val expiresIn: Long = 0,
 )
-
-// Ollama native API format
-data class OllamaChatRequest(
-    val model: String,
-    val messages: List<OllamaChatMessage>,
-    val stream: Boolean = false,
-)
-
-data class OllamaChatMessage(
-    val role: String,
-    val content: String,
-)
-
-data class OllamaChatResponse(
-    val model: String? = null,
-    val message: OllamaChatMessage? = null,
-    @SerializedName("done") val done: Boolean = true,
-    val error: String? = null,
-)
-
-// Legacy types kept for compatibility
-data class ChatRequest(
-    val message: String,
-    val model: String? = null,
-)
-
-data class ChatResponse(
-    val response: String? = null,
-    val error: String? = null,
-)
-
-data class HealthResponse(
-    val status: String? = null,
-    val version: String? = null,
-)
+data class Session(val id: String, val title: String, val model: String? = null)
+data class CreateSessionRequest(val title: String = "Android", val model: String? = null)
+data class SendMessageRequest(val message: String, val model: String? = null, val stream: Boolean = false)
+data class SessionMessage(val id: String, val role: String, val content: String, val model: String? = null)
 
 interface GatewayApi {
-
     @POST("api/auth/login")
-    suspend fun login(@Body request: LoginRequest): LoginResponse
+    suspend fun login(@Body request: LoginRequest): TokenResponse
 
-    @GET("api/tags")
-    suspend fun ollamaHealth(): Any
+    @POST("api/client/sessions")
+    suspend fun createSession(@Header("Authorization") authorization: String, @Body request: CreateSessionRequest): Session
 
-    @POST("api/chat")
-    suspend fun ollamaChat(@Body request: OllamaChatRequest): OllamaChatResponse
+    @POST("api/client/sessions/{sessionId}/messages")
+    suspend fun sendMessage(@Header("Authorization") authorization: String, @Path("sessionId") sessionId: String, @Body request: SendMessageRequest): SessionMessage
 }

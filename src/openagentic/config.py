@@ -74,6 +74,7 @@ class Settings(BaseSettings):
     # LLM (LiteLLM 统一网关，任意 provider 改 .env 即切)
     LITELLM_DEFAULT_MODEL: str = configured_model("default", "openai/deepseek-v4-flash")
     OLLAMA_API_BASE: str = "http://localhost:11434"
+    XINFERENCE_API_BASE: str = "http://localhost:9997/v1"
     MODEL_PROVIDER_CONFIG_PATH: str = ".openagentic/model_providers.json"
     OPENAI_API_KEY: str = ""
     OPENAI_BASE_URL: str = ""
@@ -86,7 +87,7 @@ class Settings(BaseSettings):
     EVALUATOR_MODEL: str = configured_model("evaluator", configured_model("default", "deepseek-v4-flash"))
     CHANNEL_MODEL: str = configured_model("channel", configured_model("default", "deepseek-v4-flash"))
     EMBEDDING_MODEL: str = configured_model("embedding", "nomic-embed-text")
-    LOCAL_MODEL: str = configured_model("local", "ollama/Qwen3.8-27B")
+    LOCAL_MODEL: str = configured_model("local", "local/Qwen3.8-27B")
     LLM_TEMPERATURE: float = float(configured_value("llm", "temperature", 0.7))
     LLM_MAX_TOKENS: int | None = configured_value("llm", "max_tokens", None)
     LLM_REQUEST_TIMEOUT: float = float(configured_value("llm", "request_timeout_seconds", 180))

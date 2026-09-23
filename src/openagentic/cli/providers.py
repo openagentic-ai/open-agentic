@@ -45,6 +45,8 @@ PROVIDER_ALIASES = {
     "togetherai": "together",
     "fireworks": "fireworks",
     "qwen": "qwen",
+    "local": "local",
+    "xinference": "local",
     "ollama": "ollama",
 }
 KNOWN_PROVIDER_IDS = set(PROVIDER_ALIASES.values()) | {"openai"}
@@ -60,6 +62,7 @@ OPENAI_COMPATIBLE_PROVIDERS = {
     "nvidia",
     "together",
     "fireworks",
+    "local",
 }
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 CARET_ESCAPE_RE = re.compile(r"\^\[\[[0-9;?]*[ -/]*[@-~]")
@@ -104,7 +107,7 @@ def resolve_provider(provider: str, model: str) -> str:
     default_model = get_provider_store().get().default_model
     if "/" in default_model:
         return normalize_provider(default_model.split("/", 1)[0])
-    return "ollama"
+    return "local"
 
 
 def resolve_model_for_provider(provider: str, model: str) -> str:

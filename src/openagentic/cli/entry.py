@@ -40,7 +40,7 @@ def main() -> None:
         help=(
             "LLM provider id "
             "(auto/openai/anthropic/xai/gemini/deepseek/mistral/cohere/groq/openrouter/"
-            "moonshot/zhipu/minimax/volcengine/baidu/tencent/nvidia/together/fireworks/qwen/ollama)"
+            "moonshot/zhipu/minimax/volcengine/baidu/tencent/nvidia/together/fireworks/qwen/local/ollama)"
         ),
     )
     parser.add_argument("-s", "--system", default=None, help="Custom system prompt")

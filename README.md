@@ -43,7 +43,7 @@ L1 Infra   db / llm / concurrency (已有保持)
 
 表格描述当前端到端状态；底座已有能力不等于各客户端已经接入。
 
-**本地推理后端当前使用 Xinference + vLLM**。Android 仓库中的客户端代码仍调用旧的 Ollama 原生 `api/tags` / `api/chat` 接口，尚未迁移到 Xinference/OpenAgentic Gateway，也未接入 Agent。未来目标是 Android Endpoint，而不是 mobile use agent。**iOS 不做**，小程序列入后续规划。
+**本地推理后端当前使用 Xinference + vLLM**。Android 通过 OpenAgentic Gateway 登录、创建会话和发送消息，由 Gateway 统一调用 Agent 与本地推理。未来目标是 Android Endpoint，而不是 mobile use agent。**iOS 不做**，小程序列入后续规划。
 
 ### P0 交付盘(6 个月单人 + AI 协作上限)
 
@@ -72,7 +72,7 @@ L1 Infra   db / llm / concurrency (已有保持)
 3. **流式事件协议** 同意(非 `reply()->str`)
 4. **旧 channels/** 不删,留作复用
 5. **iOS 砍掉**,Android 必做但**形态 B+(企业移动端,非手机助手)**
-6. **现有 `extensions/android/`** 废弃重写(Ollama 协议 + 样子货,改造比重写累)
+6. **`extensions/android/`** 已接入 OpenAgentic Gateway；旧 Ollama 协议仅保留为开发适配器
 7. **现有 `ui/`** 假数据 + WS 死代码,Phase 3 重做接 Gateway
 8. **企微 `wecom-cli`** 不存在,Phase 4 重写走 OpenAPI
 9. **产品命名**(OpenAgentic / 智子 / 其他)创业 0→1 启动时再定
@@ -85,7 +85,7 @@ L1 Infra   db / llm / concurrency (已有保持)
 | 企微 Bot | 294 行 | ⚠️ 骨架,wecom-cli 不存在,从未跑通 |
 | 钉钉 | 0 | ❌ 未开始 |
 | Web UI `ui/` | React+Vite 完整工程 | ⚠️ 样子货:假 telegram/discord 列表;`useWebSocket` 连不通后端 |
-| Android `extensions/android/` | Kotlin+Compose 工程 | ⚠️ 客户端代码仍请求旧 Ollama API；当前推理后端是 Xinference + vLLM，客户端尚未接 Agent |
+| Android `extensions/android/` | Kotlin+Compose 工程 | ✅ 已迁移到 OpenAgentic Gateway；推理由 Xinference + vLLM 提供 |
 
 ---
 
@@ -341,7 +341,7 @@ openagentic
 ### CLI Provider 说明
 
 - `--provider auto`（默认）：按模型前缀或默认配置自动选择 provider。
-- `--provider <id>`：可指定 `openai`、`anthropic`、`xai`、`gemini`、`deepseek`、`qwen`、`ollama` 等 17+ provider。
+- `--provider <id>`：可指定 `openai`、`anthropic`、`xai`、`gemini`、`deepseek`、`qwen`、`local` 等 18+ provider；`ollama` 仅作为开发适配器保留。
 - CLI 内可用 `/providers` 查看厂商列表，`/provider <id>` 切换并进入配置向导，`/provider-config [id]` 单独编辑配置。
 - 未配置 API Key 时，CLI 会在进入会话前强制进入配置向导。如需跳过（CI/demo），加 `--no-provider-check` 或设 `OPENAGENTIC_SKIP_PROVIDER_CHECK=1`。
 - Provider 配置文件默认位于 `.openagentic/model_providers.json`（可通过 `MODEL_PROVIDER_CONFIG_PATH` 调整）。
@@ -378,9 +378,9 @@ REPL 采用 Producer-Consumer 并发模型。模型执行长任务时，**按一
 
 | 模型 | 说明 |
 |------|------|
-| `ollama/Qwen3.8-27B` | Qwen3.8 27B（Dense 多模态，Agent 能力，vLLM 引擎） |
+| `local/Qwen3.8-27B` | Qwen3.8 27B（Xinference 管理，vLLM 推理） |
 
-本地推理走 Xinference：`http://localhost:9997/v1`（OpenAI 兼容 API），API Key 见服务器 `.openagentic/model_providers.json` 的 ollama profile。
+本地生产推理走 Xinference + vLLM：`http://localhost:9997/v1`（OpenAI-compatible API），配置使用 `local` provider。Ollama 仅用于本地开发兼容测试。
 
 ## API 端点
 
@@ -466,7 +466,7 @@ extensions/              # 扩展模块（与 core 完全解耦）
 │   ├── feishu.py        # 飞书渠道（SDK WebSocket + 卡片 + CLI）
 │   ├── wecom.py         # 企业微信渠道（XML 解密 + CLI）
 │   └── router.py        # 动态路由工厂
-├── android/             # Android 客户端原型（代码仍请求旧 Ollama API，未接当前推理链路及 Agent）
+├── android/             # Android 客户端（通过 OpenAgentic Gateway 接入 Agent）
 └── modeld/             # 本地模型调度器（显存预检 + 健康探测 + 守护循环，独立进程）
 scripts/                 # 脚本清单见「开发与测试 → scripts/ 脚本清单」
 ├── run_feishu_ws.py             # 飞书 bot 主入口（systemd 管理，不依赖 PostgreSQL）
@@ -1143,7 +1143,7 @@ src/openagentic/
 - [x] Devices REST API（`GET /api/devices`），前端 DevicesPage 动态加载
 - [x] 知识库上传 API 前后端对齐（`POST /api/knowledge/documents/upload` multipart + `GET /api/knowledge/documents` + `DELETE /api/knowledge/documents/{id}` + `POST /api/knowledge/search`）
 - [x] 记忆系统 REST API（`/api/memory/` 完整 CRUD）
-- [ ] Android Agent 客户端（现有客户端代码仍请求旧 Ollama API；需接入当前 Xinference/vLLM 推理链路及 Agent Gateway）
+- [x] Android Agent 客户端（通过 Gateway 认证、创建会话并发送消息；本地推理走 Xinference + vLLM）
 
 ### Phase 7：飞书 / 企微原生工作流（重新聚焦）
 

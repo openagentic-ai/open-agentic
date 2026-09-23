@@ -127,6 +127,7 @@ def create_app() -> FastAPI:
     # 注册核心业务路由。
     from openagentic.core.auth.router import router as auth_router
     from openagentic.core.chat.router import router as chat_router
+    from openagentic.gateway.api import router as client_gateway_router
     from openagentic.core.llm.router import router as llm_router
     from openagentic.agent.router import router as agent_router
     from openagentic.workflow.router import router as workflow_router
@@ -140,6 +141,7 @@ def create_app() -> FastAPI:
 
     app.include_router(auth_router)
     app.include_router(chat_router)
+    app.include_router(client_gateway_router)
     app.include_router(llm_router)
     app.include_router(agent_router)
     app.include_router(workflow_router)
