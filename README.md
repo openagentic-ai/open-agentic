@@ -1,1379 +1,235 @@
 # OpenAgentic
 
-开源、模型可选的 Agent 平台：优先支持本地个人助手，也保留 HTTP API、Workflow DAG、知识库 RAG 与企业渠道。基于 FastAPI + PostgreSQL/pgvector + LiteLLM。
+OpenAgentic 是一个开源的 Agent 平台，提供统一的模型配置、对话、工具调用、记忆、知识库、工作流和多入口接入能力。当前仓库包含 FastAPI 服务端、终端 ReAct CLI、React Web UI、Android 客户端、飞书渠道和本地优先个人助手验证原型。
+
+项目仍在快速迭代中。下面的状态以仓库当前代码为准（2026-09-24）；规划中的客户端和能力不会标记为已上线。
 
 | 资源 | 链接 |
-|------|------|
-| 官网 | [openagentic-ai.github.io](https://openagentic-ai.github.io) |
+| --- | --- |
 | 仓库 | [github.com/openagentic-ai/open-agentic](https://github.com/openagentic-ai/open-agentic) |
-| 许可证 | Apache 2.0 |
+| 许可证 | [Apache License 2.0](LICENSE) |
+| 架构决策 | [docs/ADR-001-multi-adapter-foundation.md](docs/ADR-001-multi-adapter-foundation.md) |
+| 个人助手说明 | [docs/personal-agent.md](docs/personal-agent.md) |
 
-## 多端共同底座（进行中，架构见 ADR-001）
+## 当前状态
 
-**当前产品验证方向**：本地优先的 personal agent。模型可运行在本机，也可由用户接入自己的 API；现有企业渠道、工作流和多租户底座继续保留，暂不把它们当作已验证的商业结论。
+| 部分 | 状态 | 说明 |
+| --- | --- | --- |
+| FastAPI API | 可用 | 认证、对话、Agent、工作流、知识库、记忆、Skills、任务等路由已装配 |
+| PostgreSQL + pgvector | 可用 | Docker Compose 提供 `pgvector/pgvector:pg16`；生产环境使用 Alembic 迁移 |
+| 对话 SSE | 可用 | `POST /api/conversations/{id}/messages` 设置 `stream=true` |
+| Client Gateway REST | 可用 | `/api/client/sessions` 支持 Android/Web 创建会话、历史和非流式发送 |
+| Client Gateway WebSocket | 未完成 | `src/openagentic/gateway/ws.py` 目前只有协议占位，应用暂未挂载 WebSocket 路由 |
+| 飞书 | 可用 | `extensions/channels/feishu.py`，可通过 systemd 独立运行 |
+| 企业微信 | 骨架 | 验签、解密和路由代码存在，生产消息链路尚未验证 |
+| `extensions/adapters/` | 骨架 | 新 Adapter 协议和注册表已建立，现有飞书生产进程仍使用 `extensions/channels/` |
+| Web UI | 开发中 | React 页面和 API 客户端存在，端到端实时对话仍需接通真实 Gateway |
+| Android | 开发中 | Kotlin/Compose 客户端已迁移到 Gateway REST；默认模型由服务端配置 |
+| 本地模型调度器 | 可用 | `extensions/modeld/` 提供显存预检、健康探测和 Xinference 拉起 |
+| 钉钉、小程序、iOS、桌面 | 未开始/暂不做 | 见 [docs/plans/todo.md](docs/plans/todo.md) |
 
-### 架构四层(详见 [docs/ADR-001-multi-adapter-foundation.md](docs/ADR-001-multi-adapter-foundation.md))
+## 架构
 
-```
-L4 接入
-   ┌─ IM Adapter (extensions/adapters/) ─┐    ┌─ Client Gateway (src/openagentic/gateway/) ─┐
-   │  飞书 / 企微 / 钉钉                   │    │  /api/* REST + /ws (ReplyEvent 流)            │
-   └────────────────┬─────────────────────┘    └──────────────────┬───────────────────────────┘
-                    └──────────────┬─────────────────────────────┘
-                                   ↓ 共用
-L3 底座 application/   ConversationOrchestrator + Session + Identity + Intent + ToolRegistry
-L2 Domain  agent / memory / workflow / knowledge (已有保持)
-L1 Infra   db / llm / concurrency (已有保持)
-```
-
-- **IM 走 Adapter,客户端(Web/Android)走 Gateway**——两条接入路径不同协议,共用 L3
-- **流式事件协议**:`reply() -> AsyncIterator[ReplyEvent]`,事件族 thinking/partial/tool_call/tool_result/final/error,各端自行渲染
-- **`extensions/channels/` 仍承载飞书生产 Bot**；迁移到新 Adapter/Gateway 是后续规划
-
-### 统一能力矩阵（规划状态，不代表端到端已验证）
-
-| 底座能力 | 飞书 | 企微 | 钉钉 | Web | Android | 小程序 | 桌面 |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| 对话 / 流式事件 | 已运行 | 未跑通 | 未开始 | 未连通 | 未接 Agent | 规划 | 规划 |
-| 记忆 / RAG | 已接底座 | 骨架 | 未开始 | 待接入 | 待接入 | 规划 | 规划 |
-| Workflow / 任务状态 | 已运行 | 骨架 | 未开始 | 待接入 | 待接入 | 规划 | 规划 |
-| 办公工具 / 权限审批 | 已接入 | 骨架 | 未开始 | 待接入 | 待接入 | 规划 | 规划 |
-| 数据分析 / 结构化结果 | 规划 | 未开始 | 未开始 | 待接入 | 待接入 | 规划 | 规划 |
-| 端特有事件 | 消息 | 消息 | 消息 | 定时/浏览器 | 位置/通知/定时 | 消息/定时 | 文件/定时 |
-
-表格描述当前端到端状态；底座已有能力不等于各客户端已经接入。
-
-**本地推理后端当前使用 Xinference + vLLM**。Android 通过 OpenAgentic Gateway 登录、创建会话和发送消息，由 Gateway 统一调用 Agent 与本地推理。未来目标是 Android Endpoint，而不是 mobile use agent。**iOS 不做**，小程序列入后续规划。
-
-### P0 交付盘(6 个月单人 + AI 协作上限)
-
-| 序 | 项 | 周 |
-|---|---|---|
-| 1 | 共同底座 application/ + gateway/ | 2-3 |
-| 2 | 飞书迁底座(不破坏现状) | 1 |
-| 3 | Web SaaS 真接通 Gateway | 3-4 |
-| 4 | 企微重写(OpenAPI,抛 wecom-cli) | 2 |
-| 5 | S5 数据分析骨架(飞书+Web) | 2-3 |
-| 6 | Android Endpoint 重写 | 12-16 |
-
-**合计 22-28 周 ≈ 5.5-7 个月,踩满 6 个月红线。P0 锁死,任何新任务触发 #2 契约一·交付确定性红线**。
-
-### Phase 0 进度(本 session)
-
-- [x] ADR-001 落地 `docs/ADR-001-multi-adapter-foundation.md` (200 行)
-- [x] `src/openagentic/application/` 10 文件骨架+默认实现(events/session/identity/identity_default/intent/orchestrator/orchestrator_default/session_store/tool_registry/tool_registry_default)——Phase 1 已实现 DefaultOrchestrator
-- [x] `src/openagentic/gateway/` 骨架(api.py + ws.py)——Phase 0 占位,Phase 3 实现
-- [x] `extensions/adapters/` 骨架(base.py 39行 + registry.py 120行 + feishu/wecom/dingtalk 占位)——registry 已实现环境变量发现,feishu adapter 走现有 `extensions/channels/` SDK 长连接
-
-### 决策一览(本 session 拍板)
-
-1. **Adapter 协议**(替代 `Channel`)不强制 webhook/CLI,只要 `adapter_id + start/stop`
-2. **Client Gateway** 新建,REST + WebSocket,UI/Android 共用
-3. **流式事件协议** 同意(非 `reply()->str`)
-4. **旧 channels/** 不删,留作复用
-5. **iOS 砍掉**,Android 必做但**形态 B+(企业移动端,非手机助手)**
-6. **`extensions/android/`** 已接入 OpenAgentic Gateway；旧 Ollama 协议仅保留为开发适配器
-7. **现有 `ui/`** 假数据 + WS 死代码,Phase 3 重做接 Gateway
-8. **企微 `wecom-cli`** 不存在,Phase 4 重写走 OpenAPI
-9. **产品命名**(OpenAgentic / 智子 / 其他)创业 0→1 启动时再定
-
-### 各端真实状态（2026-09-24 复核代码与当前推理部署）
-
-| 端 | 代码量 | 真实状态 |
-|---|---|---|
-| 飞书 Bot | 539 + 1183 行 + systemd | ✅ 上线运行 |
-| 企微 Bot | 294 行 | ⚠️ 骨架,wecom-cli 不存在,从未跑通 |
-| 钉钉 | 0 | ❌ 未开始 |
-| Web UI `ui/` | React+Vite 完整工程 | ⚠️ 样子货:假 telegram/discord 列表;`useWebSocket` 连不通后端 |
-| Android `extensions/android/` | Kotlin+Compose 工程 | ✅ 已迁移到 OpenAgentic Gateway；推理由 Xinference + vLLM 提供 |
-
----
-
-## 最近更新
-
-- **2026-05-05**：Harness Engineering 4 模块（SkillLoader 渐进加载 / ContextManager 上下文工程 / EvaluatorNode 工作流评估 / ToolGateway 控制执行分离），对标 OpenAI Agents SDK v2 + Anthropic Harness Design
-- **2026-05-02**：lark-cli L1/L2——`@larksuite/cli@1.0.22` 安装 + bot 冒烟通过；`_run_cli` 注入 `LARK_CLI_NO_PROXY=1` 防代理拦截；Phase 7 Resume 接口落地（`POST /api/workflow-runs/{id}/resume` + `execute_run(resume=True)` + `_execute_definition` initial_outputs/initial_trace 恢复）；8 条 resume 测试；workflow 测试集 64 passed
-- **2026-05-01**：CLI `/plan` 命令（Plan Mode）；飞书渠道测试补齐（71 条）；workflow 自管理 4 工具 + admin 旁路
-- **2026-04-30**：飞书 agent `save_memory` 工具；Core Memory 种子化；思考卡片覆盖机制；ConversationEngine 工具循环上限收束；模型白名单校验；飞书 bot systemd 服务化部署
-- **2026-04-29**：System-Seed 预设工作流上线；并发治理底座 `ConcurrencyGate`；飞书 bot → DAG 工作流链路打通
-
-## 当前迭代未完成 TODO（2026-05-02 更新）
-
-**目标**：Workflow resume 引擎收尾 + 事件触发器 + 5 个生产 bug 收尾。
-
-### 进行中：System-Seed 预设工作流（收尾）
-
-- [x] 1. `Workflow` 模型加 `is_system / slug / version` 字段，`user_id` 改 nullable
-- [x] 2. Alembic 迁移 `add_is_system_workflow`
-- [x] 3. 3 个预设 YAML：`presets/doc.summarize_url.yaml` / `news.tech_weekly.yaml` / `ops.server_health.yaml`
-- [x] 4. Preset loader：`src/openagentic/workflow/presets.py`（`_scan_presets` + `load_presets`）
-- [x] 5. `tool` 节点扩展支持 `args: dict` 入参
-- [x] 6. `main.py` lifespan 调用 `_load_preset_workflows()`
-- [x] 7. `service.list_workflows` 合并 `user_id == current OR is_system==True`
-- [x] 8. `channel_runner.py` WORKFLOW_TOOLS 预设提示（slug → run_workflow 直调）
-- [x] 9. sender_open_id / chat_id 注入工作流 context（`contextvars` → `input_data.context`）
-- [x] 10. 并发治理底座 `ConcurrencyGate`（全局信号量 + 类别配额 + 会话串行）
-- [x] 11. `service.update_workflow` / `delete_workflow` 拒绝 `is_system=True`（抛 `SystemWorkflowImmutable` → 路由 403）+ `POST /api/workflows/{id}/fork` 端点
-- [x] 12. `start_workflow_run` / `get_workflow` 已合并 `or is_system`；系统 run 归属调用者（`calling_user_id`）
-- [x] 13. 写测试：`tests/workflow/test_presets.py` — 14 条覆盖 YAML 解析/扫描/upsert/版本策略/真实预设健全度/不可改不可删/fork
-- [ ] 14. **遗留小修（非阻塞）**：`add_is_system_workflow.py` 同时建 `uq_workflows_slug` UNIQUE 约束 + `ix_workflows_slug` 普通索引——同一列两个索引冗余；建议下个迁移里 drop 后者，并把模型 `slug` 字段去掉 `index=True`
-
-### 阻塞：feishu 节点 lark-cli 适配（2026-05-02 已解决 L1/L2/L3-1~4）
-
-**事实清单**（核查于 2026-04-30）：
-
-- 4-29 16:09 用户在飞书触发 `news.tech_weekly` workflow，DAG 跑通 `fetch_hn` ✅ → `fetch_arxiv` ✅ → `summarize`(LLM) ✅，最后一步 `push_feishu` 抛 `[Errno 2] No such file or directory: 'lark-cli'`，整 run failed
-- `lark-cli` 是 [larksuite/cli](https://github.com/larksuite/cli)（飞书官方开源，npm `@larksuite/cli`）
-- ✅ 预设 yaml 已修正：card 模式走 SDK `_send_feishu_card`，不经过 CLI
-- bot agent 拿到 failed run 后没向用户 surface 错误——agent prompt/工具结果处理是另一个 bug（**单独立项**）
-
-**执行计划**（按顺序，每步独立可验证）：
-
-- [x] **L1. 装 lark-cli 到 15**（2026-05-02）**：`@larksuite/cli@1.0.22` 已装，真实子命令确认：`im +messages-send --chat-id <id> --text <text>`（非旧版 `im send --content X`）
-  ```bash
-  ssh root@192.168.0.15
-  npm install -g @larksuite/cli
-  lark-cli --version
-  lark-cli im --help     # 看真实子命令名
-  lark-cli im +messages-send --help   # 看真实参数表
-  ```
-  **验收**：拿到 `im` 域下发文本到指定 chat_id的真实 `subcommand + args`，写进下一步。**CLI `--help` 输出是单一事实源，不能信网文**。
-
-- [x] **L2. 配应用凭据 + 冒烟**（2026-05-02）：Bot 模式无需 `auth login`——app_id/app_secret 直换 tenant access token；`lark-cli im +messages-send --as bot --chat-id oc_0dd42b... --text "lark-cli OK"` 冒烟通过，消息成功送达飞书
-- [x] **补丁**（2026-05-02）：`_run_cli` 子进程环境注入 `LARK_CLI_NO_PROXY=1`，防止走 mihomo 代理
-
-**L3 已转向（2026-05-01）**：原计划手改 yaml；按agent 自管理铁律改为补能力，让 agent 自己改 yaml/definition。
-
-- [x] **L3-1. ~ L3-4**（2026-05-01 完成）：workflow 自管理 4 工具 + system prompt 引导 + 31 条测试 + 部署
-
-- [ ] **L3-5. 把球交给 agent（实战验证）**
-  飞书里说给 doc.summarize_url 加个推送到当前会话的步骤，看 agent 能否自走闭环；不行就回头看 prompt/工具描述哪里没说清。
-
-**回滚策略**：L1/L2 卸 npm + 删 `/root/.lark-cli/` 即可；L3-1 是纯增量代码（4 工具+1 helper+提示扩展），`git diff` 可一键回退。
-
-### 待修：生产 bug
-
-- [x] **#1 15 服部署**（2026-05-05）：已 pull + alembic + 代码最新
-- [x] **#2 LLM 不用 list_workflows**（2026-05-05）：preset hints + workflow 铁律 prompt 强化，禁止手工 curl/爬虫
-- [x] **#3 DAG 被绕过**（2026-05-05）：同 #2，铁律 + 列表提示兜底
-- [x] **#4 sender_open_id 注入**（2026-05-05）：contextvars 链路完整（channel_runner → wf_service），`resolve_user_id_with_fallback` 已接入
-- [x] **#5 飞书 markdown 渲染**（2026-05-05）：`feishu_card_utils.py` 清理表格/代码块/标题 + channel_runner system prompt 格式约束
-- [ ] **L3-5 实战验证**：飞书 agent 自改 workflow 推送，等用户触发测试
-
-### 上线动作（合并完上述 11-14 + bug 修复后一次性做）
-
-```bash
-# 本机
-pytest -q
-git add -A && git commit -m "feat: system-seed preset workflows 收尾"
-git push origin main
-
-# 15 服务器
-ssh root@192.168.0.15
-cd /opt/open-agentic
-git pull origin main --ff-only
-.venv/bin/alembic upgrade head
-systemctl restart openagentic-feishu.service
-journalctl -u openagentic-feishu.service -f
+```text
+入口层
+├── extensions/channels/   现有飞书/企微渠道
+├── extensions/adapters/   新 Adapter 协议（迁移中）
+├── ui/                    Web UI
+└── extensions/android/    Android 客户端
+        │
+        ├── HTTP: /api/*、/api/client/*
+        └── 未来：WebSocket ReplyEvent 流
+        │
+应用层 src/openagentic/application/
+└── Session / Identity / Intent / ToolRegistry / Orchestrator
+        │
+领域层
+├── agent       LLM 对话和工具循环
+├── workflow    DAG 校验、执行、暂停和恢复
+├── knowledge   文档、分块、向量检索
+├── memory      Core / Episodic / Procedural 记忆
+├── skills      SKILL.md 加载和管理
+└── tasks       后台任务和调度
+        │
+基础设施
+└── db / llm / concurrency / observability / tools
 ```
 
-
-
-## 目录
-
-- [实现进度](#实现进度)
-- [快速启动](#快速启动)
-- [CLI 模式](#cli-模式)
-- [API 端点](#api-端点)
-- [架构](#架构)
-  - [请求生命周期](#请求生命周期)
-  - [CLI ReAct 循环](#cli-react-循环)
-  - [四层记忆系统](#四层记忆系统)
-  - [Skills 系统](#skills-系统)
-  - [数据库概要](#数据库概要)
-  - [Workflow DAG 引擎](#workflow-dag-引擎)
-  - [设计决策](#设计决策)
-- [路线图](#路线图)
-- [开发与测试](#开发与测试)
-- [常见问题](#常见问题)
-- [隐私政策](#隐私政策)
-- [贡献指南](#贡献指南)
-
-## 实现进度
-
-| Phase | 状态 | 说明 |
-|-------|------|------|
-| **0 基础设施** | ✅ | FastAPI 工厂、Alembic、Docker Compose (`pgvector/pgvector:pg16`)、structlog |
-| **1 账号+对话** | ✅ | JWT + bcrypt、Conversation/Message CRUD、LiteLLM 流式 SSE |
-| **2 Agent+MCP** | ✅ | Agent CRUD、ReAct 执行器、工具注册表、MCP HTTP JSON-RPC |
-| **3 Workflow** | ✅ | DAG 校验（结构/唯一 id/支持类型/无环）+ 拓扑序执行；节点级 `retries` / `timeout_sec`；`{{input.x}}` `{{nodes.<id>}}` 模板渲染；软取消 + 协程 cancel 双通道；结构化 trace（每节点 status/attempt/output/error） |
-| **4 Knowledge/RAG** | ✅ | KB CRUD、文档分块+向量检索+重排、`knowledge_search` 工具 |
-| **4.5 四层记忆** | ✅ 文件版 | Working/Core/Episodic/Procedural，`~/.openagentic/memory/` |
-| **5 多租户+可观测** | ✅ 单租户级 | 行级 user_id 隔离 ✓；tenant/request_id contextvar ✓；Prometheus `/metrics` ✓；structlog 注入 request_id+tenant_id ✓ |
-| **5.5 CLI 增强** | ✅ | `/compact` `/context` `/btw` `/cost` `/permissions` `/diff` `/review` + procedural 自动注入 + `write_file` diff + 6 个内置 SKILL |
-| **6 前后端闭环** | ⚠️ 部分完成 | 后端 CRUD 和前端页面已存在；Web UI WebSocket 尚未连通，Android 尚未接入 Agent |
-| **7 Workflow 扩展** | ✅ | System-Seed 预设工作流（3 preset + lifespan upsert）；并发底座 `ConcurrencyGate`；sender context 注入；飞书 bot → DAG 链路；suspended 状态机 + runtime 挂起；resume 接口；`feishu`/`wecom`/`approval`/`human_input` 4 新节点类型；workflow 自管理 4 工具；31 条测试；prompt 铁律防 DAG 绕过 + lark_md 格式约束 |
-| **8 Harness Engineering** | ✅ | SkillLoader 渐进加载 / ContextManager 上下文工程（工具输出压缩+历史摘要+快照恢复）/ EvaluatorNode 工作流评估（LLM 评分→阈值重试）/ ToolGateway 控制执行分离（鉴权→审批→沙箱执行→追踪）；对标 OpenAI Agents SDK v2 + Anthropic Harness Design；全部 env-var 默认关闭，零破坏 |
-
-### CLI 当前能力
-
-- **20 个 LLM provider**：OpenAI / Anthropic / DeepSeek / XAI / Gemini / Mistral / Cohere / Groq / OpenRouter / Moonshot / Zhipu / MiniMax / Volcengine / Baidu / Tencent / Nvidia / Together / Fireworks / Qwen / Ollama
-- **12 个工具**：`run_command` `read_file` `write_file` `delete_file` `done` + 7 个 memory 工具
-- **19 个 slash 命令**：`/model` `/providers` `/automodel` `/clear` `/login-platform` `/skills` `/compact` `/context` `/btw` `/cost` `/permissions` `/diff` `/review` 等
-- **Skills 系统**（Claude Code 风格）：`~/.openagentic/skills/<slug>/SKILL.md`，frontmatter+markdown，启动时 metadata 注入 system prompt（每条 ~50 token），全文按需 `read_file` 加载。内置 6 个：`git-commit` / `code-review` / `debug-trace` / `security-review` / `simplify` / `batch`。`/skills` 列表，`/skills <name>` 看详情，`/skills new <name>` 建模板，`/skills reload` 热加载
-- **写/删文件确认门**：异步确认，REFUSED 由模型重规划；**root 命令**（`sudo` / `doas` / `pkexec` / `su`）即使 policy=allow 也强制 Y/N 确认
-- **`/permissions` 策略**：4 个 gated tool（read/run/write/delete）按 `allow / ask / deny` 三档管控，支持文件路径白/黑名单与 `run_command` 前缀白/黑名单，存于 `~/.openagentic/permissions.json`
-- **`/cost` 会话成本**：per-model token + USD 估算（litellm.completion_cost），`/clear` 自动重置
-- **`write_file` diff 预览**：覆盖时在 confirm 提示中展示 unified diff（>80 行截断，二进制降级为字节数预览）
-- **REPL 并发输入队列**：输入不阻塞推理
-- **四层记忆接入 ReAct loop**：Working 自动压缩 + Core 启动注入 + Episodic 每轮检索 + Procedural 每轮 top-3 注入
-- **DeepSeek V4 Pro/Flash 自动路由**（`/automodel`，支持任意 provider 的二级模型 triage）
-- **平台 JWT 登录**（`--api-base` + `/login-platform`）
-- **Ctrl+C 中断当轮任务**（不退 CLI，会话保留）
-- **底部工具栏**：输入 `/` 实时过滤 slash 命令提示
-- **`--no-provider-check`**：跳过 API key 强制配置向导（CI/demo 友好）
-
-### P0 已修复（2026-04）
-
-- `react.py` `tool_call.id` 缺失时自动生成 UUID fallback（兼容 DeepSeek 等不返回 id 的端点）
-- `--no-provider-check` + `OPENAGENTIC_SKIP_PROVIDER_CHECK` 跳过 API key 强制配置向导
-- `react.py` `repl.py` 4 处 `except Exception: pass` 替换为 `logger.warning(..., exc_info=True)`
-- `/cost`（per-model token+USD）、`write_file` 覆盖时 unified diff 预览、`/permissions`（allow/ask/deny + 路径/前缀白/黑名单）全部落地
-- **root 命令强制确认**：`sudo` / `doas` / `pkexec` / `su` token 级匹配（避免 `sudoku` 误伤），即使 policy=allow 或命中 allow_prefixes 也强制 Y/N
-- **代码瘦身**：`repl.py` 949 → 434 行，提取 `cli/slash_commands.py`（567 行）承接所有 `_handle_*` 处理器与 UI 原语；`main_loop` 535 → 408 行，`_execution_consumer` 325 → 198 行，全项目 .py 文件均 ≤ 800 行
-
-### 测试覆盖
-
-295 passed, 2 skipped — 覆盖 CLI 编码、`/cost` / `write_file` diff / `/permissions`、root 命令强制确认、LLM provider 配置、记忆系统、知识库、工作流（含 presets + suspended + resume）、MCP、Agent、认证、聊天、迁移脚本（7 个 revision）、运维烟雾、数据库会话、可观测性、Skills 系统、租户上下文、并发网关。
+入口层共用应用层编排。应用层通过 `ReplyEvent` 表达 `thinking`、`tool_call`、`tool_result`、`final` 和 `error` 等事件；各客户端负责渲染。当前真正接入生产的是飞书渠道和 Client Gateway REST，流式 WebSocket 仍在实现中。
 
 ## 快速启动
+
+### 安装
+
+要求 Python 3.12、Docker 和 Docker Compose。
 
 ```bash
 git clone https://github.com/openagentic-ai/open-agentic.git
 cd open-agentic
-
-python -m venv .venv && source .venv/bin/activate
+python -m venv .venv
+source .venv/bin/activate
 pip install -e ".[dev]"
-
-cp .env.example .env   # 填写 DATABASE_URL、JWT 密钥、API Key
-docker compose up -d    # 启动 PostgreSQL + FastAPI
-
-PYTHONPATH=src uvicorn openagentic.main:app --host 0.0.0.0 --port 8000
+cp .env.example .env
 ```
 
-> **`.env` 会被写回 `os.environ`**（`openagentic.config.load_env_file()`，模块导入即生效）。
-> `Settings` 用的 pydantic `env_file` 只填充 Settings 对象、不写回进程环境，而控制面 / Jev
-> 这类按「环境变量激活」设计的模块读的是 `os.environ`——不写回它们会**静默不启用**。
-> 优先级：已存在的环境变量优先，systemd `EnvironmentFile` 与 CLI 显式传入的值不会被 `.env` 覆盖。
+至少配置一个模型服务和随机的 `JWT_SECRET_KEY`。默认模型、角色模型和并发参数在 [openagentic.yaml](openagentic.yaml) 中配置，环境变量可以覆盖 `.env` 中的值。
 
-- Swagger：`http://<host>:8000/docs`
-- 健康检查：`http://<host>:8000/health`
-- 前端：`cd ui && npm install && npm run dev`
-
-### 飞书 Bot 部署
+### 启动数据库和 API
 
 ```bash
-# 配置 .env（FEISHU_APP_ID / FEISHU_APP_SECRET）
-# 安装 systemd 服务
-cp scripts/openagentic-feishu.service /etc/systemd/system/
-systemctl enable --now openagentic-feishu
-journalctl -u openagentic-feishu -f
+docker compose up -d postgres
+PYTHONPATH=src .venv/bin/alembic upgrade head
+PYTHONPATH=src .venv/bin/uvicorn openagentic.main:app --host 0.0.0.0 --port 8000
 ```
 
-unit 的 `EnvironmentFile` 指向 `/etc/openagentic/.secrets`（可选：仅当需要
-`ANTHROPIC_AUTH_TOKEN` 等敏感凭证时创建，权限 `600 root:root`）。
-
-飞书 bot 作为独立进程运行在宿主机（非 Docker），通过 systemd 管理生命周期。FastAPI 后端跑在 Docker 容器。改代码后 `systemctl restart openagentic-feishu` 即可生效。详见根目录 `CLAUDE.md`。
-
-## CLI 模式
-
-无需启动 Web 服务，直接在终端对话：
+也可以启动完整 Compose 服务：
 
 ```bash
-cd ~/open-agentic && source .venv/bin/activate
+docker compose up -d --build
+```
 
-# 默认自动选择 provider
-python -m openagentic.cli
+常用地址：
 
-# 指定 provider 和模型
-python -m openagentic.cli --provider deepseek -m deepseek/deepseek-v4-flash
+- Swagger UI：`http://localhost:8000/docs`
+- ReDoc：`http://localhost:8000/redoc`
+- 健康检查：`http://localhost:8000/health`
+- Prometheus 指标：`http://localhost:8000/metrics`
 
-# 带系统提示
-python -m openagentic.cli -s "你是一个Python专家，用中文回答"
+> `.env.example` 中的 `DATABASE_URL` 面向容器内 API（主机名为 `postgres`）。如果 API 在宿主机运行，请改为本机可访问的 PostgreSQL 地址；Compose 暴露的宿主机端口是 `5433`。
 
-# 跳过缺 API key 时的强制配置向导（CI/demo）
-python -m openagentic.cli --no-provider-check
-# 或：OPENAGENTIC_SKIP_PROVIDER_CHECK=1 python -m openagentic.cli
+### Web UI
 
-# 注册的命令（需 pip install -e .）
+```bash
+cd ui
+npm install
+npm run dev
+```
+
+### 飞书渠道（可选）
+
+设置 `FEISHU_APP_ID` 和 `FEISHU_APP_SECRET` 后，可以运行独立 WebSocket 进程：
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/run_feishu_ws.py
+```
+
+Linux systemd 模板见 [scripts/openagentic-feishu.service](scripts/openagentic-feishu.service)。
+
+## CLI
+
+```bash
 openagentic
+# 或
+PYTHONPATH=src python -m openagentic.cli
 ```
 
-### 内置命令
+CLI 是一个带工具调用的 ReAct 终端，支持模型和 provider 配置、上下文压缩、成本查看、权限策略、git diff/review 和 Skills 管理。使用 `/help` 查看当前版本实际注册的命令；命令集合会随版本变化。
 
-| 命令 | 说明 |
-|------|------|
-| `/help` | 显示帮助 |
-| `/config` | 当前 provider/model/endpoint 配置 |
-| `/clear` | 清除对话历史（自动存档 episode） |
-| `/model` / `/model <name>` | 查看/切换模型 |
-| `/providers` / `/provider` / `/provider <id>` | 查看/切换厂商 |
-| `/provider-config [id]` | 配置 API Key / API Base |
-| `/login-platform` / `/logout-platform` | 平台 JWT 登录/登出 |
-| `/automodel [on\|off\|setup]` | 二级模型自动路由 |
-| `/compact` | 立即压缩 working memory（同自动阈值触发） |
-| `/context` | 显示当前消息条数、role 分布、估算 token、压缩阈值 |
-| `/btw <text>` | 把一句备注追加进对话上下文，**不触发推理**（高频补充用） |
-| `/quit` | 退出 |
-
-### CLI Memory Tools（7 个）
-
-| Tool | 功能 |
-|------|------|
-| `core_memory_save` | 保存核心记忆（key/value/category/importance） |
-| `core_memory_delete` | 按 key 删除 |
-| `core_memory_search` | 关键词搜索核心记忆 |
-| `episodic_save` | 保存情节记忆（title/summary/tags） |
-| `episodic_search` | 关键词搜索历史片段 |
-| `procedural_save` | 保存可复用步骤 |
-| `procedural_search` | 搜索匹配的步骤 |
-
-### CLI Provider 说明
-
-- `--provider auto`（默认）：按模型前缀或默认配置自动选择 provider。
-- `--provider <id>`：可指定 `openai`、`anthropic`、`xai`、`gemini`、`deepseek`、`qwen`、`local` 等 18+ provider；`ollama` 仅作为开发适配器保留。
-- CLI 内可用 `/providers` 查看厂商列表，`/provider <id>` 切换并进入配置向导，`/provider-config [id]` 单独编辑配置。
-- 未配置 API Key 时，CLI 会在进入会话前强制进入配置向导。如需跳过（CI/demo），加 `--no-provider-check` 或设 `OPENAGENTIC_SKIP_PROVIDER_CHECK=1`。
-- Provider 配置文件默认位于 `.openagentic/model_providers.json`（可通过 `MODEL_PROVIDER_CONFIG_PATH` 调整）。
-
-### 二级模型自动路由（`/automodel`）
-
-所有用户输入先由便宜模型做 triage 分类，再决定用哪个模型回答：
-
-```
-用户输入 → Simple Model（分类 + 简单回答）
-              ├─ SIMPLE → 自己答
-              └─ COMPLEX → 升级到 Complex Model → 完成后自动切回
+```text
+/providers       查看 provider 配置
+/model           查看或切换模型
+/skills          查看已加载的 Skills
+/context         查看当前上下文
+/compact         压缩会话上下文
+/cost             查看本次会话成本估算
+/permissions      查看工具权限策略
+/diff             查看 git diff
+/review           让模型审查 git diff
 ```
 
-- **SIMPLE**：打招呼、事实问答、解释、翻译、摘要、简单文件读取
-- **COMPLEX**：写/改代码、调试、架构设计、多步操作、重构、性能优化
-- 首次启动若 provider 有 ≥2 个模型且未配置 automodel，自动推断（`flash`/`mini` → simple，`pro`/`max` → complex）并持久化
-- `/automodel setup` 交互式手动配置；`/automodel on|off` 开关
+没有配置 provider 时，CLI 默认会提示配置。CI 或演示可以使用：
 
-### Ctrl+C 中断
-
-REPL 采用 Producer-Consumer 并发模型。模型执行长任务时，**按一次 Ctrl+C 取消当轮 react 任务**（会话保留），再按一次退出 CLI。
-
-### 可用模型参考
-
-**DeepSeek（内置 profile）**：
-
-| 场景 | 模型 |
-|------|------|
-| 日常对话 / 分类器 | `deepseek/deepseek-v4-flash` |
-| 复杂任务 | `deepseek/deepseek-v4-pro` |
-
-**Xinference（本地）**：
-
-| 模型 | 说明 |
-|------|------|
-| `local/Qwen3.8-27B` | Qwen3.8 27B（Xinference 管理，vLLM 推理） |
-
-本地生产推理走 Xinference + vLLM：`http://localhost:9997/v1`（OpenAI-compatible API），配置使用 `local` provider。Ollama 仅用于本地开发兼容测试。
-
-## API 端点
-
-### 认证
-- `POST /api/auth/register` / `/login` / `/refresh`
-- `GET /api/auth/me`
-
-### 对话
-- `GET/POST /api/conversations`
-- `GET/DELETE /api/conversations/{id}`
-- `GET/POST /api/conversations/{id}/messages`（`stream=true` 时 SSE）
-
-### Agent & 工作流
-- `GET/POST /api/agents`、`POST /api/agents/{id}/execute`、`GET /api/agents/{id}/executions`
-- `GET/POST /api/workflows`、`GET/PATCH/DELETE /api/workflows/{id}`
-- `POST /api/workflows/{id}/runs`（创建并立即执行一次 run）
-- `GET /api/workflow-runs?workflow_id=…`、`GET /api/workflow-runs/{run_id}`
-- `POST /api/workflow-runs/{run_id}/cancel`（软取消：写入标志 + 协程 cancel）
-
-### 知识库
-- `GET/POST /api/knowledge`、`POST /{kb_id}/documents`、`POST /{kb_id}/search`、`POST /{kb_id}/optimize-index`
-- `POST /api/knowledge/documents/upload`（multipart 文件上传）、`GET /api/knowledge/documents`、`DELETE /api/knowledge/documents/{id}`
-- `POST /api/knowledge/search`（跨知识库检索）
-
-### 记忆系统
-- `GET /api/memory/core`、`GET /api/memory/core/search?q=`、`POST /api/memory/core`、`DELETE /api/memory/core/{key}`
-- `GET /api/memory/episodes/search?q=`、`POST /api/memory/episodes`
-- `GET /api/memory/procedures/search?q=`、`POST /api/memory/procedures`
-
-### Skills
-- `GET /api/skills`、`GET /api/skills/{slug}`、`POST /api/skills`
-
-### Sessions & Channels & Devices
-- `GET/POST /api/sessions`、`DELETE /api/sessions/{id}`
-- `GET/POST /api/channels`、`DELETE /api/channels/{id}`
-- `GET /api/devices`
-
-### 其他
-- `GET /health`、`GET /api/models`
-- `GET/PUT /api/llm/providers`、`PUT /api/llm/default-model`
-
-## 架构
-
-```
-ui/ (React + Vite + TailwindCSS + Zustand)
-        │ REST + SSE
-        ▼
-FastAPI ── core/auth · core/chat · core/llm · agent · workflow · knowledge · mcp
-        │
-        ▼
-PostgreSQL 16 + pgvector
+```bash
+OPENAGENTIC_SKIP_PROVIDER_CHECK=1 openagentic
 ```
 
-```
-src/openagentic/
-├── main.py              # 应用工厂、lifespan
-├── config.py / deps.py
-├── identity.py          # 全局 Agent 身份与行为准则（CLI/飞书/企微共享）
-├── cli/                 # CLI ReAct（repl、react、tools、providers、model_router 等）
-├── channels/            # 渠道配置 DB 模型 + 管理 CRUD
-├── concurrency/         # 并发治理网关（全局信号量 + 类别配额 + 会话串行）
-├── control_plane/       # 控制面策略（后端分层配额，YAML 驱动，未配置不启用）
-├── core/
-│   ├── auth/            # JWT + bcrypt
-│   ├── chat/            # 会话+消息+SSE + sessions 兼容路由
-│   └── llm/             # LiteLLM 网关 + provider 配置
-├── devices/             # 设备节点与能力目录
-├── agent/               # Agent CRUD + ReAct + 工具注册表
-│   ├── engine.py        # ConversationEngine——LLM+工具循环共享底座
-│   └── llm.py           # litellm_chat 抽象（DeepSeek thinking 兼容）
-├── mcp/                 # MCP HTTP JSON-RPC 客户端
-├── workflow/            # DAG 工作流引擎
-├── knowledge/           # RAG：知识库 + 向量检索 + 重排序
-├── memory/              # 四层记忆系统（文件版 + REST API）
-├── skills/              # CLI skills（Claude Code 风格 SKILL.md，含 builtin/ + REST API）
-├── tenant/              # 请求级 tenant_id / request_id contextvar
-├── observability/       # structlog 配置 + Prometheus + RequestContextMiddleware
-└── db/                  # session、Base
-ui/                      # Web 前端（React + Vite + Tailwind + Zustand）
-extensions/              # 扩展模块（与 core 完全解耦）
-├── channels/            # 飞书 + 企业微信渠道集成
-│   ├── base.py          # Channel 抽象接口 + 生命周期
-│   ├── feishu.py        # 飞书渠道（SDK WebSocket + 卡片 + CLI）
-│   ├── wecom.py         # 企业微信渠道（XML 解密 + CLI）
-│   └── router.py        # 动态路由工厂
-├── android/             # Android 客户端（通过 OpenAgentic Gateway 接入 Agent）
-└── modeld/             # 本地模型调度器（显存预检 + 健康探测 + 守护循环，独立进程）
-scripts/                 # 脚本清单见「开发与测试 → scripts/ 脚本清单」
-├── run_feishu_ws.py             # 飞书 bot 主入口（systemd 管理，不依赖 PostgreSQL）
-├── run_wecom_ws.py              # 企微 bot 入口（webhook FastAPI）
-├── cron_weekly_ai_news.py       # 周报 cron：按 slug 创建 news.tech_weekly 运行
-├── openagentic-feishu.service   # 飞书 bot systemd unit（见「飞书 Bot 部署」）
-├── run_feishu_ws_orchestrator.py # 双轨 demo：飞书消息走 DefaultOrchestrator
-├── demo_orchestrator.py         # DefaultOrchestrator 端到端真实 LLM demo
-└── run_personal_demo.py         # 本地优先个人助手验证原型
-tests/
-├── test_*.py            # 根级：Agent、workflow、knowledge、MCP、认证、聊天、记忆、迁移等
-├── cli/                 # CLI 编码、slash 命令、交互边界
-├── db/                  # 数据库会话测试
-├── observability/       # 日志、指标、中间件测试
-├── skills/              # Skill 加载器与管理器测试
-├── tenant/              # 租户 contextvar 测试
-├── config/              # 配置加载与校验
-├── deps/                # FastAPI 依赖注入
-├── entry/               # CLI 入口参数解析
-└── smoke/               # Phase 0 运维烟雾（需 Docker）
+## 本地优先个人助手
+
+这是独立的验证原型，不等同于通用个人 Agent。它从指定的本地 Markdown/TXT 笔记目录读取资料，生成带来源的行动简报，并保存偏好和上次结果。
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/run_personal_demo.py
 ```
 
-**设计原则**：
-- **异步优先**：全链路 async（SQLAlchemy async + asyncpg）
-- **LiteLLM 统一网关**：17+ provider 收敛为统一接口，换模型 = 改配置
-- **模块化单体**：`agent/` `workflow/` `knowledge/` `mcp/` 独立包，按 Phase 填充
-- **CLI 平台适配**：`platform_adapter` 统一封装 Windows/Unix 差异
+打开 `http://127.0.0.1:8765`。默认连接 `http://127.0.0.1:11434/v1` 的 OpenAI 兼容本地模型，也可以通过 `PERSONAL_MODEL_MODE=api` 配置用户自己的 API。完整边界见 [docs/personal-agent.md](docs/personal-agent.md)。
 
-### 技术栈
+## HTTP API 概览
 
-| 分层 | 选型 |
-|------|------|
-| 运行时 | Python 3.12 |
-| Web 框架 | FastAPI |
-| ORM / 驱动 | SQLAlchemy 2.0 async + asyncpg |
-| 数据库 | PostgreSQL 16 + pgvector |
-| 迁移 | Alembic |
-| 配置 | Pydantic Settings |
-| LLM 网关 | LiteLLM（17+ provider 统一入口、流式） |
-| 认证 | JWT（python-jose）+ bcrypt |
-| 前端 | React + Vite + TailwindCSS + Zustand |
-| 容器 | Docker Compose |
+除健康检查和模型/provider 读取接口外，大多数业务接口要求 JWT。先注册或登录获取 token：
 
-### 请求生命周期
-
-```
-Incoming Request
-  → CORS (CORSMiddleware)
-    → RequestContextMiddleware
-        • 提取/生成 X-Request-ID（UUID hex），写入 contextvar，回带响应头
-        • 解码 Authorization JWT 提取 sub → tenant_id contextvar
-      → Prometheus Instrumentator（method/path_template/status 三维标签）
-        → FastAPI route
-          → get_current_user（HTTPBearer → jose.jwt → DB lookup → 401）
-            → Service 层（所有查询强制过滤 user_id）
-              → DB session（asyncpg pool=20+10）
-                → Response
+```bash
+curl -X POST http://localhost:8000/api/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"you@example.com","password":"change-this-password"}'
 ```
 
-- **contextvar 传递**：`tenant_id` 和 `request_id` 在整个调用栈中通过 contextvar 传播，structlog 每行日志自动注入
-- **不强制认证**：中间件仅解码 JWT 不拦截——认证在路由级 `Depends(get_current_user)` 执行
-- **Prometheus 排除**：`/health` `/metrics` 自身不统计，label 不含 `tenant_id`（控制基数）
+主要路由：
 
-### CLI ReAct 循环
+| 功能 | 路径 |
+| --- | --- |
+| 注册、登录、刷新、当前用户 | `/api/auth/*` |
+| 对话和消息（含 SSE） | `/api/conversations/*` |
+| Client Gateway 会话 REST | `/api/client/sessions/*` |
+| Agent 和执行记录 | `/api/agents/*` |
+| 工作流、运行、取消、恢复 | `/api/workflows/*`、`/api/workflow-runs/*` |
+| 知识库、文档、检索 | `/api/knowledge/*` |
+| Core/Episodic/Procedural 记忆 | `/api/memory/*` |
+| Skills | `/api/skills/*` |
+| 后台任务 | `/api/tasks/*` |
+| 渠道配置 | `/api/channels/*` |
+| 设备 | `/api/devices/*` |
+| 模型和 provider | `/api/models`、`/api/llm/*` |
 
-CLI 采用 **Producer-Consumer 并发模型**：
+非流式对话示例：
 
-```
-prompt_toolkit (生产者)              asyncio consumer (消费者)
-       │                                      │
-       ├─ 用户输入 → asyncio.Queue ──────────→├─ 取消息
-       │                                      ├─ slash 命令？→ 直接处理，不调 LLM
-       │                                      ├─ 用户消息：
-       │                                      │   1. automodel triage（SIMPLE/COMPLEX）
-       │                                      │   2. episodic_search(用户输入, top-3) → 注入 messages[1]
-       │                                      │   3. procedural_search(用户输入, top-3) → 注入 messages[1]
-       │                                      │   4. working_memory_compressible? → compress()
-       │                                      │   5. litellm_chat(messages + TOOLS) ← 带 spinner 动画
-       │                                      │   6. 返回 content → render markdown → done
-       │                                      │   7. 返回 tool_calls → 逐个执行 → 回填 tool result → goto 5
-       │                                      │   8. done tool → render → return
-       │                                      └─ 最多 1000 轮迭代
-       └─ Ctrl+C → 取消当前 react task（不退 CLI）
-```
-
-**关键路径**：
-
-- **权限门控**（`read_file` / `run_command` / `write_file` / `delete_file`）：
-  ```
-  policy=deny → REFUSED
-  hit deny_paths/deny_prefixes → REFUSED
-  hit allow_paths/allow_prefixes → ALLOWED（跳过确认）
-  policy=allow → ALLOWED（跳过确认）
-  policy=ask → 弹出 Y/N 确认
-  ```
-  特例：`sudo` / `doas` / `pkexec` / `su` token 级匹配，无论策略一律强制 Y/N
-
-- **`write_file` diff 预览**：覆盖时在 confirm 提示中展示 unified diff（>80 行截断，二进制降级为字节数预览）
-
-- **压缩触发**：`chars/3` 估算 token 数（CJK 保守），超 6000 token 阈值自动压缩；保留 system prompt + 最近 8 条消息，旧消息 LLM 摘要为 3-6 点，以 `[Conversation Summary]` system message 插入
-
-### 四层记忆系统
-
-存储根：`~/.openagentic/memory/`
-
-```
-~/.openagentic/memory/
-├── MEMORY.md                    # 自动重建的索引入口（每次写入后更新）
-├── core/
-│   ├── user_profile/            # 用户画像（*.md，frontmatter + body）
-│   ├── project_fact/            # 项目事实
-│   ├── preference/              # 偏好设置
-│   └── reference/               # 参考信息
-├── episodes/                    # 对话摘要（YYYY-MM-DD-slug-uuid.md）
-└── procedures/                  # 可复用步骤（safe_name.md）
+```bash
+curl -X POST http://localhost:8000/api/conversations/{conversation_id}/messages \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"你好","stream":false}'
 ```
 
-**注入时机与机制**：
+流式对话把 `stream` 设置为 `true`，响应类型为 `text/event-stream`。`/api/client/sessions/{id}/messages` 当前只接受非流式请求；流式 Client Gateway 接口待 WebSocket 实现完成后启用。
 
-| 层 | 注入时机 | 机制 |
-|----|---------|------|
-| **Working** | 每轮 LLM 调用前 | `chars/3` 估算 token → 超 6000 阈值触发 `compress_working_memory()`，旧消息 LLM 摘要为 3-6 点，累积合并已有 `[Conversation Summary]` |
-| **Core** | 启动时 | `list_core(limit=20)` 按 importance desc 排序，注入 system prompt 顶部 `## Persistent Core Memory` 区块 |
-| **Episodic** | 每轮用户输入后 | `search_episodes(user_input, top_k=3)` 关键词匹配，注入 `messages[1]`（紧跟 system prompt） |
-| **Procedural** | 每轮用户输入后 | `search_procedures(user_input, top_k=3)` 关键词匹配（词干匹配 3x 加权），注入 `messages[1]` |
+## 工作流
 
-**MEMORY.md 索引**：每次 `save_core_memory` / `delete_core_memory` / `save_episode` / `save_procedure` 后自动重建全量索引。这是人类可读的入口，也是 Claude Code 兼容的记忆格式。
+工作流定义保存在 `workflows.definition`，当前执行器按拓扑序串行执行。支持：
 
-**当前局限**：文件版，无向量检索。未来计划迁移 PostgreSQL + pgvector 做语义检索。
+- `value`：字面量或模板值
+- `tool`：调用工具注册表
+- `llm`：调用 LiteLLM
+- `feishu`、`wecom`：执行相应渠道动作
+- `approval`、`human_input`：进入 `suspended` 等待外部输入
 
-### Skills 系统
+模板支持 `{{input.key}}` 和 `{{nodes.node_id}}`。节点支持超时和重试；运行支持取消和恢复，并在 `node_states.trace` 中记录节点状态。系统预设位于 `src/openagentic/workflow/presets/`，应用启动时按 slug/version 同步到数据库，用户需要 fork 后才能修改。
 
-Skills 是 **文件式 SOP 模板**——不是工具，是给模型看的领域操作指南。
+当前未完成的工作流能力包括同层并行、子工作流和完整的渠道审批回调。
 
-**存储格式**：`~/.openagentic/skills/<slug>/SKILL.md`
+## 模型与本地推理
 
-```markdown
----
-name: git-commit           # 必填，须等于目录名（kebab-case）
-description: 提交代码时用  # 必填，含触发条件
-allowed-tools: [...]       # 可选，限定可用工具列表
----
+模型角色统一写在 [openagentic.yaml](openagentic.yaml)：`default`、`cli`、`complex`、`evaluator`、`channel`、`embedding` 和 `local`。运行时通过 LiteLLM 使用 OpenAI、Anthropic、DeepSeek、Ollama、Xinference 等兼容 provider。
 
-# git-commit
-
-## 本地模型调度（控制面 + modeld）
-
-本地推理后端和云端 provider 的资源形状完全不同——云端要防 QPS，本地要防序列槽位打满。
-这一层把「哪个后端、走多少并发、挂了怎么办」从代码里抽出来，做成可配置策略。
-
-### 两块职责
-
-| 组件 | 角色 | 位置 |
-|---|---|---|
-| `control_plane/` | **策略**：按后端端点选配额类别、决定升级目标 | 本仓库 |
-| `modeld` | **执行**：显存预检、健康探测、拉起模型 | `extensions/modeld/`（独立进程，见其 README） |
-
-**为什么分开**：模型加载要 2–3 分钟、模型进程活几小时，而请求只活几秒。
-把「加载」塞进请求调用栈是层次错配；而把启停逻辑放进应用进程，会让模型的问题拖垮应用。
-
-### 后端分层
-
-配置在 `.openagentic/control_plane.yaml`。**不配置该环境变量则控制面整体不启用，行为与从前完全一致。**
-
-```yaml
-tiers:
-  local:
-    gate_category: llm_local   # 本地 vLLM 序列槽位有限
-    concurrency: 2
-    endpoints:
-      - "127.0.0.1:9997"
-  cloud:
-    gate_category: llm
-    concurrency: 30
-```
-
-`litellm_chat()` 按 `api_base` 命中哪个 tier 选配额类别：本地后端只有 2 个序列槽位
-（对齐 vLLM `max_num_seqs`），云端维持 30 并发。改之前 30 个并发会灌进只有 2 个槽位的 vLLM。
-
-| 环境变量 | 作用 |
-|---|---|
-| `OPENAGENTIC_CONTROL_PLANE_CONFIG` | YAML 路径；**不设 = 不启用** |
-| `OPENAGENTIC_GATE_LLM_LOCAL_CONCURRENCY` | 本地类别并发（默认 2） |
-
-### System-1 / System-2 循环
-
-两种模型各司其职，**判断与生成分离**：
-
-| | 训练方式 | 形态 | 能力 | 对应 |
-|---|---|---|---|---|
-| **System-1** | **RLCD**（校准决策） | 非自回归、一次前向 | **只判断**，给校准概率 | Jev |
-| **System-2** | **RLHF**（人类反馈） | 自回归、逐 token | **能生成**、能深度推理 | 本地 27B / 云端模型 |
-
-#### 为什么是 decide / think 两个 primitive
-
-RLCD 路线最大的价值**不是替代 RAG**，而是把 AI Agent 里最模糊的一层——「prompt」——
-拆成两个清晰的 primitive：
-
-| primitive | 模型 | 特性 | 职责 |
-|---|---|---|---|
-| **decide** | RLCD（System-1） | 便宜、快、可校准、**可大规模调用** | 所有封闭式判断 |
-| **think** | RLHF（System-2） | 贵、慢、能力极强 | 真正需要智能的那部分 |
-
-**今天 Agent 的「判断」散在两个地方**：一部分写死在 prompt 里（「当 X 时你应该 Y」），
-一部分交给 LLM 在同一次前向里顺带决定。两者都不好——prompt 里的判断**不可验证、不可校准**；
-LLM 顺带做的判断**不可解释、不可缓存、不可度量**，而且代价和生成一样贵。
-
-**终局是 System-1 把 LLM 从 90% 的琐碎判断里解放出来，只让它做那 10% 真正需要智能的事。**
-这才是 RLCD + RLHF 结合后最大的架构收益。
-
-由此推出三条设计约束：
-
-1. **decide 必须廉价到可以大规模调用**，否则「每个决策点都过一遍」不成立。
-   手段：一处实现多处复用、sha256 缓存、**一次调用 fan-out 多个问题**（一次 ~1s 而非 N 次）
-2. **度量指标是「省下了多少次 think」，不是「延迟增加了多少」。**
-   `route` 判 direct → 整个请求不调 LLM，省下的是一次完整的 System-2 调用。
-   用纯成本视角看，是否掉净收益为正的东西
-3. **decide 架构对检索质量比 RAG 更敏感**：检索假命中 → decide 判错 →
-   补充策略把噪音再放大一轮。所以**检索质量是这套架构的前置条件**，不是锦上添花
-
-#### 已知瓶颈：RLCD 的上下文窗口
-
-**当前这套框架还不成熟，核心限制是上下文太短**——这直接约束了 decide 的适用范围，
-而且现在的实现里到处都在为它打补丁：
-
-| 症状 | 补丁 | 位置 |
-|---|---|---|
-| 判不了长输出 | 截断到 `JEV_MAX_OUTPUT_CHARS` 再判 | `control_plane/jev.py` |
-| 一次看不了多个候选 | 分批发 fan-out | `retrieval/knowledge.py` |
-| 上下文一长就判不准 | 总长上限 + 只保留高分块 | `retrieval/prepare.py` |
-
-**这些补丁本身就是在为窗口不够打折扣**——判的不是完整信息，而是截断后的片段。
-判得准不准，取决于截掉的那部分恰好不关键。
-
-**为什么这是架构级问题而非实现细节**：decide 的价值主张是「便宜、快、可大规模调用」。
-可如果每次调用只能看一小段，**扩展性瓶颈就从成本/延迟转移到了窗口**——
-再多调用也拼不出一次完整的判断。
-
-**所以「如何让判定模型在长上下文下仍然判得准」是 RLCD 路线最值得投入的改进方向之一。**
-
-可能的路径（待验证，仅作记录）：
-
-- 训练层面的长上下文 RLCD
-- **分层判定**：先用便宜手段粗筛，减少需要入窗的量
-- **结构化压缩**：只送判据相关的字段，而不是整段原文
-- 把「窗口不够」显式建模：让模型自己说要判准还需要看什么（但要付出一次额外调用）
-
-在窗口问题解决之前，**decide 适合判「小而明确的封闭问题」**；
-需要通读长材料才能下的判断，仍然得交给 System-2。
-
-代码里的对应：
-
-| 位置 | 角色 |
-|---|---|
-| `control_plane/system1.py` | **decide** 的四个 primitive：verify / route / sufficiency / need_retrieval |
-| `agent/engine.py` | **think** 引擎（LLM + 工具循环） |
-| `retrieval/prepare.py` | 两者的编排：decide 决定取什么上下文 → think 生成 → decide 验证 |
-
-目标循环：
-
-```
-                    System-1
-                   判断 / 路由
-                       ↓
-                    Retrieval
-                       ↓
-                    System-1
-                   信息够不够
-                       ↓
-                    System-2
-                  真正复杂推理
-                       ↓
-                    System-1
-                   验证 / 打分
-                       ↓
-               ┌───────┴───────┐
-               ↓               ↓
-            可信              不可信
-               ↓               ↓
-            返回            System-2 重想
-```
-
-**当前落地情况**（目标 ≠ 现状，如实标注）：
-
-| 环节 | 状态 | 说明 |
-|---|---|---|
-| System-1 验证 / 打分 | ✅ **已落地** | `control_plane/system1.py::verify_output`，接进 `ConversationEngine(on_verify=...)` |
-| 不可信 → 带反馈重想 | ✅ **已落地** | 判定结果回注 prompt，同模型重生；重试用尽返回最后候选，不报错 |
-| **Retrieval** | ✅ **已收归** | 新增 `retrieval/`：三处旧实现（CLI / channel_runner / orchestrator）统一走 `prepare_context` |
-| System-1 判断 / 路由 | ⚠️ 有实现未开启 | `system1.need_retrieval()` / `route_message()` 已实现并测试，配置里默认关（多一次判定 = +1 秒） |
-| System-1 信息够不够 | ⚠️ 有实现未开启 | `system1.judge_sufficient()` 已实现并测试，配置里默认关；不开也能正常检索，只是不做充分性判定 |
-
-前置阶段的完整形态（`retrieval/prepare.py`）：
-
-```
-System-1 要不要检索 → retrieve() → System-1 够不够 → 不够则补充上下文 → 拼文本注入 system
-```
-
-**引擎零改动**——返回的字符串直接当 `on_before_chat` 用（它本来就是「循环前返回文本注入
-system」）。多个钩子（如 `ContextManager`）用 `compose_hooks` 合成，失败互相隔离。
-
-**knowledge（向量检索）尚未接入**：核查发现整条链路是断的——PostgreSQL 没在跑、
-Xinference 没注册 embedding 模型、embedder 协议也打错了地址。接入位留在
-`retrieve()` 的 `db` / `kb_ids` 参数上。
-| System-2 复杂推理 | ✅ 已有 | `ConversationEngine` 的 LLM + 工具循环 |
-
-**分级触发**（核心取舍）：判定要 +1 秒且按次计费，不能每条都过。
-默认 `trigger: high_risk`——**动过工具**（不可逆风险）或**输出偏长**才过 System-1；
-普通短问答直出。
-
-**RLCD 的硬约束**：System-1 不生成文本，所以 `feedback` 必须从它返回的
-`choice` 标签**合成**，不能让模型写。这也是 `feedback_prompt` 存在的理由。
-
-配置（`.openagentic/control_plane.yaml`）：
-
-```yaml
-system1:
-  verify:
-    enabled: true
-    criteria: "回答必须切题、不得编造、与上下文一致"
-    min_score: 0.7          # noul 概率低于此判为不可信
-    max_retries: 1          # 重想上限（会消耗 max_iterations，默认才 5，别调大）
-    trigger: high_risk      # high_risk | always | off
-    high_risk_chars: 800
-```
-
-**向后兼容**：`on_verify` 不传或控制面未启用 → 引擎行为与从前**逐条一致**。
-
-### 判定层：Jev
-
-生成由 LLM，判定由 Jev——封闭选项（`choice` / `score` / `noul`）返回带 confidence 的
-完整概率分布，一次调用可 fan-out 问一组问题。
-
-`workflow/evaluator.py` 优先走 Jev：`noul` = 「输出是否满足标准」的校准概率，
-直接对上 `min_score` 阈值；另问一个 `choice` 分档用于生成 feedback。
-**Jev 未配置 / 返回空 / 抛异常一律回落原有 LLM 自由打分**——判定失败不阻塞流程。
-接口语义（`min_score` / `passed` / `feedback`）不变，接入方无感。
-
-| 环境变量 | 作用 |
-|---|---|
-| `OPENAGENTIC_JEV_ENABLED` | **不设 = 不启用**，行为与从前完全一致 |
-| `JEV_API_KEY` / `TYPESAFE_API_KEY` | 后者为兼容回落 |
-| `JEV_BASE_URL` | 指向任何兼容端点即可；换本地模型只改这一个 |
-| `JEV_PROXY` | 服务器出境代理 |
-
-客户端零第三方依赖（urllib），带 sha256 缓存与成本账本（`logs/jev_cache.jsonl`、
-`logs/jev_log.jsonl`）。env 命名刻意不绑厂商——**Jev 将来开源或换端侧模型，只改 env 不改代码**。
-
-### 为什么需要 modeld
-
-本地卡是**单卡多租户**。显存被别的进程占走时，vLLM 只抛一句
-`Engine core initialization failed`，真因埋在 systemd journal 里（排查成本极高）。
-modeld 把它提前变成一句人话：
-
-```json
-{"action":"refused",
- "reason":"显存不足：空闲 15535 MiB，需要 22900 MiB（缺口 7365 MiB）",
- "users":[{"pid":49260,"name":"VLLM::EngineCore","used_mib":8558}]}
-```
-
-探测走的是 `max_tokens=1` 的真实补全（`/v1/models` 列出模型 ≠ 可用，加载中也会被列出），
-结果按 `probe.cache_ttl_sec` 缓存——探测会占序列槽位，不能裸奔。
-
-`escalation`（本地不可用自动升级云端）已接线：本地后端失败时按配置转云端，
-**升级自身也失败则抛原始错误**，不用云端故障掩盖本地真因。未配置升级时行为与从前一致。
-
-modeld 的守护循环（`watch.enabled`）会周期性执行 ensure，模型掉了自动拉起；
-显存不够时只记日志说明被谁占了，**不杀别的进程**。默认关闭，需在配置里显式打开。
-
-## 何时使用
-...
-
-## 操作步骤
-...
-```
-
-**注入策略**：
-- **启动时**：`build_skills_section()` 扫描 `~/.openagentic/skills/`，仅注入元数据（name + description + 路径，~50 token/skill）
-- **运行时**：模型判定任务匹配某 skill → 调用 `read_file` 加载完整 SKILL.md → 按指南执行
-- **热加载**：`/skills reload` 重新扫描并重建 system prompt，无需重启
-
-**生命周期**：
-- 首次启动：`ensure_seeded()` 从 `src/openagentic/skills/builtin/` 复制 3 个内置 skill 到 `~/.openagentic/skills/`（`.seeded` 标记防止重复）
-- 用户自定义：`/skills new <name>` 创建模板 → 手动编辑 SKILL.md → `/skills reload`
-- **不覆盖原则**：如果用户目录已存在同名 slug，内置 skill 不覆盖
-
-内置 3 个：`git-commit`（生成 conventional commit）、`code-review`（系统化代码审查，含 severity 分级）、`debug-trace`（结构化调试：复现 → trace → 定位 → 假设 → 修复）。
-
-### 数据库概要
-
-6 大域，所有业务表带 `user_id` FK 实现行级多租户：
-
-```
-users ─┬─ api_keys              # JWT 认证
-       ├─ conversations ─┬─ messages     # 对话（含 reasoning_content 列）
-       ├─ agents ────────── agent_executions   # Agent 执行记录（JSON steps + trace）
-       ├─ workflows ─────── workflow_executions # Workflow 执行（含 is_system/slug/version 预设字段）
-       ├─ knowledge_bases ─┬─ documents ─┬─ chunks   # RAG（pgvector Vector(768)）
-       ├─ channel_configs        # 渠道配置（飞书/企微 app 凭证）
-       └─ user_channel_bindings  # 外部渠道账号 → User 映射
-```
-
-| 域 | 核心表 | 关键字段 |
-|----|-------|---------|
-| 认证 | `users` `api_keys` | UUID PK, `email`(unique), `hashed_password`, bcrypt |
-| 对话 | `conversations` `messages` | `role` enum(user/system/assistant/tool), `reasoning_content`, `token_count_input/output`, `cost_usd` |
-| Agent | `agents` `agent_executions` | `tools` JSON, `config` JSON, `steps` JSON, `status` enum |
-| Workflow | `workflows` `workflow_executions` | `definition` JSONB, `input_data`/`output_data` JSON, `node_states` JSON(trace+cancel), `status` enum(pending/running/completed/failed/cancelled) |
-| 知识库 | `knowledge_bases` `documents` `chunks` | `embedding` Vector(768), `chunk_size`/`chunk_overlap`, `metadata_` JSON |
-| 迁移 | 7 个 Alembic revisions | 初始→workflow→knowledge(pgvector)→reasoning_content→suspended status→user_channel_bindings→is_system_workflow |
-
-- **多租户**：应用层 `user_id` 过滤，非 RLS；`tenant_id` contextvar 等价 `user_id`
-- **WorkflowExecution 特殊**：`node_states` 一个 JSONB 同时承载 trace 数组和 `_cancel_requested` 软标志
-- **Chunk 无 TimestampMixin**：仅 `created_at`，无 `updated_at`
-
-### 设计决策
-
-| 决策 | 选择 | 理由 |
-|------|------|------|
-| 架构风格 | 模块化单体 | Phase 0-5 单进程部署足够，`agent/` `workflow/` `knowledge/` `mcp/` 独立包边界清晰；未来可按包拆微服务 |
-| LLM 网关 | LiteLLM | 17+ provider 统一为 `model` 字符串 + 配置，换模型只改配置不写代码；社区维护成本低 |
-| 异步栈 | SQLAlchemy async + asyncpg | 全链路 async 避免 IO 阻塞事件循环，asyncpg 原生 PostgreSQL 二进制协议性能优于 psycopg2 |
-| 记忆存储 | 文件版（frontmatter+md）先于 DB+pgvector | 零依赖启动、人类可读可编辑、与 Claude Code MEMORY.md 格式兼容；向量检索版留待 Phase 未来 |
-| 模板渲染 | 字符串替换而非 Jinja | Workflow DAG 场景 `{{input.x}}` `{{nodes.id}}` 够用，复杂逻辑走 `tool` 节点封装，避免引擎膨胀 |
-| DAG 执行 | 串行先于并行 | 先保证正确性和结构化 trace；同层 `asyncio.gather` 留 Phase 7 |
-| 取消机制 | 双通道（软标志 + 协程 cancel） | 软标志覆盖"节点边界优雅停"，`asyncio.Task.cancel()` 覆盖"长跑节点立即停" |
-| Skills | SKILL.md 文件式而非硬编码 slash | 行为类功能（review/commit/debug）统一为可编辑 SOP 文档，模型按需 read_file 加载全文，避免命令膨胀 |
-| MCP | HTTP JSON-RPC 客户端（非 stdio） | 先支持远程 MCP server，stdio 本地 server 后续按需补 |
-| 重排序 | CrossEncoder（`rerank_model`） | 向量检索后对 top-N 做精排，提升 RAG 准确率；轻量级模型不依赖外部服务 |
-| 系统预设 | `presets/*.yaml` + lifespan upsert | 启动自动同步预设工作流到 DB，跨渠道透明共享；按 slug+version 升降级判断，用户不可改只能 fork |
-| 并发治理 | `ConcurrencyGate`（全局信号量 + 类别配额 + 会话串行） | 多用户并发请求统一接入，飞书/企微/CLI/HTTP 共享同一套限流 + 排队 + 超时兜底 |
-
-### Workflow DAG 引擎
-
-轻量 DAG 引擎；节点连接器 / 审批 / 可视化 / 版本回滚等扩展见 [Phase 7](#phase-7workflow-扩展)。
-
-#### 定义格式（`workflows.definition`）
-
-```json
-{
-  "nodes": [
-    {"id": "input",  "type": "value", "config": {"value": "{{input.question}}"}},
-    {"id": "answer", "type": "llm",   "config": {
-        "system_prompt": "你是 SOP 助手",
-        "prompt": "请回答：{{nodes.input}}",
-        "model": "deepseek/deepseek-v4-flash",
-        "retries": 1,
-        "timeout_sec": 30
-    }}
-  ],
-  "edges": [{"from": "input", "to": "answer"}]
-}
-```
-
-#### 节点类型（8 种）
-
-| type   | 行为 | 关键 config |
-|--------|------|-------------|
-| `value` | 把字面量/渲染后字符串作为输出 | `value` |
-| `tool`  | 调用工具注册表中的工具 | `tool_name`、`arg`（透传给工具的 input/query/command） |
-| `llm`   | 走 LiteLLM 网关 chat completion | `prompt`（必填）、`system_prompt`、`model` |
-| `feishu` | 执行 `lark-cli` CLI 命令 | `subcommand`（必填）、`args`（数组） |
-| `wecom` | 执行 `wecom-cli` CLI 命令 | `subcommand`（必填）、`args`（数组） |
-| `approval` | 触发审批 → run 进 suspended → 等回调 | `channel`、`approval_code` |
-| `human_input` | 发卡片 → run 进 suspended → 等提交 | `channel`、`prompt`、`instance_key` |
-| `subflow` | 调用另一个 workflow（计划中） | — |
-
-#### 校验（`validate_definition`）
-
-创建 / 更新工作流时强制：
-
-- `nodes` 非空数组、`edges` 数组
-- 节点 `id` 非空且全局唯一
-- 节点 `type` ∈ {`value`, `tool`, `llm`, `feishu`, `wecom`, `approval`, `human_input`}
-- `edges` 两端必须指向已存在节点
-- **拓扑排序必须能完整覆盖所有节点**——否则判定有环并 `400 Bad Request`
-
-#### 执行模型
-
-1. `POST /api/workflows/{id}/runs` 创建一条 `WorkflowExecution`（status=`pending`）并立即执行
-2. 状态机：`pending → running → (suspended → running)* → completed | failed | cancelled`
-3. 拓扑序**串行执行**节点；当前未做并行调度（同层节点不并发）
-4. 每个节点执行前先 `db.refresh(run)` 检查取消标志，命中即 break
-5. 节点 config 渲染 `{{input.…}}` / `{{nodes.<id>}}` 模板（递归遍历 dict/list/str）
-6. 节点级容错：`asyncio.wait_for(timeout_sec)` 包裹 + `retries` 次重试（默认 timeout=60、retries=0）
-7. 任意节点超过重试预算未成功 → 整个 run `failed` 并写入 `node_states.error`
-8. 整图最后一个拓扑节点的输出作为 run 的 `output_data.result`
-
-#### 模板变量
-
-```
-{{input.<key>}}        # POST run 时传入的 input_data
-{{nodes.<node_id>}}    # 已执行节点的输出（按拓扑序）
-```
-
-不支持表达式 / 过滤器 / 条件——是字符串替换不是 Jinja，刻意收窄能力以避免引擎复杂化。需要分支逻辑请走 `tool` 节点封装。
-
-#### 取消（双通道）
-
-`POST /api/workflow-runs/{run_id}/cancel` 同时做两件事：
-
-- **软标志**：写 `node_states._cancel_requested = True`，下一节点循环开头被感知后写入 `cancelled` trace 并 break
-- **硬中断**：`runtime.cancel(run_id)` 触发 `asyncio.Task.cancel()`，正在 `wait_for` 内的节点立即抛 `CancelledError`，被 `execute_run` 统一映射为 `cancelled`
-
-软标志解决"节点边界优雅停"，硬中断解决"长跑节点立即停"。
-
-#### 执行 Trace（`node_states.trace`）
-
-每个节点至少产出一条 trace 项：
-
-```json
-{"node_id": "answer", "node_type": "llm", "status": "success",  "attempt": 1, "output": "…"}
-{"node_id": "answer", "node_type": "llm", "status": "retrying", "attempt": 1, "error": "…"}
-{"node_id": "answer", "node_type": "llm", "status": "failed",   "attempt": 2, "error": "…"}
-{"node_id": "answer",                       "status": "cancelled", "reason": "cancel_requested"}
-```
-
-通过 `GET /api/workflow-runs/{run_id}` 整体回看，目前**没有 SSE/流式 trace 推送**——见 Phase 7 待办。
-
-#### 系统预设工作流
-
-3 个开箱即用的预设，启动时自动 upsert 到 DB（`user_id=NULL, is_system=True`），跨渠道（CLI/飞书/企微/HTTP）透明共享：
-
-| slug | 名称 | 用途 |
-|------|------|------|
-| `news.tech_weekly` | 技术新闻周报 | 抓取科技媒体 RSS/API → LLM 摘要分类 → 生成中文周报 |
-| `doc.summarize_url` | URL 摘要 | 抓取指定网页 → LLM 提炼要点 → 结构化摘要输出 |
-| `ops.server_health` | 服务器健康巡检 | SSH/HTTP 检查目标主机 → 汇总磁盘/内存/服务状态 → 告警 |
-
-**机制**：`main.py` lifespan 调用 `load_presets(db)` 按 `slug` 匹配已有记录，`version` 字段控制升级；同 slug 新版覆盖、旧版跳过、不变跳过。channel_runner 注入预设提示到 system prompt，LLM 识别到"新闻周报"等意图时直接 `run_workflow(slug)`。
-
-用户不能修改/删除系统预设——需 fork 成私有副本后再编辑。
-
-#### 当前不支持
-
-- 同层并行执行 / 调度器（DAG 引擎刻意串行）
-- 子工作流 / 工作流互调（`subflow` 节点计划中）
-- `approval` / `human_input` 节点的真正飞书审批/卡片回调集成（骨架已就绪，事件触发器待接）
-- WorkflowTrigger 表 + 事件驱动启动 workflow
-- 版本管理 / 灰度 / 回滚
-- Workflow resume 接口（`POST /api/workflow-runs/{id}/resume`）
-
-## 路线图
-
-### Phase 0–4.5（已完成）
-
-基础设施、认证、对话、Agent/MCP、工作流、知识库/RAG、四层记忆系统。
-
-#### 四层记忆系统（Phase 4.5）
-
-存储路径：`~/.openagentic/memory/`
-
-| 层 | 实现 | 接入点 |
-|----|------|--------|
-| **Working** | 滑动窗口 + LLM 摘要压缩 | `react.py` 每轮按预算压缩 |
-| **Core** | 4 类(user_profile/project_fact/preference/reference)，frontmatter+md | 启动时注入 system prompt 前 20 条 |
-| **Episodic** | `~/.openagentic/memory/episodes/` | 每轮 ReAct 自动检索 top-3，`/clear` 自动存档 |
-| **Procedural** | `~/.openagentic/memory/procedures/` | 模型显式调用 `procedural_save`/`procedural_search`，未自动注入 |
-
-### Phase 5：多租户 + 可观测
-
-- [x] 行级 `user_id` 隔离（已存在于 db schema）
-- [x] 请求级 tenant context（`tenant/` contextvar，`tenant_id == user_id`）
-- [x] Prometheus `/metrics`（method/path_template/status 三维标签，`/health` `/metrics` 自身排除）
-- [x] structlog 自动注入 `request_id` 与 `tenant_id`，`X-Request-ID` 中间件透传/生成
-- [ ] 组织(Org)级隔离（需新表 `organizations`、`user_organizations`，全路由 scope 改造）
-- [x] 跨服务 correlation（LiteLLM 注入 `x-request-id` / `x-tenant-id`；DB 通过 structlog 关联）
-
-### Phase 5.5：CLI 增强
-
-#### 已完成
-
-- [x] `/skills` 命令 + Skills 系统（Claude Code 风格 SKILL.md，3 个内置）
-- [x] Ctrl+C 中断单轮 react（保留会话）
-- [x] `--no-provider-check` 跳过 API key 强制配置向导
-- [x] `/compact` `/context` `/btw` 三命令
-- [x] Procedural memory 自动注入
-- [x] `/cost`（per-model token + USD 估算）
-- [x] `write_file` 覆盖时 unified diff 预览
-- [x] `/permissions`（allow/ask/deny + 路径/前缀白/黑名单）
-
-#### 待办
-
-| 任务 | 优先级 | 备注 |
-|---|---|---|---|
-| ~~`/diff`（包 `git diff` + rich 染色）~~ | ~~P1~~ | ✅ 已落地 |
-| ~~`/review`（喂 git diff + code-review skill）~~ | ~~P1~~ | ✅ 已落地 |
-| ~~3 个内置 SKILL：`security-review` / `simplify` / `batch`~~ | ~~P1~~ | ✅ 已落地（内置 skill 增至 6 个） |
-| 全套烟测（所有新命令 + 3 SKILL 通过 LLM 触发验证） | P2 | 单元测试已补齐，LLM 端到端待后续 |
-
-#### 不做
-
-- `/copy`（终端自带复制）
-- `/plan`（做成 `planner` SKILL 更优雅）
-- 跨端联动 `/desktop` `/mobile` `/chrome`、商业化 `/upgrade` `/passes`、第三方集成 `/install-github-app`、基础设施大工程 `/sandbox` `/heapdump`、依赖未建系统 `/loop` `/rewind`、多模态 `/voice`
-- 行为类（`/batch` `/simplify` `/security-review` `/debug` 等）→ 统一走 SKILL.md 路线，不做硬编码 slash
-
-### Phase 5.6：飞书渠道上线，企微保留骨架
-
-飞书已作为生产交互界面运行；企业微信目前只有未跑通的代码骨架，不能视为已上线渠道。
-
-#### 架构设计
-
-```
-extensions/channels/          # 渠道层（与 core 完全解耦）
-├── __init__.py               # 注册中心，环境变量自动发现
-├── base.py                   # Channel 抽象接口 + IncomingMessage
-├── feishu.py                 # 飞书渠道：SDK WebSocket + 卡片 + CLI
-├── wecom.py                  # 企业微信渠道：XML 解密 + CLI
-└── router.py                 # 动态路由工厂（GET/POST webhook）
-
-scripts/
-└── run_feishu_ws.py          # 独立运行脚本，不依赖 PostgreSQL
-
-src/openagentic/
-├── agent/
-│   ├── engine.py             # NEW ConversationEngine（共享底座）
-│   ├── llm.py                # NEW litellm_chat 抽象（从 cli/llm 提取）
-│   └── ...
-└── identity.py               # NEW 全局 Agent 身份与行为准则
-```
-
-**关键设计决策**：
-
-| 决策 | 选择 | 理由 |
-|------|------|------|
-| 收消息 | WebSocket 长连接（飞书 SDK） | 无需公网 URL；`lark-oapi` 内部处理 token/重连 |
-| 发消息 | SDK 直发（优先）/ CLI（备选） | SDK 毫秒级，CLI 有子进程开销 |
-| 不走 MCP | 拒绝 | 常驻进程运维负担 > 收益；WebSocket + SDK 已覆盖 |
-| 渠道隔离 | `extensions/channels/` | 环境变量激活，未配置零开销 |
-| LLM 调用 | `ConversationEngine`（`agent/engine.py`） | CLI / 飞书 / 企微 / HTTP API 共享同一底座 |
-| 回复形式 | 交互卡片（"思考中..." → 原地替换） | SDK 直发卡片，`update_card` 实现渐进式反馈 |
-
-#### 已完成
-
-| # | 任务 | 说明 |
-|---|------|------|
-| 1 | Channel 抽象基类 | `extensions/channels/base.py` — 生命周期 `start()`/`stop()` |
-| 2 | 飞书渠道 | WebSocket 长连接 + 交互卡片 + SDK 直发 + CLI 备选 |
-| 3 | 企业微信渠道 | XML 验签/解密骨架；`wecom-cli` 不存在，尚未跑通 |
-| 4 | FastAPI 渠道路由 | webhook 端点 + 生命周期集成 |
-| 5 | ConversationEngine | 共享底座：LLM 调用 + 工具循环，各渠道复用 |
-| 6 | Agent 身份准则 | `identity.py` — `build_system_prompt()` 统一入口 |
-| 7 | 飞书独立运行脚本 | `scripts/run_feishu_ws.py` — 不依赖 PostgreSQL |
-| 8 | 端到端验证 | 飞书消息 → 卡片思考 → AI 回复 → 原地替换 ✅；企微尚未验证 |
-| 9 | 工具集成 | `run_command` + `read_file` + `lark-cli`（22 模块：日程/文档/多维表格/审批/消息/通讯录/云盘/邮箱/任务/知识库/表格/幻灯片/会议纪要/视频会议/白板/考勤/OKR/通用 API 等） |
-| 10 | DeepSeek thinking 兼容 | `reasoning_content` 空 content 引擎兜底处理 |
-| 11 | 飞书权限全开 | 131 个权限 scope，企业自建应用最大权限集 |
-| 12 | Agent 身份准则 | `identity.py` — 完整能力清单 + 隐私铁律（禁止泄露搭建者信息） |
-| 13 | 全项目隐私排查 | 测试数据去个人化、源代码零硬编码密钥、`.env` gitignored |
-
-#### TODO
-
-| # | 任务 | 优先级 | 备注 |
-|---|------|--------|------|
-| 1 | 企业微信端到端验证 | P1 | 当前为骨架，需重新设计发送链路并准备企微开发者账号 |
-| 2 | 企微独立运行脚本 | P2 | 文件已存在；端到端尚未跑通，发送链路需重写 |
-| 3 | ~~Markdown 表格自动转卡片 component~~ | ~~P2~~ | ✅ 已落地（`feishu_card_utils.py`，含卡片 JSON 构建抽象） |
-| 4 | 飞书流式卡片（打字机效果） | P3 | 参考 `hermes-feishu-streaming-card` |
-| 5 | 钉钉渠道集成 | P3 | 待钉钉 CLI 成熟 |
-
-#### 当前不做
-
-- MCP 协议通道
-- 多租户飞书/企微 app 绑定
-
-### Phase 6：前后端闭环（后端完成，客户端仍在打通）
-
-- [x] `ui/` 8 页面框架（Sessions、Settings、Skills、Channels、Devices 等）
-- [x] CLI Skills 系统（文件式 Claude Code 风格）
-- [x] Skills REST API（`GET/POST /api/skills`），前端 SkillsPage 接入真实数据
-- [x] Sessions CRUD（映射 Conversation 模型），前端 SessionsPage 对接
-- [x] Channels 管理 CRUD（`ChannelConfig` DB 模型 + `GET/POST/DELETE /api/channels`）
-- [x] Devices REST API（`GET /api/devices`），前端 DevicesPage 动态加载
-- [x] 知识库上传 API 前后端对齐（`POST /api/knowledge/documents/upload` multipart + `GET /api/knowledge/documents` + `DELETE /api/knowledge/documents/{id}` + `POST /api/knowledge/search`）
-- [x] 记忆系统 REST API（`/api/memory/` 完整 CRUD）
-- [x] Android Agent 客户端（通过 Gateway 认证、创建会话并发送消息；本地推理走 Xinference + vLLM）
-
-### Phase 7：飞书 / 企微原生工作流（重新聚焦）
-
-#### 战略定位
-
-让 OpenAgentic Workflow DAG 与飞书 / 企业微信原生工作流双向打通，覆盖中小企业最真实的业务编排场景：审批流、多维表格联动、群消息触发、人工审批、定时报表。
-
-**不做泛连接器**（HTTP / SMTP / 钉钉 / 邮件 / 文件系统等留作社区贡献或客户付费定制）——聚焦飞书+企微做透，是与大厂生态绑定型 Agent 平台（火山+ArkClaw 等）形成差异化的核心战场。
-
-#### 交付路径：CLI 优先
-
-- **P0/P1 阶段全部用 CLI 跑通并验证**：通过 `openagentic` CLI + 飞书/企微独立运行脚本调试 workflow，不依赖 Web UI
-- **可视化编辑器（React Flow）严格留在 P1 后段**——避免精力被前端工程拉走
-- 所有新节点类型必须先有 CLI 调用样例与单元测试，再考虑前端接入
-
-#### 新增节点类型
-
-| 节点 type | 子动作 | 用途 |
-|---|---|---|
-| `feishu` | `send_msg` / `send_card` / `bitable_read` / `bitable_write` / `doc_read` / `doc_write` / `calendar_create` / `cli` | 飞书全能力节点，统一调 lark-cli 22 模块 |
-| `wecom` | `send_msg` / `send_card` / `cli` | 企微工作流骨架，尚未完成端到端验证 |
-| `approval` | provider: `feishu` / `wecom` | 触发飞书/企微原生审批 → run 进 suspended → 等回调 |
-| `human_input` | provider: `feishu` / `wecom` | 发卡片让指定用户填表单 → 等卡片提交 → 写回 nodes.<id> |
-| `subflow` | — | 一个 workflow 调用另一个 workflow（审批模板复用必需） |
-
-#### DAG 引擎核心改造
-
-**P0 必做**
-
-| 任务 | 说明 |
-|---|---|
-| Run 状态机加 `suspended` | `pending → running → (suspended → running)* → completed/failed/cancelled` |
-| 节点级挂起 | `approval` / `human_input` 节点声明 `_waiting_for: {type, instance_key, callback_url}` 写入 `node_states`，runtime 把 run 置为 suspended，释放 worker |
-| 唤醒接口 | `POST /api/workflow-runs/{run_id}/resume`（内部接口，由飞书/企微事件 dispatcher 调用） |
-| 事件触发器 | `extensions/channels/` 接收飞书审批回调 / 卡片提交 / 多维表格变更 → 反查 `_waiting_for` 命中的 run_id → resume |
-| `WorkflowTrigger` 表 | 把"飞书事件 → 启动 workflow"做成数据，不写死代码 |
-| 同层并行执行 | `asyncio.gather` 同入度=0 节点并行（批量发消息/批量写多维表格必需） |
-
-**P1 重要**
-
-| 任务 | 说明 |
-|---|---|
-| 子工作流节点（`subflow`） | 审批/通知模板沉淀为可复用子流 |
-| Workflow 模板库 | 先做 10 个真场景模板（采购审批 / 月度报表 / 客户工单 / 合同会签 / 入职 SOP / 离职流程 / 周报汇总 / 客户回访 / 数据告警 / 知识问答） |
-| `branch` / `loop` 节点 | 显式分支与有界循环 |
-| SSE / WebSocket 流式 trace | 前端实时看节点状态（同时也给 CLI 用） |
-| 可视化编辑器（React Flow） | 严格 P1 后段，不优先 |
-
-**P2 锦上添花**
-
-| 任务 | 说明 |
-|---|---|
-| 版本管理 + 灰度 + 回滚 | workflow_v1/v2 + 路由策略 |
-| 节点级 SLA + 飞书告警 | Prometheus 扩到节点维度；告警发到飞书指定群 |
-| Run 级 retries | 整图重跑（幂等性由用户保证） |
-| 节点输入/输出 schema 声明 + 校验 | 当前 config 是裸 dict |
-| 调度器（cron / event trigger） | 当前只能手动 POST run |
-| 同 workflow 并发控制 | 当前一个 workflow 可同时多 run，无锁 |
-| Trace 持久化分离 | 现在 trace 写在 `node_states` 一个 JSONB |
-
-#### 数据库改动（最小化）
-
-```sql
--- 新增：触发器映射
-CREATE TABLE workflow_triggers (
-  id UUID PRIMARY KEY,
-  workflow_id UUID REFERENCES workflows,
-  trigger_type VARCHAR(32),  -- 'feishu_approval' / 'feishu_bitable_change' / 'wecom_msg' / 'cron' ...
-  trigger_config JSONB,       -- {"app_token": "xxx", "table_id": "yyy"}
-  user_id UUID REFERENCES users,
-  enabled BOOLEAN DEFAULT TRUE,
-  created_at TIMESTAMP,
-  updated_at TIMESTAMP
-);
-```
-
-`workflow_executions.node_states` 现有 JSONB 字段直接承载 `_waiting_for: {type, instance_code, node_id}`，**不加新列**。
-
-#### 不做（明确放弃，避免膨胀）
-
-- HTTP / 数据库连接器 / SMTP / 钉钉 / 邮件 / 文件系统等泛连接器 → 留给社区贡献或客户付费定制
-- 复杂 BPMN 标准（XML 那套）→ 用更轻的 DAG + 节点类型
-- 跨工作流复杂事务 / Saga → 第一阶段用最终一致性
-- 实时流（Kafka 接入）
-- Jinja / 表达式引擎 → 模板渲染保持「字符串替换」级别，复杂逻辑走 `tool` 节点
-
-#### 已落地
-
-- ✅ 条件边（消费 `EdgeDefinition.condition`）—— 支持 `==` / `!=` / 真值判断，跳过路径写入 trace
-- ✅ `ExecutionStatus.suspended` 状态 + `TERMINAL_STATUSES` 终态集合（`models.py`）
-- ✅ 挂起信号槽：`_waiting_for` / `_resume_payload` 两个 key 约定 + 6 个 helper，均操作 `node_states` JSONB **不加列**
-- ✅ DB 迁移 `add_suspended_workflow_status` — 防御性兼容两个枚举名
-- ✅ Runtime 挂起（1.2）：`_execute_definition` 检测挂起信号 → `set_waiting_for` + 持久化 outputs/trace → `run.status = suspended` → return early
-- ✅ `execute_run` 适配 suspended（不设 `completed_at`、不覆盖 `node_states`）
-- ✅ `feishu` 节点 — 包装 `lark-cli`（`subcommand` + `args`，支持 `{{input.x}}` / `{{nodes.x}}` 模板渲染）
-- ✅ `wecom` 节点 — 包装 `wecom-cli`
-- ✅ 45 条 workflow 测试（原 28 + 新增 17）
-- ✅ System-Seed 预设工作流（`presets.py` + 3 个 YAML + lifespan upsert + `list_workflows` 合并系统/用户集）
-- ✅ 并发治理底座 `ConcurrencyGate`（`concurrency/gate.py` + `limiter.py` + `config.py`）
-- ✅ sender context 注入（`contextvars` → `input_data.context`，飞书/企微触发时自动写入）
-- ✅ channel_runner 预设提示（LLM 看到"新闻周报"等关键词自动调 `run_workflow(slug)`）
-- ✅ `POST /api/workflow-runs/{id}/resume` 接口（2026-05-02）；`execute_run(resume=True)` 从缓存恢复 + 消费 resume payload 继续拓扑序
-- ✅ `_run_cli` 注入 `LARK_CLI_NO_PROXY=1`（2026-05-02）防 mihomo 代理拦截子进程
-- ✅ lark-cli v1.0.22 安装 + bot 冒烟通过（2026-05-02）；真实子命令`im +messages-send --as bot` 已确认
-
-#### 引擎改造 TODO（2026-05-02 更新）
-
-| # | 任务 | 优先级 | 文件 | 说明 |
-|---|------|--------|------|------|
-| 1 | ~~`POST /api/workflow-runs/{id}/resume` 接口~~ | ~~P0~~ | ~~`router.py`~~ | ✅ 已落地（2026-05-02）：验证 suspended 状态 → `set_resume_payload` → `execute_run(resume=True)` → commit |
-| 2 | ~~`_execute_definition` resume 模式~~ | ~~P0~~ | ~~`service.py`~~ | ✅ 已落地：`initial_outputs`/`initial_trace` 参数跳过已完成节点，resume payload 注入作为挂起节点输出 |
-| 3 | ~~`execute_run` resume 检测~~ | ~~P0~~ | ~~`service.py`~~ | ✅ 已落地：`resume=True` 时从 `OUTPUTS_CACHE_KEY`/`TRACE_KEY` 恢复，`pop_resume_payload` + `clear_waiting_for` |
-| 4 | 事件触发器反查 | P0 | `extensions/channels/` | 飞书审批回调 / 卡片提交 / 企微消息 → 按 `instance_key` 反查 `_waiting_for` 命中的 run → 调 resume 接口 |
-| 5 | `WorkflowTrigger` 表 + CRUD | P0 | `models.py` + `router.py` | 新表 `workflow_triggers`（字段见上文数据库改动），CRUD API：`POST/GET/DELETE /api/workflow-triggers` |
-| 6 | `approval` 节点真正发飞书审批 | P1 | `service.py` | 当前只返回挂起信号，需真正调 `lark-cli approval` 创建审批实例 + 记录 `instance_key` |
-| 7 | `human_input` 节点真正发卡片 | P1 | `service.py` | 当前只返回挂起信号，需真正发飞书/企微交互卡片 + 等回调 |
-| 8 | 同层并行执行 `asyncio.gather` | P1 | `service.py` | 同入度=0 节点并发，批量发消息/批量写多维表格必需 |
-| 9 | `subflow` 节点 | P1 | `service.py` + `models.py` | 一个 workflow 调用另一个，审批/通知模板复用 |
-| 10 | 10 个 Workflow 模板 | P1 | `templates/` 或 DB seed | 采购审批/月度报表/客户工单/合同会签/入职SOP/离职流程/周报汇总/客户回访/数据告警/知识问答 |
-| 11 | SSE/WebSocket 流式 trace | P1 | `router.py` | 前端/CLI 实时看节点状态 |
-| 12 | 可视化编辑器（React Flow） | P1 | `ui/` | 严格留到最后，不优先 |
-
-### 四层记忆 → DB 版（未来）
-
-- [ ] CoreMemory / Episode / Procedure 迁移到 PostgreSQL + pgvector
-- [ ] 语义检索（768-dim，IVFFlat cosine）
-- [ ] 时间衰减 + 重要性加权排序
+本地推理默认使用 Xinference 的 OpenAI 兼容地址（`XINFERENCE_API_BASE`）。`extensions/modeld/` 是可选的本地模型生命周期服务，负责显存预检、真实补全健康探测、按需请求 Xinference 拉起模型和可选的周期检查。它只管理模型生命周期，不会终止其他进程。详情见 [extensions/modeld/README.md](extensions/modeld/README.md)。
 
 ## 开发与测试
 
 ```bash
-# 全量测试（295 passed, 2 skipped，其中 workflow 64 passed）
-pytest -q
-
-# CLI 与交互边界
-pytest -q tests/cli
-
-# Phase 0 运维烟雾（需 Docker）
-pytest -q tests/smoke/test_phase0_ops_smoke.py
-
-# 静态检查
+pip install -e ".[dev]"
+PYTHONPATH=src pytest -q
 ruff check src tests
-mypy
-bandit -r src/openagentic -c pyproject.toml
-pip-audit
+mypy src/openagentic
+cd ui && npm run build
 ```
 
-### scripts/ 脚本清单
+测试默认需要开发依赖；涉及数据库或 API 的测试还需要可用的测试配置。代码结构和提交约定见 [CONTRIBUTING.md](CONTRIBUTING.md)。架构迁移请先阅读 [docs/ADR-001-multi-adapter-foundation.md](docs/ADR-001-multi-adapter-foundation.md)。
 
-| 脚本 | 用途 | 使用方 |
-|------|------|--------|
-| `run_feishu_ws.py` | 飞书 bot WebSocket 主入口 | systemd `openagentic-feishu` |
-| `run_wecom_ws.py` | 企微 webhook bot 入口 | 手动部署 |
-| `cron_weekly_ai_news.py` | 周报定时触发：按 slug `news.tech_weekly` 创建 run | crontab |
-| `openagentic-feishu.service` | 飞书 bot systemd unit | 部署到 `/etc/systemd/system/` |
-| `run_feishu_ws_orchestrator.py` | 双轨 demo：飞书消息走 DefaultOrchestrator | `tests/test_feishu_orchestrator_demo.py` |
-| `demo_orchestrator.py` | DefaultOrchestrator 端到端真实 LLM demo | 手动运行 |
-| `run_personal_demo.py` | 本地优先个人助手验证原型 | `docs/personal-agent.md` |
+## 数据和隐私边界
 
-### 质量流水线
+- 数据库、上传文件和本地记忆由部署者管理；生产环境应更换默认数据库密码和 JWT 密钥。
+- 模型请求会把相应的对话、工具输入或知识库内容发送给配置的模型服务。使用第三方 API 前请确认其数据处理条款。
+- 本地个人助手会把偏好和结果写入其数据目录；API key 只保存在运行进程中，不写入简报和状态文件。
+- 工具执行、文件访问和渠道凭据属于部署者的信任边界，请按实际环境收紧权限、CORS 和网络访问。
 
-`.github/workflows/quality-security.yml`：`ruff` + `mypy` + `bandit` + `pip-audit` + `schemathesis`。SonarCloud 见 `.github/workflows/sonarcloud.yml`。
+## 许可证
 
-### 测试目录结构
-
-| 目录 | 说明 |
-|------|------|
-| `tests/cli/` | CLI 编码、slash 命令、交互边界 |
-| `tests/concurrency/` | 并发网关（ConcurrencyGate）单元测试 |
-| `tests/db/` | 数据库会话测试 |
-| `tests/observability/` | 日志、指标、中间件测试 |
-| `tests/skills/` | Skill 加载器与管理器测试 |
-| `tests/tenant/` | 租户 contextvar 测试 |
-| `tests/smoke/` | Phase 0 运维烟雾（需 Docker） |
-| `tests/agent/` | Agent API 与服务边界测试 |
-| `tests/core/` | 认证、聊天、LLM 边界测试 |
-| `tests/knowledge/` | 知识库 API、搜索、服务测试 |
-| `tests/mcp/` | MCP 客户端边界测试 |
-| `tests/memory/` | 记忆管理器测试 |
-| `tests/migrations/` | Alembic 迁移脚本正确性测试 |
-| `tests/workflow/` | Workflow API、服务、runtime、suspended 状态测试 |
-| `tests/` 根 | 配置、依赖注入、入口、健康检查 |
-
-## 常见问题
-
-1. **数据库连不上**：检查 `DATABASE_URL`，确认 Postgres 容器 healthy
-2. **表不存在**：生产环境走 `alembic upgrade head`；开发环境 `APP_ENV=development` 可用 `create_all`
-3. **SSE 被代理缓冲**：Nginx 需 `proxy_buffering off`
-4. **模型 401/429**：核对 API Key；限流时 LiteLLM 自动重试
-5. **`ModuleNotFoundError: No module named 'openagentic'`**：未 `pip install -e .`，在仓库根目录执行后重试
-6. **`openagentic` 命令找不到**：同上，或直接用 `python -m openagentic.cli`
-7. **pip 提示 `Ignoring invalid distribution ~...`**：删除 `.venv/lib/site-packages` 中以 `~` 开头的损坏目录后重装
-
-## 隐私政策
-
-OpenAgentic 以隐私优先为设计原则。
-
-### 数据收集
-
-**OpenAgentic 不收集、不上传、不遥测任何用户数据。** 项目不含任何埋点、分析 SDK、崩溃报告或使用统计收集逻辑。
-
-### 数据存储
-
-- 所有数据（对话记录、Agent 配置、知识库、记忆）仅存储在用户自有的 PostgreSQL 数据库中
-- API 密钥、飞书 App Secret 等凭据仅存储在用户本地的 `.env` 文件和 `.openagentic/model_providers.json` 中，均被 `.gitignore` 排除
-- 四层记忆系统存储在 `~/.openagentic/memory/`（本地文件系统）
-
-### 飞书渠道
-
-- 飞书机器人通过 WebSocket 长连接直接对接飞书官方服务，不经过任何第三方服务器
-- 消息处理全程在用户自有服务器完成，消息内容不会被转发或存储到外部系统
-- Agent 身份准则内置隐私铁律：**绝对禁止在自我介绍或任何回复中透露搭建者姓名、个人信息、服务器配置、部署位置**
-
-### 责任边界
-
-- OpenAgentic 是自部署软件，用户对其部署环境中的数据安全和访问控制负全责
-- 建议定期轮换 API 密钥和飞书 App Secret
-- 若将实例开放给第三方使用，请自行建立用户隐私协议
-
-### 开源承诺
-
-本项目以 Apache 2.0 许可证开源，所有代码可审计。隐私政策的变更将在本文件中体现。
-
----
-
-## 贡献指南
-
-欢迎贡献！请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md) 了解代码规范、提交 PR 流程与行为准则。简要概览：
-
-- **分支策略**：从 `main` 拉 feature 分支，提交前跑全量测试与静态检查
-- **代码规范**：Python（Ruff + MyPy）、前端（ESLint + Prettier）
-- **测试要求**：新增功能需附带测试；pytest 全量 295 条必须通过
-- **PR 流程**：描述清楚改了啥、为什么、如何验证；CI 绿灯后请求 review
+本项目采用 Apache License 2.0，详见 [LICENSE](LICENSE)。
