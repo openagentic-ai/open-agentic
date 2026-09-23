@@ -1,6 +1,7 @@
 """Alembic migration environment."""
 
 import asyncio
+import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -18,6 +19,9 @@ from openagentic.knowledge.models import KnowledgeBase, Document, Chunk  # noqa:
 from openagentic.channels.models import ChannelConfig, UserChannelBinding  # noqa: F401
 
 config = context.config
+database_url = os.getenv("DATABASE_URL", "").strip()
+if database_url:
+    config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 

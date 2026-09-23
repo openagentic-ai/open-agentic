@@ -27,6 +27,7 @@ RUN pip install --no-cache-dir . 2>/dev/null || \
 # Copy application code
 COPY src/ src/
 COPY extensions/ extensions/
+COPY openagentic.yaml .
 COPY alembic.ini .
 COPY alembic/ alembic/
 
