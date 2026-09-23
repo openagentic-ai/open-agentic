@@ -21,6 +21,7 @@ from openagentic.knowledge.schemas import (
     SearchResult,
     VectorIndexOptimizeResponse,
 )
+from openagentic.config import SETTINGS
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
@@ -52,9 +53,13 @@ async def create_knowledge_base(
         user_id=user.id,
         name=payload.name,
         description=payload.description,
-        embedding_model=payload.embedding_model,
-        chunk_size=payload.chunk_size,
-        chunk_overlap=payload.chunk_overlap,
+        embedding_model=payload.embedding_model or SETTINGS.EMBEDDING_MODEL,
+        chunk_size=payload.chunk_size or SETTINGS.RETRIEVAL_CHUNK_SIZE,
+        chunk_overlap=(
+            payload.chunk_overlap
+            if payload.chunk_overlap is not None
+            else SETTINGS.RETRIEVAL_CHUNK_OVERLAP
+        ),
     )
 
 

@@ -32,12 +32,11 @@ from openagentic.application.events import (
 from openagentic.application.session import Session
 from openagentic.application.tool_registry import ToolSpec
 from openagentic.application.tool_registry_default import DefaultToolRegistry
+from openagentic.config import SETTINGS
 
 logger = structlog.get_logger("openagentic.application.orchestrator")
 
 MAX_HISTORY = SETTINGS.CHANNEL_MAX_HISTORY
-from openagentic.config import SETTINGS
-
 DEFAULT_MAX_ITERATIONS = SETTINGS.AGENT_MAX_ITERATIONS
 
 
