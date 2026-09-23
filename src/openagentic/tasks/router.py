@@ -50,3 +50,26 @@ async def update_task(task_id: UUID, body: TaskUpdate, current: User = Depends(g
     await db.commit()
     await db.refresh(task)
     return task
+
+
+async def _set_control_status(task_id: UUID, target: TaskStatus, current: User, db: AsyncSession) -> Task:
+    task = await db.scalar(select(Task).where(Task.id == task_id, Task.user_id == current.id))
+    if task is None:
+        raise HTTPException(404, "Task not found")
+    try:
+        transition(task, target)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    await db.commit()
+    await db.refresh(task)
+    return task
+
+
+@router.post("/{task_id}/pause", response_model=TaskResponse)
+async def pause_task(task_id: UUID, current: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    return await _set_control_status(task_id, TaskStatus.WAITING_USER, current, db)
+
+
+@router.post("/{task_id}/resume", response_model=TaskResponse)
+async def resume_task(task_id: UUID, current: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    return await _set_control_status(task_id, TaskStatus.RUNNING, current, db)
