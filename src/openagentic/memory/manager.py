@@ -108,20 +108,8 @@ class MemoryManager:
         episodes = await mgr.search_episodes("bug 修复")
     """
 
-    def __init__(self, base_dir: Path | None = None, user_id: str | None = None) -> None:
-        """Create a memory manager.
-
-        ``user_id`` scopes every layer below a stable per-user directory.  Leaving it
-        unset keeps the existing CLI/global memory behaviour for backwards compatibility.
-        """
-        root = base_dir or _default_memory_dir()
-        if user_id:
-            safe_user_id = re.sub(r"[^a-zA-Z0-9_.-]", "_", user_id)[:128]
-            if not safe_user_id:
-                raise ValueError("user_id must contain at least one safe character")
-            root = root / "users" / safe_user_id
-        self._base = root
-        self.user_id = user_id
+    def __init__(self, base_dir: Path | None = None) -> None:
+        self._base = base_dir or _default_memory_dir()
 
     # ------------------------------------------------------------------
     # Core Memory

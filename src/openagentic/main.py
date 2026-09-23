@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from openagentic import __version__
 from openagentic.config import SETTINGS
@@ -49,6 +50,9 @@ async def lifespan(app: FastAPI):
     # 仅开发环境自动建表：生产请使用 `alembic upgrade head`。
     if SETTINGS.APP_ENV == "development":
         async with engine.begin() as conn:
+            # 知识库 embedding 列依赖 pgvector 扩展；迁移里有 CREATE EXTENSION，
+            # create_all 兜底路径在全新库上必须自己补上。
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
             await conn.run_sync(Base.metadata.create_all)
         logger.info("Database tables created (dev mode)")
 

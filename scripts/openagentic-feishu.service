@@ -1,0 +1,30 @@
+[Unit]
+Description=OpenAgentic Feishu WebSocket Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/opt/open-agentic
+ExecStart=/opt/open-agentic/.venv/bin/python scripts/run_feishu_ws.py
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+Environment=HOME=/root
+Environment="PATH=/opt/open-agentic/.venv/bin:/root/.local/bin:/usr/local/bin:/usr/bin:/bin"
+Environment=UNSLOTH_DISABLE_STATISTICS=1
+Environment=HF_HUB_OFFLINE=1
+# 飞书国内服务直连，不走代理
+Environment=HTTP_PROXY=
+Environment=HTTPS_PROXY=
+Environment=http_proxy=
+Environment=https_proxy=
+Environment=ALL_PROXY=
+Environment=all_proxy=
+Environment=SOCKS_PROXY=
+Environment=socks_proxy=
+Environment=NO_PROXY=*
+# 敏感凭证从 /etc/openagentic/.secrets 加载（mode 600 root:root，可选）
+EnvironmentFile=/etc/openagentic/.secrets
+
+[Install]
+WantedBy=multi-user.target

@@ -1,38 +1,49 @@
 #!/usr/bin/env python3
-"""每周五17:00自动触发全球科技/AI新闻周报工作流"""
-import asyncio, sys, os, json
+"""每周五17:00自动触发全球科技/AI新闻周报工作流。
 
-sys.path.insert(0, '/opt/open-agentic/src')
+crontab 示例:
+    0 17 * * 5 cd /opt/open-agentic && .venv/bin/python scripts/cron_weekly_ai_news.py
 
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
-from openagentic.workflow.service import execute_run_by_id
-from openagentic.workflow.models import Workflow, WorkflowExecution
+工作流按 slug 查找系统预设 ``news.tech_weekly``（应用启动时自动同步预设，
+fork 出的用户副本 slug 为 NULL，不会被误触发）。
+"""
+import asyncio
+import os
+import sys
+from pathlib import Path
 
-DATABASE_URL = os.environ.get('DATABASE_URL', 'postgresql+asyncpg://openagentic:openagentic@localhost:5433/openagentic')
-WORKFLOW_ID = '94f8defe-0054-4f9a-b2d2-30e252e86359'  # 国内+国际版
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-async def main():
-    engine = create_async_engine(DATABASE_URL)
-    async with engine.connect() as conn:
-        from sqlalchemy import text
-        # 获取 workflow
-        result = await conn.execute(text("SELECT id FROM workflows WHERE id = :wid"), {"wid": WORKFLOW_ID})
-        row = result.fetchone()
-        if not row:
-            print(f"ERROR: 工作流 {WORKFLOW_ID} 不存在")
+os.environ.setdefault(
+    "DATABASE_URL",
+    "postgresql+asyncpg://openagentic:openagentic@localhost:5433/openagentic",
+)
+
+from sqlalchemy import select
+
+from openagentic.db.session import async_session
+from openagentic.workflow.models import Workflow
+from openagentic.workflow.service import create_run
+
+WORKFLOW_SLUG = "news.tech_weekly"
+
+
+async def main() -> None:
+    async with async_session() as db:
+        workflow = (
+            await db.execute(
+                select(Workflow)
+                .where(Workflow.slug == WORKFLOW_SLUG)
+                .order_by(Workflow.created_at.desc())
+            )
+        ).scalars().first()
+        if not workflow:
+            print(f"ERROR: 未找到 slug={WORKFLOW_SLUG} 的工作流（系统预设由应用启动时同步）")
             sys.exit(1)
-        # 创建 run
-        import uuid
-        run_id = str(uuid.uuid4())
-        now = __import__('datetime').datetime.now()
-        await conn.execute(text("""
-            INSERT INTO workflow_executions (id, workflow_id, status, created_at, updated_at, input_data)
-            VALUES (:rid, :wid, 'pending', :now, :now, '{}')
-        """), {"rid": run_id, "wid": WORKFLOW_ID, "now": now})
-        await conn.commit()
-        print(f"✅ 已创建工作流运行: {run_id}")
-    await engine.dispose()
+        run = await create_run(db, workflow, input_data={})
+        await db.commit()
+        print(f"已创建工作流运行: {run.id} (workflow={workflow.name})")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     asyncio.run(main())

@@ -282,6 +282,9 @@ systemctl enable --now openagentic-feishu
 journalctl -u openagentic-feishu -f
 ```
 
+unit 的 `EnvironmentFile` 指向 `/etc/openagentic/.secrets`（可选：仅当需要
+`ANTHROPIC_AUTH_TOKEN` 等敏感凭证时创建，权限 `600 root:root`）。
+
 飞书 bot 作为独立进程运行在宿主机（非 Docker），通过 systemd 管理生命周期。FastAPI 后端跑在 Docker 容器。改代码后 `systemctl restart openagentic-feishu` 即可生效。详见 `.claude/CLAUDE.md`。
 
 ## CLI 模式
@@ -467,8 +470,14 @@ extensions/              # 扩展模块（与 core 完全解耦）
 │   └── router.py        # 动态路由工厂
 ├── android/             # Android 客户端（聊天/Settings/多语言/SSE，完整可用）
 └── modeld/             # 本地模型调度器（显存预检 + 健康探测 + 守护循环，独立进程）
-scripts/
-└── run_feishu_ws.py     # 飞书独立运行脚本（不依赖 PostgreSQL）
+scripts/                 # 脚本清单见「开发与测试 → scripts/ 脚本清单」
+├── run_feishu_ws.py             # 飞书 bot 主入口（systemd 管理，不依赖 PostgreSQL）
+├── run_wecom_ws.py              # 企微 bot 入口（webhook FastAPI）
+├── cron_weekly_ai_news.py       # 周报 cron：按 slug 创建 news.tech_weekly 运行
+├── openagentic-feishu.service   # 飞书 bot systemd unit（见「飞书 Bot 部署」）
+├── run_feishu_ws_orchestrator.py # 双轨 demo：飞书消息走 DefaultOrchestrator
+├── demo_orchestrator.py         # DefaultOrchestrator 端到端真实 LLM demo
+└── run_personal_demo.py         # 本地优先个人助手验证原型
 tests/
 ├── test_*.py            # 根级：Agent、workflow、knowledge、MCP、认证、聊天、记忆、迁移等
 ├── cli/                 # CLI 编码、slash 命令、交互边界
@@ -1283,6 +1292,18 @@ mypy
 bandit -r src/openagentic -c pyproject.toml
 pip-audit
 ```
+
+### scripts/ 脚本清单
+
+| 脚本 | 用途 | 使用方 |
+|------|------|--------|
+| `run_feishu_ws.py` | 飞书 bot WebSocket 主入口 | systemd `openagentic-feishu` |
+| `run_wecom_ws.py` | 企微 webhook bot 入口 | 手动部署 |
+| `cron_weekly_ai_news.py` | 周报定时触发：按 slug `news.tech_weekly` 创建 run | crontab |
+| `openagentic-feishu.service` | 飞书 bot systemd unit | 部署到 `/etc/systemd/system/` |
+| `run_feishu_ws_orchestrator.py` | 双轨 demo：飞书消息走 DefaultOrchestrator | `tests/test_feishu_orchestrator_demo.py` |
+| `demo_orchestrator.py` | DefaultOrchestrator 端到端真实 LLM demo | 手动运行 |
+| `run_personal_demo.py` | 本地优先个人助手验证原型 | `docs/personal-agent.md` |
 
 ### 质量流水线
 

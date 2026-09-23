@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import closing
 from pathlib import Path
 import shutil
@@ -32,15 +33,31 @@ def _free_port() -> int:
         return int(s.getsockname()[1])
 
 
-def _wait_tcp(host: str, port: int, timeout_s: float = 60.0) -> None:
+async def _wait_pg_ready(port: int, timeout_s: float = 90.0) -> None:
+    """Wait until postgres accepts real connections.
+
+    TCP reachability is not enough: the container's port is bound as soon as it
+    starts, while initdb/restart inside keeps rejecting connections for several
+    seconds. Retry an actual asyncpg handshake until it succeeds.
+    """
     deadline = time.time() + timeout_s
+    last_error: Exception | None = None
     while time.time() < deadline:
         try:
-            with socket.create_connection((host, port), timeout=1.5):
-                return
-        except OSError:
-            time.sleep(1.0)
-    raise TimeoutError(f"TCP {host}:{port} not ready within {timeout_s}s")
+            conn = await asyncpg.connect(
+                host="127.0.0.1",
+                port=port,
+                user="openagentic",
+                password="openagentic",
+                database="postgres",
+                timeout=5,
+            )
+            await conn.close()
+            return
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            await asyncio.sleep(1.0)
+    raise TimeoutError(f"postgres not ready on port {port} within {timeout_s}s, last_error={last_error!r}")
 
 
 def _run(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess:
@@ -52,7 +69,21 @@ def _compose_with_ports(source: Path, pg_port: int, app_port: int | None = None)
     text = text.replace('"5433:5432"', f'"{pg_port}:5432"')
     if app_port is not None:
         text = text.replace('"8000:8000"', f'"{app_port}:8000"')
+    # Compose 把 build/volume 等相对路径解析到 compose 文件所在目录，
+    # 而测试把 compose 写到临时目录，必须把上下文改成项目根目录。
+    text = text.replace("build: .", f"build: {source.parent}")
     return text
+
+
+def _write_smoke_env(tmp: Path) -> None:
+    """Write a minimal .env next to the temp compose file.
+
+    The app service declares `env_file: .env`; compose fails when the file is
+    missing. An empty file makes the container fall back to Settings defaults
+    (DATABASE_URL → compose-network postgres, APP_ENV=development) and avoids
+    injecting real FEISHU/LLM credentials into the smoke container.
+    """
+    (tmp / ".env").write_text("", encoding="utf-8")
 
 
 @pytest.mark.asyncio
@@ -80,7 +111,7 @@ async def test_alembic_upgrade_head_smoke_real_db():
             raise AssertionError(f"docker compose up postgres failed:\n{up.stderr}\n{up.stdout}")
 
         try:
-            _wait_tcp("127.0.0.1", pg_port, timeout_s=90.0)
+            await _wait_pg_ready(pg_port)
 
             admin = await asyncpg.connect(
                 host="127.0.0.1",
@@ -160,6 +191,7 @@ def test_docker_compose_health_smoke():
             _compose_with_ports(compose_src, pg_port=pg_port, app_port=app_port),
             encoding="utf-8",
         )
+        _write_smoke_env(Path(tmpdir))
 
         up = _run(
             ["docker", "compose", "-f", str(compose_file), "-p", project_name, "up", "-d", "postgres", "app"],

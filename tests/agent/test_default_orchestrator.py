@@ -192,35 +192,3 @@ async def test_error_does_not_pollute_history():
         await _collect(orch.reply(session, "fail me"))
 
     assert orch._histories.get("sid-1", []) == []
-
-@pytest.mark.asyncio
-async def test_orchestrator_injects_user_scoped_memory(tmp_path, monkeypatch):
-    from openagentic.memory.manager import MemoryManager
-
-    monkeypatch.setenv("OPENAGENTIC_MEMORY_DIR", str(tmp_path))
-    async def no_retrieval(*args, **kwargs):
-        return None
-    monkeypatch.setattr("openagentic.retrieval.prepare.prepare_context", no_retrieval)
-    MemoryManager(user_id="alice").save_core_memory(
-        "language", "用中文回答", "preference"
-    )
-
-    seen = {}
-
-    async def fake_litellm_chat(**kwargs: Any) -> dict:
-        seen["messages"] = kwargs["messages"]
-        return {"message": {"content": "好的", "tool_calls": []}}
-
-    orch = DefaultOrchestrator(
-        model="mock/dummy", api_key="sk-test", api_base=None,
-        system_prompt="you are test bot", tool_registry=DefaultToolRegistry(),
-        enable_memory=True,
-    )
-    session = Session(
-        session_id="alice-session", adapter_id="web",
-        external_session_id="web-1", user_id="alice",
-    )
-    with patch("openagentic.agent.engine.litellm_chat", side_effect=fake_litellm_chat):
-        await _collect(orch.reply(session, "语言偏好是什么？"))
-
-    assert any("用中文回答" in str(message) for message in seen["messages"])

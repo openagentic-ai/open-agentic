@@ -1,0 +1,101 @@
+# AI 视频选题策划 Agent
+# 抓取 B站 + 知乎热榜，LLM 分析趋势后生成 5 个可执行的视频选题方案。
+slug: content.topic_planner
+version: 1
+name: AI 视频选题策划
+description: >
+  从 B站 科技区/知识区 + 知乎热榜抓取当前热门内容，
+  LLM 分析流量趋势后生成 5 个具体的视频选题方案，
+  每个选题包含标题、切入角度、封面文案、预期受众、制作难度评估。
+definition:
+  nodes:
+    - id: fetch_bilibili
+      type: tool
+      config:
+        tool_name: run_command
+        arg: >
+          curl -s 'https://api.bilibili.com/x/web-interface/ranking/v2?rid=36&type=all'
+          | python3 -c "
+          import json,sys
+          data=json.load(sys.stdin)
+          for v in data.get('data',{}).get('list',[])[:15]:
+              print(f\"- {v['title']}  |  播放:{v.get('play',0)}  |  弹幕:{v.get('danmaku',0)}  |  UP:{v['owner']['name']}  |  bvid:{v['bvid']}\")
+          " 2>/dev/null || echo 'BILIBILI_API_FAILED'
+
+    - id: fetch_bilibili_tech
+      type: tool
+      config:
+        tool_name: run_command
+        arg: >
+          curl -s 'https://api.bilibili.com/x/web-interface/ranking/v2?rid=188&type=all'
+          | python3 -c "
+          import json,sys
+          data=json.load(sys.stdin)
+          for v in data.get('data',{}).get('list',[])[:15]:
+              print(f\"- {v['title']}  |  播放:{v.get('play',0)}  |  弹幕:{v.get('danmaku',0)}  |  UP:{v['owner']['name']}  |  bvid:{v['bvid']}\")
+          " 2>/dev/null || echo 'BILIBILI_TECH_API_FAILED'
+
+    - id: fetch_zhihu
+      type: tool
+      config:
+        tool_name: run_command
+        arg: >
+          curl -s -H 'User-Agent: Mozilla/5.0'
+          'https://www.zhihu.com/api/v3/feed/topstory/hot-lists/total?limit=20'
+          | python3 -c "
+          import json,sys
+          data=json.load(sys.stdin)
+          for h in data.get('data',[])[:20]:
+              print(f\"- {h['target']['title']}  |  {h['target'].get('excerpt','')[:100]}  |  https://www.zhihu.com/question/{h['target']['id']}\")
+          " 2>/dev/null || echo 'ZHIHU_API_FAILED'
+
+    - id: generate_topics
+      type: llm
+      config:
+        model: deepseek/deepseek-v4-flash
+        system_prompt: >
+          你是一个顶级视频内容策划，专精 AI/科技/效率工具赛道。
+          根据当前 B站和知乎的热门内容，分析流量趋势，生成 5 个具体的视频选题方案。
+
+          每条选题必须包含：
+          1. **标题**：控制在 20 字以内，要有好奇心钩子
+          2. **切入角度**：一句话说清楚"为什么观众要点进来"
+          3. **封面文案**：3-5 个字大字 + 一行副标题
+          4. **目标受众**：谁会看这个视频
+          5. **制作难度**：⭐1-5（低到高）
+          6. **预期播放量级**：估算（基于同类内容的流量参考）
+
+          筛选原则：
+          - 优先 AI 工具评测/教程、效率工作流、开源项目实测、行业趋势分析
+          - 避免纯娱乐/八卦/时政内容
+          - 选题要适合"不露脸"的录屏+配音形式
+          - 考虑制作成本，单期视频制作时间控制在 4 小时内
+
+          不要在输出中使用表格或代码块，用清晰的标题+段落格式。
+        prompt: |
+          ## B站 知识区热门排行
+          {{nodes.fetch_bilibili}}
+
+          ## B站 科技区热门排行
+          {{nodes.fetch_bilibili_tech}}
+
+          ## 知乎热榜
+          {{nodes.fetch_zhihu}}
+
+          请根据以上数据，分析当前流量趋势（2-3 句话概括），然后生成 5 个可执行的 AI/科技视频选题方案。
+          每个选题都要具体到可以直接开拍的程度。
+
+    - id: output
+      type: value
+      config:
+        value: "{{nodes.generate_topics}}"
+
+  edges:
+    - from: fetch_bilibili
+      to: generate_topics
+    - from: fetch_bilibili_tech
+      to: generate_topics
+    - from: fetch_zhihu
+      to: generate_topics
+    - from: generate_topics
+      to: output

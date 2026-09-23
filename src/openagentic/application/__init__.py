@@ -47,11 +47,3 @@ __all__ = [
     # orchestrator
     "DefaultOrchestrator",
 ]
-
-from openagentic.application.capabilities import (
-    Capability,
-    CORE_CAPABILITIES,
-    ENDPOINTS,
-    EndpointDescriptor,
-    endpoint_descriptor,
-)

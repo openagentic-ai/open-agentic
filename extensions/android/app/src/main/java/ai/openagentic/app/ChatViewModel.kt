@@ -39,7 +39,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         application.getSharedPreferences("openagentic", Application.MODE_PRIVATE)
 
     private val model: String
-        get() = prefs.getString("model", "qwen3:14b") ?: "qwen3:14b"
+        get() = prefs.getString("model", "qwen3.8:27b") ?: "qwen3.8:27b"
 
     // Keep conversation history for context
     private val conversationHistory = mutableListOf<OllamaChatMessage>()

@@ -100,26 +100,10 @@ class DefaultOrchestrator:
 
         return _dispatch
 
-    async def _inject_memory(self, messages: list[dict], user_text: str, user_id: str) -> None:
+    async def _inject_memory(self, messages: list[dict], user_text: str) -> None:
         """复用 MemoryManager 注入 episodic/procedural 上下文。失败仅 warning。"""
         if not self._enable_memory:
             return
-        # 先注入 user-scoped core memory，确保 Web/Android/IM 使用同一人的上下文。
-        try:
-            from openagentic.memory.manager import MemoryManager
-
-            user_memory = MemoryManager(user_id=user_id)
-            entries = user_memory.search_core(user_text, top_k=3)
-            if not entries:
-                # 中文自然语言经常不会包含完整的记忆短语；在没有命中时
-                # 注入少量高重要性长期记忆，避免跨端会话丢失用户偏好。
-                entries = user_memory.list_core(limit=3)
-            if entries:
-                content = "\n".join(f"- {entry.key}: {entry.value}" for entry in entries)
-                messages.insert(1, {"role": "system", "content": "用户长期记忆：\n" + content})
-        except Exception as exc:
-            logger.warning("user memory preparation failed", error=str(exc))
-
         # 统一走 retrieval.prepare_context（原先此处各写一遍检索）。
         # 注入位置与检索源保持不变；本路径有 DB，但 knowledge 链路未修通，暂不传 db。
         try:
@@ -152,7 +136,7 @@ class DefaultOrchestrator:
                 {"role": "system", "content": self._system_prompt},
                 *history[-MAX_HISTORY:],
             ]
-            await self._inject_memory(messages, user_text, session.user_id)
+            await self._inject_memory(messages, user_text)
             messages.append({"role": "user", "content": user_text})
 
             # ── 构造 engine + queue + hooks ─────────────────────────────

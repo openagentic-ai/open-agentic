@@ -15,7 +15,12 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    status = sa.Enum("DRAFT", "PLANNED", "RUNNING", "WAITING_USER", "BLOCKED", "COMPLETED", "FAILED", "CANCELLED", name="task_status")
+    # create_type=False：同 add_workflow_tables —— 避免 create_table 重复建类型
+    status = postgresql.ENUM(
+        "DRAFT", "PLANNED", "RUNNING", "WAITING_USER", "BLOCKED",
+        "COMPLETED", "FAILED", "CANCELLED",
+        name="task_status", create_type=False,
+    )
     status.create(op.get_bind(), checkfirst=True)
     op.create_table(
         "tasks",
