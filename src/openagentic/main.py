@@ -30,6 +30,7 @@ from openagentic.agent.models import Agent, AgentExecution  # noqa: E402, F401
 from openagentic.workflow.models import Workflow, WorkflowExecution  # noqa: E402, F401
 from openagentic.knowledge.models import KnowledgeBase, Document, Chunk  # noqa: E402, F401
 from openagentic.channels.models import ChannelConfig  # noqa: E402, F401
+from openagentic.tasks.models import Task  # noqa: E402, F401
 
 logger = structlog.get_logger()
 
@@ -131,6 +132,7 @@ def create_app() -> FastAPI:
     from openagentic.core.chat.sessions_router import router as sessions_router
     from openagentic.channels.router import router as channels_mgmt_router
     from openagentic.devices.router import router as devices_router
+    from openagentic.tasks.router import router as tasks_router
 
     app.include_router(auth_router)
     app.include_router(chat_router)
@@ -143,6 +145,7 @@ def create_app() -> FastAPI:
     app.include_router(sessions_router)
     app.include_router(channels_mgmt_router)
     app.include_router(devices_router)
+    app.include_router(tasks_router)
 
     @app.get("/api/presence")
     async def get_presence():
