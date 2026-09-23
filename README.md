@@ -1,6 +1,6 @@
 # OpenAgentic
 
-开源 Agent 平台：CLI + HTTP API + Workflow DAG + 知识库 RAG，基于 FastAPI + PostgreSQL/pgvector + LiteLLM。
+开源、模型可选的 Agent 平台：优先支持本地个人助手，也保留 HTTP API、Workflow DAG、知识库 RAG 与企业渠道。基于 FastAPI + PostgreSQL/pgvector + LiteLLM。
 
 | 资源 | 链接 |
 |------|------|
@@ -10,7 +10,7 @@
 
 ## 多端共同底座（2026-05-01 进行中,ADR-001）
 
-**核心定位**:OpenAgentic 不是 AI 聊天助手,是**企业 agent 跨端中枢**。差异化叙事 = 跨端 agent 一致性 + Workflow 移动/IM 触发器 + B 端系统深度集成 + 位置/时间/事件驱动。**绝不与 C 端 AI 聊天产品(豆包/Kimi)同轨竞争**。
+**当前产品验证方向**：本地优先的 personal agent。模型可运行在本机，也可由用户接入自己的 API；现有企业渠道、工作流和多租户底座继续保留，暂不把它们当作已验证的商业结论。
 
 ### 架构四层(详见 [docs/ADR-001-multi-adapter-foundation.md](docs/ADR-001-multi-adapter-foundation.md))
 

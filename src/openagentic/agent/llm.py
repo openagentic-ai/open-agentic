@@ -73,6 +73,7 @@ async def litellm_chat(
     api_base: str | None,
     api_key: str | None,
     tools: list[dict] | None = None,
+    allow_escalation: bool = True,
 ) -> dict:
     """Call model via LiteLLM with optional tool calling.
 
@@ -114,6 +115,8 @@ async def litellm_chat(
         async with get_default_gate().acquire(category):
             response = await litellm.acompletion(**kwargs)
     except Exception:
+        if not allow_escalation:
+            raise
         response = await _escalate_if_configured(kwargs, cp_cfg)
         if response is None:
             logger.exception("litellm_chat failed")

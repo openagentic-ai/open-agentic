@@ -81,6 +81,7 @@ class ConversationEngine:
         on_before_chat: BeforeChatHook | None = None,
         on_verify: VerifyHook | None = None,
         max_verify_retries: int = DEFAULT_MAX_VERIFY_RETRIES,
+        allow_escalation: bool = True,
     ):
         self.model = model
         self.api_key = api_key
@@ -96,6 +97,7 @@ class ConversationEngine:
         self.on_before_chat = on_before_chat
         self.on_verify = on_verify
         self.max_verify_retries = max_verify_retries
+        self.allow_escalation = allow_escalation
 
     async def _safe_hook(self, hook, *args) -> None:
         """调用可选 hook，失败仅 warning。"""
@@ -156,6 +158,7 @@ class ConversationEngine:
                 api_base=self.api_base,
                 api_key=self.api_key,
                 tools=self.tools,
+                **({"allow_escalation": False} if not self.allow_escalation else {}),
             )
             msg = result["message"]
             content = msg.get("content") or ""
@@ -219,6 +222,7 @@ class ConversationEngine:
                 api_base=self.api_base,
                 api_key=self.api_key,
                 tools=[],  # 禁止再调工具
+                **({"allow_escalation": False} if not self.allow_escalation else {}),
             )
             final_content = result["message"].get("content") or result["message"].get("reasoning_content") or ""
             if final_content:
