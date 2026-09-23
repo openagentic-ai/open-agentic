@@ -3,5 +3,6 @@
 from openagentic.connectors.base import Connector, ConnectorItem, ConnectorKind
 from openagentic.connectors.local_files import LocalFileConnector
 from openagentic.connectors.memory import InMemoryConnector
+from openagentic.connectors.remote import OAuthConfig, OAuthConnector
 
-__all__ = ["Connector", "ConnectorItem", "ConnectorKind", "LocalFileConnector", "InMemoryConnector"]
+__all__ = ["Connector", "ConnectorItem", "ConnectorKind", "LocalFileConnector", "InMemoryConnector", "OAuthConfig", "OAuthConnector"]
