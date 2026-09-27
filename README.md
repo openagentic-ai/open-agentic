@@ -2,7 +2,7 @@
 
 OpenAgentic 是一个开源的 Agent 平台，提供统一的模型配置、对话、工具调用、记忆、知识库、工作流和多入口接入能力。当前仓库包含 FastAPI 服务端、终端 ReAct CLI、React Web UI、Android 客户端、飞书渠道和本地优先个人助手验证原型。
 
-项目仍在快速迭代中。下面的状态以仓库当前代码为准（2026-09-24）；规划中的客户端和能力不会标记为已上线。
+项目仍在快速迭代中。下面的状态以仓库当前代码为准（2026-09-27）；规划中的客户端和能力不会标记为已上线。
 
 | 资源 | 链接 |
 | --- | --- |
@@ -10,12 +10,15 @@ OpenAgentic 是一个开源的 Agent 平台，提供统一的模型配置、对�
 | 许可证 | [Apache License 2.0](LICENSE) |
 | 架构决策 | [docs/ADR-001-multi-adapter-foundation.md](docs/ADR-001-multi-adapter-foundation.md) |
 | 个人助手说明 | [docs/personal-agent.md](docs/personal-agent.md) |
+| AI 员工任务分流 | [docs/ai-employee-routing.md](docs/ai-employee-routing.md) |
 
 ## 当前状态
 
 | 部分 | 状态 | 说明 |
 | --- | --- | --- |
 | FastAPI API | 可用 | 认证、对话、Agent、工作流、知识库、记忆、Skills、任务等路由已装配 |
+| JEV 控制面 | 可选 | 支持输出验收、路由、检索充分性和 AI 员工任务分流；未配置时自动回退 |
+| AI 员工任务分流 | 可用（需开启） | 新任务可写入部门、岗位、优先级、风险和审批状态；岗位 Agent 自动执行仍在接入 |
 | PostgreSQL + pgvector | 可用 | Docker Compose 提供 `pgvector/pgvector:pg16`；生产环境使用 Alembic 迁移 |
 | 对话 SSE | 可用 | `POST /api/conversations/{id}/messages` 设置 `stream=true` |
 | Client Gateway REST | 可用 | `/api/client/sessions` 支持 Android/Web 创建会话、历史和非流式发送 |
@@ -43,19 +46,24 @@ OpenAgentic 是一个开源的 Agent 平台，提供统一的模型配置、对�
 应用层 src/openagentic/application/
 └── Session / Identity / Intent / ToolRegistry / Orchestrator
         │
+控制面
+├── control_plane   JEV 判断、岗位注册表和任务审批策略
+└── tasks           任务状态、分流元数据和暂停/恢复
+        │
 领域层
 ├── agent       LLM 对话和工具循环
 ├── workflow    DAG 校验、执行、暂停和恢复
 ├── knowledge   文档、分块、向量检索
 ├── memory      Core / Episodic / Procedural 记忆
 ├── skills      SKILL.md 加载和管理
-└── tasks       后台任务和调度
         │
 基础设施
 └── db / llm / concurrency / observability / tools
 ```
 
 入口层共用应用层编排。应用层通过 `ReplyEvent` 表达 `thinking`、`tool_call`、`tool_result`、`final` 和 `error` 等事件；各客户端负责渲染。当前真正接入生产的是飞书渠道和 Client Gateway REST，流式 WebSocket 仍在实现中。
+
+JEV 控制面位于应用编排和任务收件之间：它只做封闭选项判断，不生成长文本，也不直接执行工具。任务分流结果写入 `metadata_json.routing`，岗位注册信息写入 `metadata_json.employee`；高风险或需要本人决定的任务进入 `waiting_user`，通过审批接口后才进入 `planned`。
 
 ## 快速启动
 
@@ -73,6 +81,16 @@ cp .env.example .env
 ```
 
 至少配置一个模型服务和随机的 `JWT_SECRET_KEY`。默认模型、角色模型和并发参数在 [openagentic.yaml](openagentic.yaml) 中配置，环境变量可以覆盖 `.env` 中的值。
+
+如果要启用 AI 员工任务分流，还需要配置 JEV：
+
+```bash
+export OPENAGENTIC_JEV_ENABLED=1
+export JEV_API_KEY=your-typesafe-key
+export OPENAGENTIC_TASK_ROUTING_ENABLED=1
+```
+
+JEV 没有密钥、请求失败或返回无法识别的选项时，任务仍按普通任务创建。完整字段和失败回退规则见 [docs/ai-employee-routing.md](docs/ai-employee-routing.md)。
 
 ### 启动数据库和 API
 
@@ -175,7 +193,7 @@ curl -X POST http://localhost:8000/api/auth/register \
 | 知识库、文档、检索 | `/api/knowledge/*` |
 | Core/Episodic/Procedural 记忆 | `/api/memory/*` |
 | Skills | `/api/skills/*` |
-| 后台任务 | `/api/tasks/*` |
+| 后台任务、审批和暂停恢复 | `/api/tasks/*` |
 | 渠道配置 | `/api/channels/*` |
 | 设备 | `/api/devices/*` |
 | 模型和 provider | `/api/models`、`/api/llm/*` |
@@ -190,6 +208,8 @@ curl -X POST http://localhost:8000/api/conversations/{conversation_id}/messages 
 ```
 
 流式对话把 `stream` 设置为 `true`，响应类型为 `text/event-stream`。`/api/client/sessions/{id}/messages` 当前只接受非流式请求；流式 Client Gateway 接口待 WebSocket 实现完成后启用。
+
+启用任务分流后，创建任务会自动调用 JEV；需要本人确认的任务可调用 `POST /api/tasks/{task_id}/approve`，批准后状态变为 `planned`。当前任务路由和审批已经可用，具体岗位 Agent 的自动绑定与执行器仍需后续接入。
 
 ## 工作流
 
@@ -220,6 +240,8 @@ ruff check src tests
 mypy src/openagentic
 cd ui && npm run build
 ```
+
+Docker smoke test 还需要本机 Docker daemon 和可拉取的 `pgvector/pgvector:pg16` 镜像；没有 Docker 时，其余单元测试仍可运行。
 
 测试默认需要开发依赖；涉及数据库或 API 的测试还需要可用的测试配置。代码结构和提交约定见 [CONTRIBUTING.md](CONTRIBUTING.md)。架构迁移请先阅读 [docs/ADR-001-multi-adapter-foundation.md](docs/ADR-001-multi-adapter-foundation.md)。
 

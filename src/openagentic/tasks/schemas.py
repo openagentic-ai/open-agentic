@@ -30,6 +30,7 @@ class TaskResponse(BaseModel):
     due_at: datetime | None
     next_run_at: datetime | None
     blocked_reason: str | None
+    metadata_json: dict
     created_at: datetime
     updated_at: datetime
 

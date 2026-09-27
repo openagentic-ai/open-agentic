@@ -7,6 +7,7 @@ def test_task_lifecycle_allows_pause_and_retry():
     assert can_transition(TaskStatus.RUNNING, TaskStatus.WAITING_USER)
     assert can_transition(TaskStatus.WAITING_USER, TaskStatus.RUNNING)
     assert can_transition(TaskStatus.FAILED, TaskStatus.PLANNED)
+    assert can_transition(TaskStatus.WAITING_USER, TaskStatus.PLANNED)
 
 
 def test_terminal_tasks_cannot_restart():

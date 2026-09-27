@@ -5,13 +5,14 @@ System-1 门面——RLCD 判定模型（Jev）在循环里的三个介入点。
 System-1 = RLCD 训练的非自回归判定模型：**只做封闭选项判断、给校准概率、不生成文本**。
 所以 `feedback` 必须从 `choice` 标签**合成**，不能让模型写——这是 RLCD 的硬约束。
 
-三个判定各自独立开关：
+几个判定各自独立开关：
 
 | 函数 | 问题类型 | 用途 | 默认 |
 |---|---|---|---|
 | `verify_output` | `noul` + `choice` | 验证/打分 | 开 |
 | `route_message` | `choice` | 判断/路由 | 关（多一次调用 = +1s） |
 | `judge_sufficient` | `noul` | 信息够不够 | 关（引擎层暂无检索） |
+| `route_task` | `choice` | AI 员工任务分流 | 由调用方按需调用 |
 
 Jev 未配置 / 返回空 / 抛异常一律返回 None，调用方回落原有流程——
 **判定失败绝不阻塞主流程**。
@@ -53,6 +54,35 @@ class VerifyVerdict:
     score: float
     feedback: str           # 给人看的判定说明
     feedback_prompt: str    # 回注给 System-2 的提示行；通过时为空
+
+
+@dataclass(frozen=True)
+class TaskRoute:
+    """AI 员工任务分流结果。
+
+    这些字段是稳定的机器标识，展示层再把它们翻译成中文名称。
+    JEV 只提供判断，不能据此绕过权限或替本人做最终决策。
+    """
+
+    department: str
+    role: str
+    task_type: str
+    priority: str
+    risk: str
+    needs_human_decision: bool
+    confidence: float | None = None
+
+    def as_dict(self) -> dict[str, object]:
+        """转成可写入 Task.metadata_json 的普通字典。"""
+        return {
+            "department": self.department,
+            "role": self.role,
+            "task_type": self.task_type,
+            "priority": self.priority,
+            "risk": self.risk,
+            "needs_human_decision": self.needs_human_decision,
+            "confidence": self.confidence,
+        }
 
 
 # --- 分级触发（纯函数）------------------------------------------------
@@ -167,6 +197,138 @@ async def route_message(text: str, *, jev: Any = _UNSET) -> str | None:
         return None
     route = (answers.get("route") or {}).get("choice")
     return str(route) if route else None
+
+
+# --- AI 员工任务分流 ---------------------------------------------------
+
+_TASK_DEPARTMENTS = {
+    "delivery": "项目交付部",
+    "engineering": "产品与工程部",
+    "commercial_knowledge": "商业验证与知识资产部",
+    "human_decision": "本人决策",
+    "temporary": "一次性任务",
+}
+_TASK_ROLES = {
+    "business_analyst": "业务落地分析师",
+    "delivery_risk": "交付推进与风险员",
+    "acceptance_retro": "交付验收与复盘员",
+    "ai_engineer": "AI 系统工程师",
+    "integration_ops": "集成运维工程师",
+    "quality_review": "技术质量审查员",
+    "customer_validation": "客户问题验证员",
+    "productization": "方案产品化员",
+    "knowledge_editor": "知识资产编辑",
+    "human_decision": "本人决定",
+    "temporary_task": "临时工单",
+}
+_TASK_TYPES = {
+    "recurring": "长期重复工作",
+    "one_off": "一次性任务",
+    "project": "项目任务",
+    "decision": "本人决策",
+}
+_TASK_PRIORITIES = {"P0", "P1", "P2", "P3"}
+_TASK_RISKS = {"low", "medium", "high"}
+
+
+def _choice_value(answers: dict, key: str, allowed: set[str]) -> str | None:
+    value = (answers.get(key) or {}).get("choice")
+    return str(value) if value in allowed else None
+
+
+def _min_confidence(answers: dict) -> float | None:
+    values: list[float] = []
+    for answer in answers.values():
+        confidence = (answer or {}).get("confidence")
+        if isinstance(confidence, (int, float)):
+            values.append(max(0.0, min(1.0, float(confidence))))
+    return min(values) if values else None
+
+
+async def route_task(
+    title: str,
+    description: str = "",
+    *,
+    jev: Any = _UNSET,
+) -> TaskRoute | None:
+    """把任务分到部门和岗位。
+
+    这是一个可选的前置判断器：JEV 未配置、调用失败或返回非法选项时都返回
+    None，由调用方使用规则或原有流程继续执行，绝不阻塞主链路。
+    """
+    title = title.strip()
+    if not title:
+        return None
+
+    answers = await _ask(
+        {"title": title, "description": description or ""},
+        {
+            "department": {
+                "type": "choice",
+                "instructions": "选择最适合长期承接这项任务的部门。一次性任务不要创建长期岗位。",
+                "criteria": _TASK_DEPARTMENTS,
+            },
+            "role": {
+                "type": "choice",
+                "instructions": "选择最适合执行这项任务的岗位。需要本人拍板时选择 human_decision。",
+                "criteria": _TASK_ROLES,
+            },
+            "task_type": {
+                "type": "choice",
+                "instructions": "判断这是长期重复工作、一次性任务、项目任务还是本人决策。",
+                "criteria": _TASK_TYPES,
+            },
+            "priority": {
+                "type": "choice",
+                "instructions": "判断任务优先级。P0 影响生产或客户，P1 影响本周目标，P2 普通推进，P3 可延后。",
+                "criteria": {
+                    "P0": "影响生产、客户或安全，必须优先处理",
+                    "P1": "影响本周目标或关键交付",
+                    "P2": "普通推进任务",
+                    "P3": "可以延后的整理或优化",
+                },
+            },
+            "risk": {
+                "type": "choice",
+                "instructions": "判断执行风险，涉及敏感数据、对外承诺或不可逆操作时选 high。",
+                "criteria": {
+                    "low": "可逆、无敏感数据、无对外承诺",
+                    "medium": "可能影响项目质量或需要多个系统协作",
+                    "high": "涉及敏感数据、生产环境、法律责任或不可逆操作",
+                },
+            },
+            "needs_human_decision": {
+                "type": "choice",
+                "instructions": "判断是否必须由本人做最终决定。",
+                "criteria": {
+                    "yes": "涉及方向、客户、报价、合同、合规或投入取舍",
+                    "no": "已有明确目标和边界，岗位可以执行",
+                },
+            },
+        },
+        jev,
+    )
+    if not isinstance(answers, dict):
+        return None
+
+    department = _choice_value(answers, "department", set(_TASK_DEPARTMENTS))
+    role = _choice_value(answers, "role", set(_TASK_ROLES))
+    task_type = _choice_value(answers, "task_type", set(_TASK_TYPES))
+    priority = _choice_value(answers, "priority", _TASK_PRIORITIES)
+    risk = _choice_value(answers, "risk", _TASK_RISKS)
+    human_choice = _choice_value(answers, "needs_human_decision", {"yes", "no"})
+    if not all((department, role, task_type, priority, risk, human_choice)):
+        return None
+
+    return TaskRoute(
+        department=department,
+        role=role,
+        task_type=task_type,
+        priority=priority,
+        risk=risk,
+        needs_human_decision=human_choice == "yes",
+        confidence=_min_confidence(answers),
+    )
 
 
 # --- 判定三：信息够不够 -----------------------------------------------

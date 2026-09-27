@@ -115,6 +115,41 @@ async def test_route_returns_none_when_absent():
     assert await s1.route_message("x", jev=None) is None
 
 
+# --- AI 员工任务分流 ---------------------------------------------------
+
+TASK_ANSWERS = {
+    "department": {"type": "choice", "choice": "engineering", "confidence": 0.91},
+    "role": {"type": "choice", "choice": "integration_ops", "confidence": 0.89},
+    "task_type": {"type": "choice", "choice": "recurring", "confidence": 0.86},
+    "priority": {"type": "choice", "choice": "P1", "confidence": 0.83},
+    "risk": {"type": "choice", "choice": "medium", "confidence": 0.88},
+    "needs_human_decision": {"type": "choice", "choice": "no", "confidence": 0.94},
+}
+
+
+async def test_route_task_returns_structured_employee_route():
+    route = await s1.route_task("排查消息发送失败", "Claudian 发消息没有送达", jev=_FakeJev(TASK_ANSWERS))
+    assert route is not None
+    assert route.department == "engineering"
+    assert route.role == "integration_ops"
+    assert route.task_type == "recurring"
+    assert route.priority == "P1"
+    assert route.risk == "medium"
+    assert route.needs_human_decision is False
+    assert route.confidence == pytest.approx(0.83)
+    assert route.as_dict()["role"] == "integration_ops"
+
+
+async def test_route_task_fails_open_when_jev_absent():
+    assert await s1.route_task("整理周报", jev=None) is None
+
+
+async def test_route_task_fails_open_on_invalid_choice():
+    answers = dict(TASK_ANSWERS)
+    answers["priority"] = {"type": "choice", "choice": "urgent"}
+    assert await s1.route_task("整理周报", jev=_FakeJev(answers)) is None
+
+
 # --- 信息够不够 -------------------------------------------------------
 
 async def test_sufficiency_true_when_enough():

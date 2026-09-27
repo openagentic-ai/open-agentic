@@ -15,6 +15,8 @@ from openagentic.control_plane.config import (
     load_control_plane_config,
 )
 from openagentic.control_plane.policy import escalation_target, gate_category
+from openagentic.control_plane.system1 import TaskRoute, route_task
+from openagentic.control_plane.employee_registry import EmployeeRole, ROLE_REGISTRY, get_employee_role
 
 __all__ = [
     "ControlPlaneConfig",
@@ -23,4 +25,9 @@ __all__ = [
     "load_control_plane_config",
     "escalation_target",
     "gate_category",
+    "TaskRoute",
+    "route_task",
+    "EmployeeRole",
+    "ROLE_REGISTRY",
+    "get_employee_role",
 ]
