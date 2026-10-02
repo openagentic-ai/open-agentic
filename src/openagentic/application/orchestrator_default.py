@@ -101,7 +101,7 @@ class DefaultOrchestrator:
 
         return _dispatch
 
-    async def _inject_memory(self, messages: list[dict], user_text: str) -> None:
+    async def _inject_memory(self, messages: list[dict], user_text: str, user_id: str) -> None:
         """复用 MemoryManager 注入 episodic/procedural 上下文。失败仅 warning。"""
         if not self._enable_memory:
             return
@@ -114,7 +114,8 @@ class DefaultOrchestrator:
             return
 
         try:
-            ctx = await prepare_context(user_text)
+            from openagentic.memory.manager import MemoryManager
+            ctx = await prepare_context(user_text, memory=MemoryManager.for_user(user_id))
             if ctx:
                 messages.insert(1, {"role": "system", "content": ctx})
         except Exception as exc:
@@ -137,7 +138,7 @@ class DefaultOrchestrator:
                 {"role": "system", "content": self._system_prompt},
                 *history[-MAX_HISTORY:],
             ]
-            await self._inject_memory(messages, user_text)
+            await self._inject_memory(messages, user_text, session.user_id)
             messages.append({"role": "user", "content": user_text})
 
             # ── 构造 engine + queue + hooks ─────────────────────────────

@@ -1,32 +1,64 @@
 # OpenAgentic
 
+OpenAgentic 要做 AI 时代的阿里巴巴，我们也是平台。我们希望任何用户的 AI 助手都能来找商家、办事，商家也能同时接待不同 AI 带来的客户。但开放本身不足以赢过阿里：我们先通过地推做透一个区域、一个细分行业，从商家的现有客户切入，证明能给商家带来订单、降低接单成本，让用户用过之后愿意再来，再逐步扩大商家网络。具体试点行业和区域尚待确定。
+
 OpenAgentic 是一个开源的 Agent 平台，提供统一的模型配置、对话、工具调用、记忆、知识库、工作流和多入口接入能力。当前仓库包含 FastAPI 服务端、终端 ReAct CLI、React Web UI、Android 客户端、飞书渠道和本地优先个人助手验证原型。
 
-项目仍在快速迭代中。下面的状态以仓库当前代码为准（2026-09-27）；规划中的客户端和能力不会标记为已上线。
+2026-10-03，V0.1、V0.2、V1.0 三个商业版本的本地工程能力已实现并集中验收；当前为 V1.0 本地候选版。通用 Agent 底座与商业应用分开维护。真实商家验证、真实 SaaS/支付联调和生产部署验收仍需实际环境完成。
+
+项目仍在快速迭代中。商业能力状态已于 2026-10-03 更新，其他端的状态以已有仓库记录为准；规划中的客户端和能力不会标记为已上线。
 
 | 资源 | 链接 |
 | --- | --- |
 | 仓库 | [github.com/openagentic-ai/open-agentic](https://github.com/openagentic-ai/open-agentic) |
 | 许可证 | [Apache License 2.0](LICENSE) |
+| 产品定位与商业验证 | [docs/product-strategy.md](docs/product-strategy.md) |
+| 商业平台实施计划 | [docs/plans/commerce-platform.md](docs/plans/commerce-platform.md) |
+| 商家工作台与离线体验 | [docs/merchant-workspace.md](docs/merchant-workspace.md) |
+| 第四层 Obsidian 流程记忆 | [docs/obsidian-memory.md](docs/obsidian-memory.md) |
+| 底座与商业应用分离 | [docs/commerce-architecture.md](docs/commerce-architecture.md) |
 | 架构决策 | [docs/ADR-001-multi-adapter-foundation.md](docs/ADR-001-multi-adapter-foundation.md) |
 | 个人助手说明 | [docs/personal-agent.md](docs/personal-agent.md) |
 | AI 员工任务分流 | [docs/ai-employee-routing.md](docs/ai-employee-routing.md) |
+
+## 三个商业版本
+
+这些版本是商业应用的交付里程碑，与通用底座包版本分别管理。三个版本的能力在当前代码中一起提供。
+
+| 版本 | 已实现能力 |
+| --- | --- |
+| V0.1：服务闭环 | 商家开店、服务发布、公开店铺、用户确认预约、接单与履约、查询/取消、幂等防重复；第四层 Obsidian 兼容流程记忆 |
+| V0.2：开放接入 | 跨商家服务查询、限时报价与用户确认、第三方 Agent 客户端、授权范围/有效期/撤销/审计、离线二维码、SaaS 目录导入更新、通用商家契约适配器 |
+| V1.0：本地运营候选版 | 订单/复购/客户来源与人工投入记录、运营权限、模拟收费策略/账单/支付/退款、售后处理与关闭、持久化商家系统投递记录和失败重试 |
+
+当前“找服务”页面使用本地工具模式；商业 Agent 装配复用已有 ConversationEngine，模型执行须显式配置。标准 API 默认关闭支付，本地示例显式启用模拟支付，金额不代表真实扣款、收入或结算。预约时间仍由商家确认，没有自动锁定时段。真实 SaaS 厂商、支付服务商、手机扫码和运行中的 PostgreSQL 验收见 [交付说明](docs/merchant-workspace.md)。
+
+2026-10-03 集中验收：**99 项相关测试通过**，前端生产构建通过；商业模块及相关认证/记忆模块的 Ruff、mypy 检查通过；三次商业增量迁移的 PostgreSQL 离线 SQL 生成通过。测试覆盖账号和商家隔离、Agent 授权与确认、报价变更/过期/重试、订单状态、目录导入、系统投递恢复、模拟支付退款、售后、运营范围和四层记忆检索。二维码通过 macOS Vision 独立解码；本地预览通过页面/API/静态资源与重启持久化检查。本次实现与验收没有访问外部网络。
+
+四项商业验证继续保留，工程完成不能代替真实证据：
+
+- 能否找到愿意让团队接触实际经营流程的商家。
+- 能否带来订单，或明显减少接单和服务成本。
+- 用户办成一次事以后，是否愿意再次使用。
+- 减少创始人亲自介入后，这些效果是否继续成立。
 
 ## 当前状态
 
 | 部分 | 状态 | 说明 |
 | --- | --- | --- |
+| 商业应用 V0.1 / V0.2 / V1.0 | 本地集中验收通过（2026-10-03） | 店铺与预约、Agent 查询/报价/授权、目录接入、运营与模拟账单/退款/售后/投递重试已实现 |
+| Obsidian 兼容流程记忆 | 本地验证通过（2026-10-03） | `/memories` 管理第四层；Markdown、属性、链接与反向链接；REST 与共同底座检索按用户隔离，旧渠道迁移待做 |
 | FastAPI API | 可用 | 认证、对话、Agent、工作流、知识库、记忆、Skills、任务等路由已装配 |
 | JEV 控制面 | 可选 | 支持输出验收、路由、检索充分性和 AI 员工任务分流；未配置时自动回退 |
 | AI 员工任务分流 | 可用（需开启） | 新任务可写入部门、岗位、优先级、风险和审批状态；岗位 Agent 自动执行仍在接入 |
-| PostgreSQL + pgvector | 可用 | Docker Compose 提供 `pgvector/pgvector:pg16`；生产环境使用 Alembic 迁移 |
+| PostgreSQL + pgvector | 部署配置已提供 | Docker Compose 使用 `pgvector/pgvector:pg16`；本次仅验收迁移离线 SQL，生产部署需执行 Alembic |
 | 对话 SSE | 可用 | `POST /api/conversations/{id}/messages` 设置 `stream=true` |
 | Client Gateway REST | 可用 | `/api/client/sessions` 支持 Android/Web 创建会话、历史和非流式发送 |
 | Client Gateway WebSocket | 未完成 | `src/openagentic/gateway/ws.py` 目前只有协议占位，应用暂未挂载 WebSocket 路由 |
 | 飞书 | 可用 | `extensions/channels/feishu.py`，可通过 systemd 独立运行 |
 | 企业微信 | 骨架 | 验签、解密和路由代码存在，生产消息链路尚未验证 |
 | `extensions/adapters/` | 骨架 | 新 Adapter 协议和注册表已建立，现有飞书生产进程仍使用 `extensions/channels/` |
-| Web UI | 开发中 | React 页面和 API 客户端存在，端到端实时对话仍需接通真实 Gateway |
+| Web UI | 商业页面已验证，通用聊天开发中 | 商业 UI 位于 `ui/src/apps/commerce/`；原有通用实时对话仍需接通 Gateway |
 | Android | 开发中 | Kotlin/Compose 客户端已迁移到 Gateway REST；默认模型由服务端配置 |
 | 本地模型调度器 | 可用 | `extensions/modeld/` 提供显存预检、健康探测和 Xinference 拉起 |
 | 钉钉、小程序、iOS、桌面 | 未开始/暂不做 | 见 [docs/plans/todo.md](docs/plans/todo.md) |
@@ -43,7 +75,7 @@ OpenAgentic 是一个开源的 Agent 平台，提供统一的模型配置、对�
         ├── HTTP: /api/*、/api/client/*
         └── 未来：WebSocket ReplyEvent 流
         │
-应用层 src/openagentic/application/
+共享编排底座 src/openagentic/application/
 └── Session / Identity / Intent / ToolRegistry / Orchestrator
         │
 控制面
@@ -54,18 +86,46 @@ OpenAgentic 是一个开源的 Agent 平台，提供统一的模型配置、对�
 ├── agent       LLM 对话和工具循环
 ├── workflow    DAG 校验、执行、暂停和恢复
 ├── knowledge   文档、分块、向量检索
-├── memory      Core / Episodic / Procedural 记忆
+├── memory      Working / Core / Episodic / Procedural（Obsidian Vault）
 ├── skills      SKILL.md 加载和管理
         │
 基础设施
 └── db / llm / concurrency / observability / tools
 ```
 
-入口层共用应用层编排。应用层通过 `ReplyEvent` 表达 `thinking`、`tool_call`、`tool_result`、`final` 和 `error` 等事件；各客户端负责渲染。当前真正接入生产的是飞书渠道和 Client Gateway REST，流式 WebSocket 仍在实现中。
+通用入口复用共享编排底座。底座通过 `ReplyEvent` 表达 `thinking`、`tool_call`、`tool_result`、`final` 和 `error` 等事件；各客户端负责渲染。当前真正接入生产的是飞书渠道和 Client Gateway REST，流式 WebSocket 仍在实现中。
 
 JEV 控制面位于应用编排和任务收件之间：它只做封闭选项判断，不生成长文本，也不直接执行工具。任务分流结果写入 `metadata_json.routing`，岗位注册信息写入 `metadata_json.employee`；高风险或需要本人决定的任务进入 `waiting_user`，通过审批接口后才进入 `planned`。
 
+商业应用有独立装配入口 `src/openagentic/apps/commerce.py`。`merchants/`、`catalog/`、`commerce/`、`integrations/` 持有商业规则；`ui/src/apps/commerce/` 持有商业页面。业务通过通用 ToolRegistry、ConversationEngine、记忆与数据库接口调用底座，底座不反向导入业务模块。REST 与 Agent 共用服务层中的查询和预约规则，分层检查纳入测试。
+
+仅运行底座可设置 `OPENAGENTIC_COMMERCE_ENABLED=0`，关闭商业路由并保留认证、Agent、记忆等通用接口；不会删除商业数据。详见 [底座与应用分离](docs/commerce-architecture.md)。
+
 ## 快速启动
+
+### 离线体验三个版本
+
+已有本地开发依赖和前端依赖时，从项目根目录执行：
+
+```bash
+npm --prefix ui run build
+PYTHONPATH=src .venv/bin/python scripts/run_merchant_demo.py
+```
+
+打开 [本地商家工作台](http://127.0.0.1:8766/merchants)。该服务使用独立 SQLite，数据保存在 `data/merchant-demo/`，不调用模型或外部服务，只监听本机地址。
+
+| 页面 | 用途 |
+| --- | --- |
+| `/merchants` | 开店、发布服务、二维码、目录导入、接单履约和系统投递 |
+| `/stores/:merchantId` | 公开店铺，客户查看服务并申请预约 |
+| `/agent-commerce` | 查询跨商家服务并准备报价（本地工具模式） |
+| `/quotes/:quoteId` | 用户确认报价、时间和联系信息，再提交预约 |
+| `/orders` | 买家订单、模拟支付/退款与售后 |
+| `/connections` | Agent 授权、撤销和调用记录 |
+| `/operations` | 订单、复购、客户来源、人工投入和模拟账单 |
+| `/memories` | 第四层 Obsidian 兼容流程记忆 |
+
+商家先发布服务，客户使用自己的账号确认预约，再由商家接单履约。Agent 授权令牌只允许查询、准备报价和查询自己的订单；不能代替用户确认下单或付款。平台运营账号通过 `OPENAGENTIC_OPERATOR_IDS` 显式配置，普通用户只访问自己管理的店铺。完整体验步骤、接入契约与边界见 [交付说明](docs/merchant-workspace.md)。
 
 ### 安装
 
@@ -173,7 +233,7 @@ PYTHONPATH=src .venv/bin/python scripts/run_personal_demo.py
 
 ## HTTP API 概览
 
-除健康检查和模型/provider 读取接口外，大多数业务接口要求 JWT。先注册或登录获取 token：
+健康检查、模型/provider 读取和公开店铺/已发布服务查询无需登录；商家管理、记忆等业务接口要求 JWT。先注册或登录获取 token：
 
 ```bash
 curl -X POST http://localhost:8000/api/auth/register \
@@ -185,6 +245,12 @@ curl -X POST http://localhost:8000/api/auth/register \
 
 | 功能 | 路径 |
 | --- | --- |
+| 买家预约订单与取消 | `/api/orders/*` |
+| 商家订单与状态更新 | `/api/merchants/{id}/orders/*` |
+| 商家组织、店铺管理 | `/api/merchants/*` |
+| 商家私有服务管理 | `/api/merchants/{id}/services/*` |
+| 公开店铺与已发布服务发现 | `/api/catalog/storefronts/*`、`/api/catalog/services` |
+| 当前用户第四层 Vault | `/api/memory/vault/*` |
 | 注册、登录、刷新、当前用户 | `/api/auth/*` |
 | 对话和消息（含 SSE） | `/api/conversations/*` |
 | Client Gateway 会话 REST | `/api/client/sessions/*` |

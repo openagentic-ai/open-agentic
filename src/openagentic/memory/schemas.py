@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Annotated, Literal
+
 from pydantic import BaseModel, Field
 
+CoreCategory = Literal["user_profile", "project_fact", "preference", "reference"]
 
 # -- Core Memory -----------------------------------------------------------
 
@@ -44,10 +47,14 @@ class EpisodeResponse(BaseModel):
 # -- Procedural Memory -----------------------------------------------------
 
 class ProcedureCreate(BaseModel):
-    name: str = Field(..., max_length=128, description="步骤名称")
-    description: str = Field(..., description="步骤描述")
-    trigger_pattern: str = Field("", description="触发条件关键词")
-    steps: list[str] = Field(..., min_length=1, description="步骤列表")
+    model_config = {"str_strip_whitespace": True}
+
+    name: str = Field(..., min_length=1, max_length=128, description="步骤名称")
+    description: str = Field(..., max_length=3000, description="步骤描述")
+    trigger_pattern: str = Field("", max_length=200, description="触发条件关键词")
+    steps: list[Annotated[str, Field(min_length=1, max_length=1000)]] = Field(
+        ..., min_length=1, max_length=100, description="步骤列表",
+    )
 
 
 class ProcedureResponse(BaseModel):

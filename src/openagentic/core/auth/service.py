@@ -3,6 +3,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import bcrypt
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy import select
@@ -11,7 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openagentic.config import SETTINGS
 from openagentic.core.auth.models import User
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# New hashes support the existing 128-character password contract, including CJK.
+# Legacy bcrypt verification bypasses Passlib's incompatible backend probe.
+pwd_context = CryptContext(
+    schemes=["pbkdf2_sha256"], pbkdf2_sha256__default_rounds=600_000,
+)
 
 
 def hash_password(password: str) -> str:
@@ -19,7 +24,13 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    try:
+        if hashed.startswith(("$2a$", "$2b$", "$2y$")):
+            # Preserve historical bcrypt's 72-byte limit for existing accounts.
+            return bcrypt.checkpw(plain.encode("utf-8")[:72], hashed.encode("ascii"))
+        return pwd_context.verify(plain, hashed)
+    except (ValueError, TypeError, UnicodeError):
+        return False
 
 
 def create_access_token(user_id: str) -> tuple[str, int]:
@@ -29,6 +40,7 @@ def create_access_token(user_id: str) -> tuple[str, int]:
         "sub": user_id,
         "exp": expire,
         "iat": datetime.now(timezone.utc),
+        "type": "access",
         "jti": str(uuid.uuid4()),
     }
     token = jwt.encode(payload, SETTINGS.JWT_SECRET_KEY, algorithm=SETTINGS.JWT_ALGORITHM)

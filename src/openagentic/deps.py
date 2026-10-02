@@ -30,15 +30,18 @@ async def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
     payload = decode_token(credentials.credentials)
-    if not payload:
+    if not payload or payload.get("type", "access") != "access":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
     user_id = payload.get("sub")
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
-    # 注意：这里会把 token 中的 sub 转为 UUID，再做数据库存在性校验。
-    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
+    try:
+        identity = uuid.UUID(user_id)
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(401, "Invalid token") from None
+    result = await db.execute(select(User).where(User.id == identity))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
@@ -57,10 +60,14 @@ async def get_current_user_optional(
     if not credentials:
         return None
     payload = decode_token(credentials.credentials)
-    if not payload:
+    if not payload or payload.get("type", "access") != "access":
         return None
     user_id = payload.get("sub")
     if not user_id:
         return None
-    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
+    try:
+        identity = uuid.UUID(user_id)
+    except (ValueError, TypeError, AttributeError):
+        return None
+    result = await db.execute(select(User).where(User.id == identity))
     return result.scalar_one_or_none()

@@ -1,0 +1,96 @@
+.commerce { min-height: 100vh; background: #f5f6f1; color: #20352e; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color-scheme: light; }
+.commerce-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 22px max(24px, calc((100vw - 1180px) / 2)); border-bottom: 1px solid #dde3db; background: #fff; }
+.commerce-brand { display: flex; flex-shrink: 0; align-items: center; gap: 9px; font-size: 20px; font-weight: 750; text-decoration: none; color: #174e38; }
+.commerce-brand span { font-size: 12px; font-weight: 400; padding-left: 10px; border-left: 1px solid #dce3da; color: #66766c; }
+.commerce-header nav { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 20px; align-items: center; font-size: 13px; }
+.commerce-header nav a { display: inline-flex; gap: 4px; align-items: center; text-decoration: none; }
+.commerce-main { max-width: 1180px; margin: auto; padding: 48px 24px 64px; }
+.commerce-footer { max-width: 1180px; margin: auto; padding: 24px; border-top: 1px solid #dde3db; color: #718076; font-size: 12px; }
+.commerce h1 { font-size: clamp(28px, 4vw, 42px); font-weight: 650; line-height: 1.3; letter-spacing: -1px; margin: 10px 0 14px; }
+.commerce h2 { font-size: 20px; font-weight: 650; margin: 0 0 12px; }
+.commerce h3 { font-size: 16px; font-weight: 600; margin: 0 0 10px; }
+.commerce p { line-height: 1.75; margin: 8px 0 16px; }
+.commerce .eyebrow { font-size: 11px; color: #648074; letter-spacing: 1.6px; font-weight: 650; margin: 0 0 14px; }
+.commerce .lead { font-size: 15px; color: #6b786f; max-width: 650px; }
+.commerce .muted { color: #758176; font-size: 13px; }
+.commerce .page-heading { display: flex; justify-content: space-between; gap: 24px; align-items: center; margin-bottom: 32px; }
+.commerce-card { border: 1px solid #dfe5db; background: white; border-radius: 16px; padding: 26px; }
+.commerce .primary, .commerce .secondary, .commerce .quiet { display: inline-flex; justify-content: center; align-items: center; gap: 7px; cursor: pointer; font-size: 13px; font-weight: 550; border-radius: 8px; min-height: 42px; padding: 10px 16px; text-decoration: none; }
+.commerce .primary { background: #174e38; border: 1px solid #174e38; color: #fff; }
+.commerce .primary:hover { background: #236346; }
+.commerce .secondary { color: #174e38; border: 1px solid #d8e3d8; background: #f4f8f3; }
+.commerce .quiet { color: #42634e; background: transparent; border: 1px solid transparent; padding-left: 8px; padding-right: 8px; }
+.commerce .quiet:hover { background: #edf3eb; }
+.commerce button:disabled { opacity: .5; cursor: wait; }
+.commerce button:focus-visible, .commerce a:focus-visible { outline: 2px solid #347c52; outline-offset: 3px; }
+.commerce-field { display: flex; flex-direction: column; gap: 8px; font-size: 13px; margin-bottom: 18px; }
+.commerce input:not([type=checkbox]), .commerce textarea, .commerce select { width: 100%; border: 1px solid #d6dfd3; border-radius: 8px; padding: 11px 12px; font: inherit; color: #20352e; background: #fff; min-width: 0; }
+.commerce input:focus, .commerce textarea:focus, .commerce select:focus { outline: 2px solid #acc8ad; outline-offset: 1px; }
+.commerce textarea { resize: vertical; }
+.commerce-field small { color: #778478; font-size: 12px; }
+.commerce .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; }
+.commerce .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.commerce .workspace-grid { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 28px; align-items: start; }
+.commerce .store-summary p { overflow-wrap: anywhere; }
+.commerce .share-block { border-top: 1px solid #e5eadf; padding-top: 22px; margin-top: 26px; }
+.commerce .share-block input { font-size: 12px; background: #f8faf6; }
+.commerce .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.commerce .section-heading h2, .commerce .section-heading h3, .commerce .section-heading p { margin-bottom: 0; }
+.commerce .count { display: inline-block; padding: 3px 8px; font-size: 12px; border-radius: 6px; background: #e6eddc; margin-left: 5px; }
+.commerce .service-list { display: grid; gap: 14px; }
+.commerce .service-description { white-space: pre-wrap; overflow-wrap: anywhere; }
+.commerce .service-meta { display: flex; gap: 22px; align-items: center; margin: 18px 0; }
+.commerce .service-meta strong { font-size: 22px; color: #174e38; }
+.commerce .service-meta span, .commerce .icon-line { display: flex; gap: 5px; align-items: center; font-size: 13px; color: #718076; }
+.commerce .badge { padding: 4px 10px; font-size: 11px; border-radius: 6px; background: #eef0e9; color: #77816f; white-space: nowrap; }
+.commerce .badge.published { background: #e7f2e8; color: #2f7340; }
+.commerce .editor { margin-bottom: 24px; }
+.commerce .checkbox-field { display: flex; gap: 9px; align-items: center; font-size: 13px; margin: 12px 0 24px; }
+.commerce .commerce-error { background: #fff0ea; color: #9d3f29; padding: 14px 18px; border-radius: 8px; margin-bottom: 20px; }
+.commerce .commerce-notice { display: flex; align-items: center; gap: 8px; color: #337a46; font-size: 13px; }
+.commerce .empty-state { text-align: center; padding: 48px 24px; color: #6a7d6e; }
+.commerce .empty-state svg { margin: 0 auto 14px; }
+.commerce .auth-layout { display: grid; grid-template-columns: 1fr 380px; align-items: center; gap: 80px; padding: 65px 0; }
+.commerce .auth-card { display: flex; flex-direction: column; }
+.commerce .auth-card h2 { margin-bottom: 24px; }
+.commerce .auth-card .quiet { margin-top: 12px; }
+.commerce .onboarding-steps { display: flex; flex-wrap: wrap; gap: 18px; font-size: 12px; color: #6c806e; margin-top: 40px; }
+.commerce .storefront-hero { padding: 22px 0 38px; border-bottom: 1px solid #dde3db; margin-bottom: 32px; }
+.commerce .storefront-services { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.commerce .storefront-note { text-align: center; margin-top: 36px; color: #7a877c; font-size: 13px; }
+.commerce .memory-tiers { display: flex; flex-wrap: wrap; gap: 14px; color: #7c897d; font-size: 12px; margin-bottom: 30px; }
+.commerce .memory-tiers strong { color: #235a3e; }
+.commerce .orders-panel { margin-top: 32px; }
+.commerce .booking-layout { max-width: 720px; margin: auto; }
+.commerce .search-form { display: flex; gap: 6px; }
+.commerce .note-list { display: grid; gap: 6px; margin-top: 20px; }
+.commerce .note-item { display: flex; align-items: start; gap: 8px; padding: 12px; border-radius: 8px; text-align: left; font-size: 13px; background: #f6f8f2; }
+.commerce .note-item.active { background: #e9f1e3; }
+.commerce .note-item small { display: block; color: #84917f; font-size: 11px; overflow-wrap: anywhere; }
+.commerce .vault-path { display: block; font-size: 11px; overflow-wrap: anywhere; color: #5a755c; }
+.commerce .note-detail pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; font-size: 14px; line-height: 1.9; margin: 25px 0; }
+.commerce .note-detail h3 { margin-top: 24px; }
+.commerce .note-detail dl > div { display: grid; grid-template-columns: 130px 1fr; gap: 10px; border-bottom: 1px solid #edf1e8; padding: 8px 0; font-size: 12px; }
+.commerce .note-detail dd { overflow-wrap: anywhere; color: #74816e; }
+@media (max-width: 760px) {
+  .commerce-header { padding: 16px; flex-wrap: wrap; gap: 12px; }
+  .commerce-header nav { gap: 12px; font-size: 12px; flex-wrap: wrap; }
+  .commerce-brand span { display: none; }
+  .commerce-main { padding: 28px 16px 48px; }
+  .commerce .page-heading { align-items: start; flex-direction: column; gap: 10px; }
+  .commerce .workspace-grid, .commerce .auth-layout, .commerce .storefront-services { grid-template-columns: 1fr; gap: 20px; }
+  .commerce .auth-layout { padding: 12px 0; }
+  .commerce-card { padding: 20px; }
+  .commerce .form-grid { grid-template-columns: 1fr; gap: 0; }
+  .commerce .section-heading { flex-wrap: wrap; }
+  .commerce .onboarding-steps { margin-top: 24px; margin-bottom: 16px; }
+}
+
+.commerce .store-qr { width: 210px; max-width: 100%; margin: 16px auto; image-rendering: pixelated; }
+.commerce details { margin-top: 24px; }
+.commerce summary { cursor: pointer; font-weight: 600; margin-bottom: 16px; }
+.commerce .aftercare { margin-top: 20px; padding-top: 16px; border-top: 1px solid #dde3db; }
+.commerce .aftercare form, .commerce .case-record { margin-top: 20px; padding-top: 16px; border-top: 1px solid #dde3db; }
+.commerce .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(240px,1fr)); gap: 16px; margin: 24px 0; }
+.commerce .metrics-grid p { font-size: 14px; }
+.commerce .share-block p { overflow-wrap: anywhere; }

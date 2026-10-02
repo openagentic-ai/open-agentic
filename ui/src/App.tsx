@@ -13,6 +13,9 @@ import { SessionsPage } from './pages/SessionsPage'
 import { KnowledgeBasePage } from './pages/KnowledgeBasePage'
 import { useAppStore } from './store/appStore'
 
+
+import { commerceRoutes } from './apps/commerce/routes'
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -65,6 +68,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Routes>
+          {commerceRoutes()}
           <Route path="/" element={<AppLayout />} />
           <Route path="/canvas" element={<CanvasPage />} />
           <Route path="/devices" element={<DevicesPage />} />

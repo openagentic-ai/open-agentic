@@ -17,6 +17,12 @@ from openagentic.agent.models import Agent, AgentExecution  # noqa: F401
 from openagentic.workflow.models import Workflow, WorkflowExecution  # noqa: F401
 from openagentic.knowledge.models import KnowledgeBase, Document, Chunk  # noqa: F401
 from openagentic.channels.models import ChannelConfig, UserChannelBinding  # noqa: F401
+from openagentic.tasks.models import Task  # noqa: F401
+from openagentic.merchants.models import Merchant, MerchantMember  # noqa: F401
+from openagentic.catalog.models import ServiceOffering  # noqa: F401
+from openagentic.commerce.models import BookingOrder  # noqa: F401
+
+from openagentic.commerce.platform_models import PLATFORM_MODELS  # noqa: F401
 
 config = context.config
 database_url = os.getenv("DATABASE_URL", "").strip()

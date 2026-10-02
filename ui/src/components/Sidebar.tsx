@@ -10,7 +10,9 @@ import {
   Layout,
   Smartphone,
   Puzzle,
-  Database
+  Database,
+  Store,
+  BookOpen
 } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 
@@ -20,6 +22,8 @@ export function Sidebar() {
   const { sidebarOpen, setSidebarOpen, channels, darkMode, setDarkMode } = useAppStore()
 
   const navItems = [
+    { path: '/merchants', icon: Store, label: '商家工作台' },
+    { path: '/memories', icon: BookOpen, label: '流程记忆' },
     { path: '/', icon: MessageSquare, label: '对话' },
     { path: '/canvas', icon: Layout, label: '画布' },
     { path: '/devices', icon: Smartphone, label: '设备' },

@@ -1,5 +1,6 @@
 """模块说明（中文）：`src/openagentic/main.py`。\n\n该文件负责 FastAPI 应用创建、生命周期管理与路由装配。\n"""
 
+import os
 from contextlib import asynccontextmanager
 
 import structlog
@@ -32,6 +33,7 @@ from openagentic.workflow.models import Workflow, WorkflowExecution  # noqa: E40
 from openagentic.knowledge.models import KnowledgeBase, Document, Chunk  # noqa: E402, F401
 from openagentic.channels.models import ChannelConfig  # noqa: E402, F401
 from openagentic.tasks.models import Task  # noqa: E402, F401
+
 
 logger = structlog.get_logger()
 
@@ -91,7 +93,7 @@ async def _load_preset_workflows() -> None:
         logger.exception("preset workflows load failed")
 
 
-def create_app() -> FastAPI:
+def create_app(*, commerce_enabled: bool | None = None) -> FastAPI:
     """创建并配置 FastAPI 应用实例。"""
     app = FastAPI(
         title=SETTINGS.APP_NAME,
@@ -124,7 +126,10 @@ def create_app() -> FastAPI:
     async def health_check():
         return {"status": "ok", "version": __version__}
 
-    # 注册核心业务路由。
+    if commerce_enabled is None:
+        commerce_enabled = os.getenv("OPENAGENTIC_COMMERCE_ENABLED", "1") == "1"
+
+    # 注册通用底座路由。
     from openagentic.core.auth.router import router as auth_router
     from openagentic.core.chat.router import router as chat_router
     from openagentic.gateway.api import router as client_gateway_router
@@ -152,6 +157,9 @@ def create_app() -> FastAPI:
     app.include_router(channels_mgmt_router)
     app.include_router(devices_router)
     app.include_router(tasks_router)
+    if commerce_enabled:
+        from openagentic.apps.commerce import mount_commerce
+        mount_commerce(app)
 
     @app.get("/api/presence")
     async def get_presence():

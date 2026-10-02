@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from openagentic.config import SETTINGS
+from openagentic.memory.obsidian import ObsidianVault
 
 # Known categories for core memory (mirrors Claude Code's types)
 CORE_CATEGORIES = ["user_profile", "project_fact", "preference", "reference"]
@@ -109,8 +110,26 @@ class MemoryManager:
         episodes = await mgr.search_episodes("bug 修复")
     """
 
-    def __init__(self, base_dir: Path | None = None) -> None:
+    def __init__(self, base_dir: Path | None = None, vault_dir: Path | None = None) -> None:
         self._base = base_dir or _default_memory_dir()
+        self.vault = ObsidianVault(vault_dir or self._base)
+
+    @classmethod
+    def for_user(cls, user_id: str) -> MemoryManager:
+        """Server memory never falls back to the shared CLI directory."""
+        identity = str(uuid.UUID(str(user_id)))
+        root = _default_memory_dir().expanduser().resolve()
+        base = (root / "users" / identity).resolve()
+        if not base.is_relative_to(root):
+            raise ValueError("Memory directory escapes root")
+        vault_root = os.environ.get("OPENAGENTIC_OBSIDIAN_ROOT", "").strip()
+        vault = base
+        if vault_root:
+            configured = Path(vault_root).expanduser().resolve()
+            vault = (configured / identity).resolve()
+            if not vault.is_relative_to(configured):
+                raise ValueError("Vault directory escapes root")
+        return cls(base_dir=base, vault_dir=vault)
 
     # ------------------------------------------------------------------
     # Core Memory
@@ -273,7 +292,7 @@ class MemoryManager:
     # ------------------------------------------------------------------
 
     def _procedures_dir(self) -> Path:
-        return self._base / "procedures"
+        return self.vault.root / "procedures"
 
     def save_procedure(
         self, name: str, description: str,
@@ -283,26 +302,24 @@ class MemoryManager:
         d = self._procedures_dir()
         d.mkdir(parents=True, exist_ok=True)
 
-        safe_name = re.sub(r"[^a-zA-Z0-9_\-]", "_", name)[:64]
+        safe_name = re.sub(r"[^\w\-]", "_", name, flags=re.UNICODE)[:64]
+        if safe_name != name:
+            safe_name += "_" + uuid.uuid5(uuid.NAMESPACE_URL, name).hex[:8]
         fp = d / f"{safe_name}.md"
 
         steps_text = "\n".join(f"{i}. {s}" for i, s in enumerate(steps, 1))
         content = (
-            "---\n"
-            f"name: {name}\n"
-            f"description: {description[:120]}\n"
-            f"type: procedure\n"
-            f"trigger_pattern: {trigger_pattern[:200]}\n"
-            f"success_count: 0\n"
-            f"failure_count: 0\n"
-            f"created: {datetime.now(timezone.utc).isoformat()}\n"
-            "---\n\n"
             f"# {name}\n\n"
             f"{description}\n\n"
             f"## Trigger\n{trigger_pattern}\n\n"
             f"## Steps\n{steps_text}\n"
         )
-        fp.write_text(content, encoding="utf-8")
+        self.vault.write(fp.relative_to(self.vault.root).as_posix(), {
+            "name": name, "description": description[:120], "type": "procedure",
+            "trigger_pattern": trigger_pattern[:200], "success_count": 0,
+            "failure_count": 0, "created": datetime.now(timezone.utc).isoformat(),
+            "tags": ["openagentic", "procedure"],
+        }, content)
         self._update_index()
         return str(fp)
 
@@ -310,26 +327,10 @@ class MemoryManager:
         self, query: str, top_k: int = 3,
     ) -> list[dict[str, Any]]:
         """Keyword search over procedures."""
-        d = self._procedures_dir()
-        if not d.exists():
-            return []
-        results: list[tuple[dict, int]] = []
-        query_lower = query.lower()
-        for fp in sorted(d.glob("*.md")):
-            content = fp.read_text(encoding="utf-8")
-            score = (content.lower().count(query_lower)
-                     + fp.stem.lower().count(query_lower) * 3)
-            if score > 0:
-                m = _FM_RE.match(content)
-                body = content[m.end():].strip() if m else content
-                results.append(({
-                    "name": fp.stem,
-                    "content": body[:500],
-                    "file": str(fp),
-                    "score": float(score),
-                }, score))
-        results.sort(key=lambda x: -x[1])
-        return [r for r, _ in results[:top_k]]
+        return [{
+            "name": note["name"], "content": note["content"][:500],
+            "file": str(self.vault.root / note["path"]), "score": note["score"],
+        } for note in self.vault.search(query, top_k, folder="procedures")]
 
     # ------------------------------------------------------------------
     # Index maintenance
@@ -369,17 +370,21 @@ class MemoryManager:
         # Procedures
         proc_dir = self._procedures_dir()
         if proc_dir.exists():
-            procs = sorted(proc_dir.glob("*.md"))
+            procs = self.vault.paths("procedures")
             if procs:
                 lines.append("## Procedures")
-                for p in procs:
-                    content = p.read_text(encoding="utf-8")
-                    proc_entry = MemoryEntry.from_markdown(content, str(p))
-                    name = proc_entry.key if proc_entry else p.stem
-                    lines.append(f"- [{name}](procedures/{p.name})")
+                for path in procs:
+                    try:
+                        note = self.vault.read(path)
+                    except (OSError, ValueError, UnicodeError):
+                        continue
+                    name = note["name"]
+                    relative = os.path.relpath(self.vault.root / path, self._base)
+                    lines.append(f"- [{name}]({relative})")
                 lines.append("")
 
         index = self._base / "MEMORY.md"
+        self._base.mkdir(parents=True, exist_ok=True)
         index.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def _sync_list_core(self) -> list[MemoryEntry]:
