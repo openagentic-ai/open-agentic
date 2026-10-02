@@ -317,7 +317,9 @@ async def route_task(
     priority = _choice_value(answers, "priority", _TASK_PRIORITIES)
     risk = _choice_value(answers, "risk", _TASK_RISKS)
     human_choice = _choice_value(answers, "needs_human_decision", {"yes", "no"})
-    if not all((department, role, task_type, priority, risk, human_choice)):
+    if department is None or role is None or task_type is None:
+        return None
+    if priority is None or risk is None or human_choice is None:
         return None
 
     return TaskRoute(
