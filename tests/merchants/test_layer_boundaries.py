@@ -38,11 +38,13 @@ def test_shared_agent_foundation_does_not_import_commerce_application():
 @pytest.mark.asyncio
 async def test_business_application_can_be_unmounted_without_removing_foundation():
     app = create_app(commerce_enabled=False)
-    paths = {getattr(route, "path", "") for route in app.routes}
-    assert "/api/auth/login" in paths and "/api/memory/vault" in paths
-    assert "/api/merchants" not in paths and "/api/commerce/tools" not in paths
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
         assert (await client.get("/health")).json()["status"] == "ok"
+        # 行为探测代替 app.routes 结构检查：FastAPI 0.14x 起路由装配是惰性的，
+        # 创建后立即遍历 app.routes 看不到 include_router 注册的路由。
+        assert (await client.post("/api/auth/login", json={})).status_code != 404
+        assert (await client.get("/api/memory/vault")).status_code != 404
         assert (await client.get("/api/merchants")).status_code == 404
+        assert (await client.post("/api/commerce/tools", json={})).status_code == 404
