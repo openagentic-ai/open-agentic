@@ -51,6 +51,7 @@ class ModelSpec:
     max_model_len: int = 32768
     max_num_seqs: int = 2
     enforce_eager: bool = True
+    cpu_offload_gb: float = 0.0
 
     def launch_body(self) -> dict:
         """Xinference launch 请求体。
@@ -66,6 +67,7 @@ class ModelSpec:
             "max_model_len": self.max_model_len,
             "max_num_seqs": self.max_num_seqs,
             "enforce_eager": self.enforce_eager,
+            "cpu_offload_gb": self.cpu_offload_gb,
         }
 
 
@@ -106,6 +108,7 @@ def load_config(path: str | Path) -> ModeldConfig:
             max_model_len=int(m.get("max_model_len", 32768)),
             max_num_seqs=int(m.get("max_num_seqs", 2)),
             enforce_eager=bool(m.get("enforce_eager", True)),
+            cpu_offload_gb=float(m.get("cpu_offload_gb", 0.0)),
         )
         for m in (data.get("models") or [])
     )
