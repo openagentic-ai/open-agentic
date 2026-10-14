@@ -21,6 +21,10 @@ class ProviderProfile:
     models: list[str] = field(default_factory=list)
     enabled: bool = True
     automodel: dict[str, Any] | None = None
+    # 显示名 → 端点实际 id 的映射（key 为 models 里的裸名，如 "Qwen3.8-27B"）。
+    # 本地服务常要求 id 精确等于它加载的模型（如 mlx_lm.server 的绝对路径），
+    # 而 models 里的名字要给人看，两者只能分开。缺省为空 = 原样发送显示名。
+    wire_models: dict[str, str] = field(default_factory=dict)
 
     def to_public_dict(self) -> dict[str, Any]:
         return {
@@ -344,7 +348,10 @@ class ProviderConfigStore:
             api_key = profile.api_key or None
             # ollama profile 指向 OpenAI 兼容端点（Xinference）时，LiteLLM 需 openai 协议前缀
             if provider_id in {"local", "ollama"} and api_base and model_id.startswith(("local/", "ollama/")):
-                model_id = "openai/" + model_id.split("/", 1)[1]
+                bare = model_id.split("/", 1)[1]
+                # profile 可声明显示名→端点实际 id 的映射；本地服务要求精确 id 时用得上
+                wire = (profile.wire_models or {}).get(bare, bare)
+                model_id = "openai/" + wire
             return model_id, api_base, api_key
         if model_id.startswith("ollama/"):
             return model_id, SETTINGS.OLLAMA_API_BASE, None
@@ -366,12 +373,22 @@ class ProviderConfigStore:
             profiles = [ProviderProfile(**item) for item in data.get("profiles", [])]
             if not profiles:
                 profiles = [ProviderProfile(**asdict(profile)) for profile in DEFAULT_PROFILES]
+            else:
+                # Older config files may predate the built-in local/Xinference
+                # profile.  Keep user credentials and model choices, but add
+                # missing built-ins so selecting a local model cannot fall
+                # through to the previously active cloud provider.
+                existing_ids = {profile.id for profile in profiles}
+                for builtin in DEFAULT_PROFILES:
+                    if builtin.id not in existing_ids:
+                        profiles.append(ProviderProfile(**asdict(builtin)))
             cfg = ProviderConfig(
                 # 默认模型由根目录 openagentic.yaml 统一决定；JSON 只保存 provider 资料。
                 default_model=SETTINGS.LITELLM_DEFAULT_MODEL,
                 profiles=profiles,
             )
-            cfg, changed = _apply_env_bootstrap(cfg)
+            cfg, env_changed = _apply_env_bootstrap(cfg)
+            changed = env_changed or len(profiles) != len(data.get("profiles", []))
             if changed:
                 data = {
                     "default_model": cfg.default_model,

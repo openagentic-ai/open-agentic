@@ -64,6 +64,7 @@ OPENAI_COMPATIBLE_PROVIDERS = {
     "fireworks",
     "local",
 }
+LOCAL_PROVIDER_IDS = {"local", "ollama"}
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 CARET_ESCAPE_RE = re.compile(r"\^\[\[[0-9;?]*[ -/]*[@-~]")
 CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
@@ -177,6 +178,43 @@ def discover_models_openai_compatible(provider: str, api_base: str, api_key: str
         return []
 
 
+def detect_local_model() -> tuple[str, str, str] | None:
+    """Return the first reachable local model as (provider, model, api_base).
+
+    Local services are intentionally probed without credentials.  The short
+    timeout keeps CLI startup responsive when no local runtime is installed.
+    """
+    profiles = {p["id"]: p for p in list_provider_profiles() if p["enabled"]}
+    candidates: list[tuple[str, str]] = []
+    for provider in ("local", "ollama"):
+        profile = profiles.get(provider)
+        if profile and profile["api_base"]:
+            candidates.append((provider, profile["api_base"]))
+    candidates.extend(("local", base) for base in (
+        "http://127.0.0.1:80/v1",
+        "http://127.0.0.1:9997/v1",
+        "http://127.0.0.1:11434/v1",
+    ))
+    seen: set[tuple[str, str]] = set()
+    for provider, base in candidates:
+        key = (provider, base.rstrip("/"))
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            response = httpx.get(f"{key[1]}/models", timeout=0.8, trust_env=False)
+            if response.status_code != 200:
+                continue
+            items = response.json().get("data", [])
+            model_id = next((x.get("id") for x in items if isinstance(x, dict) and x.get("id")), None)
+            if not model_id:
+                continue
+            return provider, f"{provider}/{model_id}", key[1]
+        except Exception:
+            continue
+    return None
+
+
 def require_provider_configured(provider: str) -> tuple[str, str | None]:
     from openagentic.config import SETTINGS
 
@@ -185,7 +223,7 @@ def require_provider_configured(provider: str) -> tuple[str, str | None]:
         raise RuntimeError(f"Unknown provider: {provider}")
     if not profile["enabled"]:
         raise RuntimeError(f"Provider {provider} is disabled. Please enable it in config.")
-    if provider != "ollama" and not profile["api_key"]:
+    if provider not in LOCAL_PROVIDER_IDS and not profile["api_key"]:
         if SETTINGS.OPENAGENTIC_SKIP_PROVIDER_CHECK:
             raise RuntimeError(
                 f"Provider {provider} 未配置 API key，且已设置 OPENAGENTIC_SKIP_PROVIDER_CHECK=1，"
@@ -197,7 +235,7 @@ def require_provider_configured(provider: str) -> tuple[str, str | None]:
             raise RuntimeError(f"Unknown provider: {provider}")
     api_base = profile["api_base"] or None
     api_key = profile["api_key"] or None
-    if provider != "ollama" and not api_key:
+    if provider not in LOCAL_PROVIDER_IDS and not api_key:
         raise RuntimeError(f"Provider {provider} requires API key before use.")
     return api_base or "", api_key
 
@@ -331,7 +369,7 @@ def configure_provider_interactive(provider: str) -> None:
     current_key = profile["api_key"] or ""
 
     api_key = ""
-    if provider != "ollama":
+    if provider not in LOCAL_PROVIDER_IDS:
         while True:
             hint = "（必填，无默认项）" if not current_key else "（默认：保持不变）"
             api_key = _prompt_secret_input(f"API Key{hint}: ")
@@ -343,7 +381,7 @@ def configure_provider_interactive(provider: str) -> None:
 
     effective_key = api_key if api_key else current_key
     auto_models = profile["models"]
-    if provider != "ollama":
+    if provider not in LOCAL_PROVIDER_IDS:
         discovered = discover_models_openai_compatible(provider, current_base, effective_key)
         if discovered:
             auto_models = discovered
@@ -366,7 +404,7 @@ def configure_provider_interactive(provider: str) -> None:
     api_base_input = _prompt_input(f"API Base [{current_base}]: ")
     api_base = api_base_input or current_base
 
-    if looks_like_api_key(api_base_input) and not api_key and provider != "ollama":
+    if looks_like_api_key(api_base_input) and not api_key and provider not in LOCAL_PROVIDER_IDS:
         api_key = api_base_input
         effective_key = api_key
         api_base = current_base

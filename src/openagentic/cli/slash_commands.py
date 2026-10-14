@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import structlog
-import shutil
 import subprocess
 
 from prompt_toolkit import PromptSession
@@ -37,7 +36,7 @@ SLASH_COMMANDS = [
     "/skills",
     "/compact", "/context", "/btw", "/cost", "/permissions",
     "/diff", "/review",
-    "/login-platform", "/logout-platform", "/plan", "/quit",
+    "/login-platform", "/logout-platform", "/plan", "/quit", "/exit",
 ]
 
 
@@ -624,7 +623,7 @@ def print_help() -> None:
         "/provider-config [id]"
     )
     _console.print(
-        "  /automodel [on|off]  /login-platform  /logout-platform  /plan  /quit"
+        "  /automodel [on|off]  /login-platform  /logout-platform  /plan  /quit /exit"
     )
     _console.print(
         "  /skills [name]  /skills new <name>  /skills reload"
@@ -647,20 +646,11 @@ def print_help() -> None:
 
 
 def _make_prompt_msg() -> HTML:
-    w = shutil.get_terminal_size().columns
-    inner = w - 2 if w >= 2 else w
-    top_bar = '─' * inner
-    return HTML(
-        f'<style fg="#666666">╭{top_bar}╮</style>\n'
-        f'<b>❯</b> '
-    )
+    return HTML('<b>❯</b> ')
 
 
 def _make_toolbar(pending: int = 0, *, plan_mode_ref: dict | None = None):
     def _get_toolbar():
-        w = shutil.get_terminal_size().columns
-        inner = w - 2 if w >= 2 else w
-        bar = '─' * inner
         try:
             app = get_app()
             text = app.current_buffer.text
@@ -677,11 +667,9 @@ def _make_toolbar(pending: int = 0, *, plan_mode_ref: dict | None = None):
             else:
                 hint = f"  未知命令：{text}"
             return HTML(
-                f'<style fg="#666666">╰{bar}╯</style>\n'
-                f'<style fg="#aaaaaa">  {hint}{pending_hint}{plan_hint}</style>'
+                f'<style fg="#aaaaaa">{hint}{pending_hint}{plan_hint}</style>'
             )
         return HTML(
-            f'<style fg="#666666">╰{bar}╯</style>\n'
-            f'<style fg="#555555">  /help · 按 / 查看命令{pending_hint}{plan_hint}</style>'
+            f'<style fg="#555555">/help · 按 / 查看命令{pending_hint}{plan_hint}</style>'
         )
     return _get_toolbar

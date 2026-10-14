@@ -32,6 +32,7 @@ from openagentic.cli.providers import (
     resolve_model_for_provider,
     resolve_provider,
     select_provider_interactive,
+    detect_local_model,
 )
 from openagentic.cli.slash_commands import (
     SlashCompleter,
@@ -76,12 +77,18 @@ async def main_loop(
     queue: asyncio.Queue = asyncio.Queue()
 
     requested_provider = provider
+    detected_local_base: str | None = None
+    if requested_provider in {"auto", "local", "ollama"}:
+        detected = detect_local_model()
+        if detected:
+            provider, model, detected_local_base = detected
+            _console.print(f"  [dim]检测到端侧模型：{model} @ {detected_local_base}[/dim]")
     provider = resolve_provider(provider, model)
     model = resolve_model_for_provider(provider, model)
 
     if requested_provider == "auto":
         profile = find_profile(provider)
-        if profile and provider != "ollama" and not profile["api_key"]:
+        if profile and provider not in {"local", "ollama"} and not profile["api_key"]:
             _console.print("\n[yellow]No API key configured. Please select a provider.[/yellow]")
             selected = select_provider_interactive(provider)
             if selected:
@@ -93,6 +100,11 @@ async def main_loop(
                     _console.print(f"[yellow]Unknown provider: {selected}, using {provider}[/yellow]")
 
     api_base, api_key = require_provider_configured(provider)
+    if detected_local_base:
+        # The detected service may be on a runtime-selected port (for
+        # example vLLM behind port 80), so do not replace it with the profile
+        # default after detection.
+        api_base = detected_local_base
 
     if env_base_url:
         api_base = env_base_url
@@ -225,7 +237,7 @@ async def main_loop(
             user_input: str = item
 
             # ── Slash commands ──
-            if user_input == "/quit":
+            if user_input in {"/quit", "/exit"}:
                 return
             if user_input == "/clear":
                 _handle_clear(messages, rebuild_system_message)
@@ -233,50 +245,74 @@ async def main_loop(
             if user_input == "/help":
                 print_help()
                 continue
-            if user_input == "/model":
+            if user_input == "/model" or user_input.startswith("/model "):
                 from openagentic.core.llm.provider_config import get_provider_store
                 all_profiles = get_provider_store().get().profiles
+                detected = detect_local_model()
+                if detected:
+                    local_provider = next((p for p in all_profiles if p.id == detected[0]), None)
+                    if local_provider:
+                        all_profiles = [local_provider] + [p for p in all_profiles if p.id != detected[0]]
                 all_models = []
                 for p in all_profiles:
                     if p.enabled:
                         all_models.extend(p.models)
-                if not all_models:
-                    _console.print("[yellow]  No models available.[/yellow]")
+                arg = user_input[len("/model"):].strip()
+                if not arg:
+                    if not all_models:
+                        _console.print("[yellow]  No models available.[/yellow]")
+                        continue
+                    _console.print(f"\n  [bold]Current:[/bold] {model} [dim]({provider})[/dim]\n")
+                    for idx, m in enumerate(all_models, 1):
+                        marker = " [green]<-[/green]" if m == model else ""
+                        _console.print(f"  {idx}. {m}{marker}")
+                    _console.print()
+                    # 这里原本嵌套 prompt_async 让用户直接选号，但消费者协程与生产者的主
+                    # prompt 共用同一个 prompt_toolkit Application，两者并发即
+                    # "Application is already running" 断言崩溃。改为两段式：/model 只列
+                    # 清单，选择交给下一条 /model <index|name>。
+                    _console.print("  [dim]Switch with: /model <index> or /model <name>[/dim]")
                     continue
-                _console.print(f"\n  [bold]Current:[/bold] {model} [dim]({provider})[/dim]\n")
-                for idx, m in enumerate(all_models, 1):
-                    marker = " [green]<-[/green]" if m == model else ""
-                    _console.print(f"  {idx}. {m}{marker}")
-                _console.print()
-                # Interactive model selection — pause producer
-                input_gate.clear()
-                try:
-                    choice = (await session.prompt_async("  Select: ")).strip()
-                except (EOFError, KeyboardInterrupt):
-                    input_gate.set()
+                if arg.isdigit() and 1 <= int(arg) <= len(all_models):
+                    selected_model = all_models[int(arg) - 1]
+                    # Resolve the provider from the selected model itself.
+                    # A stale profile list or a model added at runtime must
+                    # never reuse the previous cloud provider's API base.
+                    new_provider = resolve_provider("auto", selected_model)
+                    for p in all_profiles:
+                        if p.enabled and selected_model in p.models:
+                            new_provider = p.id
+                            break
+                    if new_provider != provider:
+                        provider = new_provider
+                        api_base, api_key = require_provider_configured(provider)
+                        endpoint = api_base or "(provider default)"
+                    if provider in {"local", "ollama"}:
+                        detected_local = detect_local_model()
+                        if detected_local and detected_local[0] == provider:
+                            selected_model = detected_local[1]
+                            api_base = detected_local[2]
+                            endpoint = api_base
+                    model = selected_model
+                    _console.print(f"  [green]model -> {model}[/green] [dim]({provider})[/dim]")
+                    rebuild_system_message()
                     continue
-                input_gate.set()
-                if not choice:
-                    continue
-                if choice.isdigit() and 1 <= int(choice) <= len(all_models):
-                    selected_model = all_models[int(choice) - 1]
-                else:
-                    selected_model = resolve_model_for_provider(provider, choice)
-                new_provider = provider
-                for p in all_profiles:
-                    if p.enabled and selected_model in p.models:
-                        new_provider = p.id
-                        break
-                if new_provider != provider:
-                    provider = new_provider
+                candidate = resolve_model_for_provider(provider, arg)
+                # Explicit provider/model names (for example
+                # ``local/Qwen3.8-27B``) are a provider switch, not a model
+                # name to be sent through the current cloud profile.
+                explicit_provider = resolve_provider("auto", arg) if "/" in arg else provider
+                if explicit_provider != provider and find_profile(explicit_provider):
+                    provider = explicit_provider
                     api_base, api_key = require_provider_configured(provider)
                     endpoint = api_base or "(provider default)"
-                model = selected_model
-                _console.print(f"  [green]model -> {model}[/green] [dim]({provider})[/dim]")
-                rebuild_system_message()
-                continue
-            if user_input.startswith("/model "):
-                candidate = resolve_model_for_provider(provider, user_input[7:].strip())
+                    candidate = resolve_model_for_provider(provider, arg)
+                if provider in {"local", "ollama"}:
+                    detected_local = detect_local_model()
+                    if detected_local and detected_local[0] == provider:
+                        api_base = detected_local[2]
+                        endpoint = api_base
+                        candidate = detected_local[1]
                 profile = find_profile(provider)
                 available = profile["models"] if profile else []
                 if available and candidate not in available:

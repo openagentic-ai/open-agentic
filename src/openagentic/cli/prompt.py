@@ -43,7 +43,7 @@ CLI slash commands (handled by the CLI shell, NOT by you — just tell the user 
 - `/providers` — list all available providers
 - `/clear` — clear conversation history
 - `/help` — show all commands
-- `/quit` — exit
+- `/quit` or `/exit` — exit
 When the user asks to change model, switch provider, etc., tell them the exact slash command to type. Do NOT say you cannot do it.
 
 Rules:

@@ -58,27 +58,22 @@ async def _spin_while(coro, text: str = "思考中..."):
     in-place instead of adding a new line on every frame.  This keeps the
     prompt at the bottom of the terminal even under ``patch_stdout()``.
     """
+    # Render through prompt_toolkit's patched stdout so the input prompt and
+    # toolbar stay at the bottom. Use carriage return only; raw CSI cursor
+    # sequences are displayed literally by some terminals.
     done = False
-    first_frame = True
 
-    async def _spin() -> None:
-        nonlocal first_frame
+    async def animate() -> None:
         i = 0
         while not done:
-            frame = _SPINNER[i % len(_SPINNER)]
-            if first_frame:
-                sys.stdout.write(f"  {frame} {text}\n")
-                first_frame = False
-            else:
-                sys.stdout.write(f"{_CUU}{_EL}  {frame} {text}\n")
+            sys.stdout.write(f"\r  {_SPINNER[i % len(_SPINNER)]} {text}")
             sys.stdout.flush()
-            await asyncio.sleep(0.08)
             i += 1
-        if not first_frame:
-            sys.stdout.write(f"{_CUU}{_EL}")
-            sys.stdout.flush()
+            await asyncio.sleep(0.08)
+        sys.stdout.write("\r                    \r")
+        sys.stdout.flush()
 
-    task = asyncio.create_task(_spin())
+    task = asyncio.create_task(animate())
     try:
         return await coro
     finally:

@@ -7,12 +7,53 @@ LLM 调用抽象——从 cli/llm.py 提取，供 CLI / 渠道 / HTTP API 共享
 from __future__ import annotations
 
 import json
+import logging
+import os
 import structlog
 from typing import Any
+from urllib.parse import urlparse
 
 import litellm
 
 logger = structlog.get_logger("openagentic.agent.llm")
+litellm.set_verbose = False
+litellm.suppress_debug_info = True
+if hasattr(litellm, "_turn_off_debug"):
+    litellm._turn_off_debug()
+for _logger_name in ("LiteLLM", "litellm", "litellm.verbose_logger"):
+    logging.getLogger(_logger_name).setLevel(logging.WARNING)
+
+
+def _bypass_proxy_for_endpoint(api_base: str | None) -> None:
+    """Exclude only the configured local endpoint from HTTP proxies.
+
+    The host comes from the user's model endpoint; nothing is bound to a
+    fixed port or address. Cloud endpoints continue using the configured
+    proxy normally.
+    """
+    if not api_base:
+        return
+    host = urlparse(api_base).hostname
+    if not host or host not in {"localhost", "127.0.0.1", "::1"}:
+        return
+    values = {item.strip() for item in os.environ.get("NO_PROXY", "").split(",") if item.strip()}
+    values.update({host, "localhost", "127.0.0.1", "::1"})
+    no_proxy = ",".join(sorted(values))
+    os.environ["NO_PROXY"] = no_proxy
+    os.environ["no_proxy"] = no_proxy
+
+
+def _normalize_local_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep system instructions at the front for strict OpenAI-compatible servers."""
+    system_content = [
+        str(message.get("content") or "")
+        for message in messages
+        if message.get("role") == "system"
+    ]
+    other = [message for message in messages if message.get("role") != "system"]
+    if not system_content:
+        return other
+    return [{"role": "system", "content": "\n\n".join(system_content)}] + other
 
 
 def is_deepseek_reasoning_model(model: str) -> bool:
@@ -81,6 +122,9 @@ async def litellm_chat(
     """
     is_reasoning = is_deepseek_reasoning_model(model)
     send_messages = ensure_reasoning_content(messages) if is_reasoning else messages
+    _bypass_proxy_for_endpoint(api_base)
+    if api_base and urlparse(api_base).hostname in {"localhost", "127.0.0.1", "::1"}:
+        send_messages = _normalize_local_messages(send_messages)
 
     # ollama profile 指向 OpenAI 兼容端点（Xinference）时，LiteLLM 需 openai 协议前缀才走 /v1/chat/completions
     if api_base and model.startswith(("local/", "ollama/")):
@@ -119,7 +163,10 @@ async def litellm_chat(
             raise
         response = await _escalate_if_configured(kwargs, cp_cfg)
         if response is None:
-            logger.exception("litellm_chat failed")
+            # Keep the interactive CLI readable; the exception still reaches
+            # the caller, while the structured logger records a compact error
+            # instead of emitting a Rich traceback full of ANSI escapes.
+            logger.error("litellm_chat failed", model=model, api_base=api_base or "(default)")
             raise
 
     # Best-effort cost tracking

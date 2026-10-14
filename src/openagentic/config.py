@@ -52,6 +52,17 @@ def load_env_file(path: str | Path | None = None) -> None:
 # 模块导入即生效——任何 import openagentic.config 的入口都拿到完整环境
 load_env_file()
 
+# LiteLLM 进程级设置放在这里，而不是 core/llm/service.py：CLI 直接调 litellm
+# （cli/react.py / cli/model_router.py），不经过 service.py，放那里 CLI 拿不到。
+# 失败时 LiteLLM 默认往控制台打一整块 Rich 面板（框线 + ANSI），窄终端里会散成乱码。
+try:
+    import litellm as _litellm
+
+    _litellm.drop_params = True
+    _litellm.suppress_debug_info = True
+except Exception:  # nosec B110 — litellm 缺失不得影响应用启动
+    pass
+
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables and .env file."""

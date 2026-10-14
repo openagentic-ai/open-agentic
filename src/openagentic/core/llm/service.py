@@ -14,6 +14,9 @@ logger = structlog.get_logger("openagentic.core.llm")
 
 # Configure LiteLLM
 litellm.drop_params = True
+# 关闭 LiteLLM 自身的调试信息输出：失败时它会往控制台打一整块 Rich 面板
+# （框线 + ANSI 转义），在窄终端里会散成乱码。错误交给上层打一行摘要即可。
+litellm.suppress_debug_info = True
 
 
 def _litellm_kwargs(model: str | None = None) -> dict:
