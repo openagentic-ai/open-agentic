@@ -205,6 +205,8 @@ CLI 是一个带工具调用的 ReAct 终端，支持模型和 provider 配置�
 
 借鉴 [Pi Agent](https://github.com/earendil-works/pi) 的交互与工具设计：等待状态由终端布局统一刷新，显示在输入框上方；`edit_file` 工具只替换唯一匹配的文本，沿用写入权限和确认流程，并显示高亮 diff。确认期间文件若被外部修改，会停止覆盖。上下文压缩保留工具调用与结果的完整配对，连续压缩继承旧摘要；摘要失败或为空时保留当前历史。
 
+CLI 还支持自动保存会话、`--continue` 恢复、`/tree` 分支、Enter 纠偏与 Alt+Enter 排队；可通过 Python 扩展、可选 Codemode、SDK 和 JSONL RPC 嵌入其他产品。用法和边界见 [Agent 运行时说明](docs/pi-runtime.md)。
+
 ```text
 /providers       查看 provider 配置
 /model           查看或切换模型
