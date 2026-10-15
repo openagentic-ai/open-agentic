@@ -31,7 +31,7 @@ def _get_memory_manager() -> MemoryManager:
         _memory_manager = MemoryManager()
     return _memory_manager
 
-TOOLS = [
+TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
@@ -464,6 +464,7 @@ async def execute_tool(
                 old_text, new_text = args.get("old_text"), args.get("new_text")
                 if not exists or not isinstance(old_text, str) or not old_text or not isinstance(new_text, str):
                     return _edit_messages["invalid_arguments"]
+                assert original is not None  # existing-file guard above
                 source = original.decode("utf-8")
                 if source.count(old_text) != 1:
                     return _edit_messages["ambiguous_match"]

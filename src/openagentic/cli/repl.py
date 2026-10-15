@@ -12,11 +12,17 @@ import structlog
 import sys
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.filters import Condition
 from prompt_toolkit.patch_stdout import patch_stdout
 from rich.console import Console
 
 from openagentic.cli._patchable_stdout import _patchable_stdout
 from openagentic.cli.status import ActivityStatus, activity_status
+from openagentic.cli.sessions import SessionStore, TEXT as SESSION_TEXT
+from openagentic.cli.session_commands import handle_session_command
+from openagentic.cli.turn_control import TurnControl, turn_control, finish_interrupted_tools
+from openagentic.runtime.extensions import Extensions
 from openagentic.cli.auth import clear_cli_session_file
 from openagentic.cli.model_router import automodel_status, setup_automodel_interactive
 from openagentic.cli.prompt import (
@@ -73,26 +79,33 @@ async def main_loop(
     platform_access_token: str | None = None,
     env_base_url: str | None = None,
     env_auth_token: str | None = None,
+    resume_session: str | None = None,
+    extension_paths=(),
+    codemode: bool = False,
 ):  # noqa: C901
+    extensions = Extensions()
+    extensions.load(extension_paths)
+    extension_commands = ["/" + command for command in extensions.commands]
     status = ActivityStatus()
     activity_status.set(status)
     session: PromptSession[str] = PromptSession(
-        completer=SlashCompleter(), bottom_toolbar="", refresh_interval=0.08,
+        completer=SlashCompleter(extension_commands), bottom_toolbar="", refresh_interval=0.08,
     )
     # Let one renderer own status, editor and footer; output never moves the cursor.
     from prompt_toolkit.layout.containers import HSplit
     session.app.layout.container = HSplit([status.container(), session.app.layout.container])
     queue: asyncio.Queue = asyncio.Queue()
 
-    requested_provider = provider
+    custom_provider = model.partition("/")[0] in extensions.providers
+    requested_provider = model.partition("/")[0] if custom_provider else provider
     detected_local_base: str | None = None
     if requested_provider in {"auto", "local", "ollama"}:
         detected = detect_local_model()
         if detected:
             provider, model, detected_local_base = detected
             _console.print(f"  [dim]检测到端侧模型：{model} @ {detected_local_base}[/dim]")
-    provider = resolve_provider(provider, model)
-    model = resolve_model_for_provider(provider, model)
+    provider = requested_provider if custom_provider else resolve_provider(provider, model)
+    model = model if custom_provider else resolve_model_for_provider(provider, model)
 
     if requested_provider == "auto":
         profile = find_profile(provider)
@@ -107,7 +120,7 @@ async def main_loop(
                 else:
                     _console.print(f"[yellow]Unknown provider: {selected}, using {provider}[/yellow]")
 
-    api_base, api_key = require_provider_configured(provider)
+    api_base, api_key = (None, None) if custom_provider else require_provider_configured(provider)
     if detected_local_base:
         # The detected service may be on a runtime-selected port (for
         # example vLLM behind port 80), so do not replace it with the profile
@@ -143,6 +156,7 @@ async def main_loop(
         logger.warning("skills seeding failed", error=str(exc), exc_info=True)
 
     def rebuild_system_message() -> None:
+        summary = messages[0].get("content", "").partition("\n\n[Conversation Summary]")[2]
         base = compose_cli_system_message(
             provider,
             model,
@@ -157,15 +171,40 @@ async def main_loop(
         skills_section = build_skills_section()
         if skills_section:
             base += "\n" + skills_section
-        messages[0]["content"] = base
+        messages[0]["content"] = base + ("\n\n[Conversation Summary]" + summary if summary else "")
 
     rebuild_system_message()
+    store = SessionStore()
+    try:
+        if resume_session:
+            messages[:] = store.resume(None if resume_session == "latest" else resume_session)
+            finish_interrupted_tools(messages, SESSION_TEXT["interrupted"])
+            rebuild_system_message()
+        else:
+            store.create()
+        store.save(messages)
+    except (ValueError, OSError) as exc:
+        _console.print(SESSION_TEXT["failed"].format(error=exc), markup=False)
+        store.close()
+        return
+    async def runtime_event(event, **data):
+        await extensions.emit(event, {"session_id": store.id, **data})
+    control = TurnControl(checkpoint=store.save, extensions=extensions,
+                          event_sink=runtime_event, codemode=codemode)
+    control_token = turn_control.set(control)
+    turn_active = False
+    await runtime_event("session_start")
 
     # ── async confirm callback for tools ──
     # During confirmation, pause the input producer so prompts don't collide.
     input_gate = asyncio.Event()
     input_gate.set()  # start open
     input_prompt: asyncio.Task | None = None
+    keys = KeyBindings()
+
+    @keys.add("escape", "enter", filter=Condition(input_gate.is_set))
+    def _follow_up(event):
+        event.app.exit(result=(event.current_buffer.text, True))
 
     # ── 进行中的 react 任务引用：用于 Ctrl+C 中断当前轮而不退 CLI ──
     react_task_ref: dict[str, asyncio.Task | None] = {"task": None}
@@ -202,6 +241,7 @@ async def main_loop(
     if plat["email"] and plat["base"]:
         _console.print(f"  [dim]{plat['email']} @ {plat['base'].rstrip('/')}[/dim]")
     _console.print("  [dim]Type /help for commands.[/dim]")
+    _console.print(SESSION_TEXT["saved"].format(id=store.id), markup=False)
     _console.print()
 
     # ── Input Producer: always accepts input, puts into queue ──
@@ -217,7 +257,10 @@ async def main_loop(
                 try:
                     input_prompt = asyncio.create_task(session.prompt_async(
                         _make_prompt_msg(),
-                        bottom_toolbar=_make_toolbar(queue.qsize(), plan_mode_ref=plan_mode_ref),
+                        bottom_toolbar=_make_toolbar(lambda: queue.qsize() + len(control.steering),
+                            plan_mode_ref=plan_mode_ref, extra_status=extensions.status,
+                            extra_commands=extension_commands),
+                        key_bindings=keys,
                     ))
                     user_input = await input_prompt
                 except asyncio.CancelledError:
@@ -238,16 +281,25 @@ async def main_loop(
                     await queue.put(_SENTINEL_QUIT)
                     return
 
+                follow_up = isinstance(user_input, tuple)
+                if follow_up:
+                    user_input = user_input[0]
                 user_input = (user_input or "").strip()
                 if not user_input:
+                    continue
+                if turn_active and not follow_up and not user_input.startswith("/"):
+                    control.steering.append(user_input)
+                    _console.print(SESSION_TEXT["steered"], markup=False)
                     continue
                 await queue.put(user_input)
 
     # ── Execution Consumer: processes queued commands sequentially ──
     async def _execution_consumer():  # noqa: C901
         nonlocal model, provider, api_base, api_key, endpoint, automodel_enabled
+        nonlocal turn_active
 
         while True:
+            store.save(messages)
             item = await queue.get()
 
             if item is _SENTINEL_QUIT:
@@ -258,11 +310,26 @@ async def main_loop(
             # ── Slash commands ──
             if user_input in {"/quit", "/exit"}:
                 return
+            previous_session = store.id
+            if handle_session_command(user_input, store, messages, rebuild_system_message):
+                if store.id != previous_session:
+                    await runtime_event("session_shutdown", session_id=previous_session)
+                    await runtime_event("session_start")
+                continue
+            command, _, argument = user_input.partition(" ")
+            if command.startswith("/") and command[1:] in extensions.commands:
+                from openagentic.runtime.extensions import invoke
+                result = await invoke(extensions.commands[command[1:]], argument)
+                if result is not None:
+                    _console.print(str(result), markup=False)
+                continue
             if user_input == "/clear":
                 _handle_clear(messages, rebuild_system_message)
                 continue
             if user_input == "/help":
                 print_help()
+                if extension_commands:
+                    _console.print("  " + "  ".join(extension_commands), markup=False)
                 continue
             if user_input == "/model" or user_input.startswith("/model "):
                 from openagentic.core.llm.provider_config import get_provider_store
@@ -470,20 +537,28 @@ async def main_loop(
                 continue
 
             # ── 用户对话轮次：triage 路由 → react_loop（可取消）→ 复位路由后的模型 ──
-            model = await _run_react_turn(
-                user_input,
-                messages,
-                provider=provider,
-                model=model,
-                api_base=api_base,
-                api_key=api_key,
-                automodel_enabled=automodel_enabled,
-                plat=plat,
-                confirm_fn=_confirm_fn,
-                react_task_ref=react_task_ref,
-                rebuild_system_message=rebuild_system_message,
-                plan_mode=plan_mode_ref["on"],
-            )
+            turn_active = True
+            try:
+                await runtime_event("agent_start", prompt=user_input)
+                model = await _run_react_turn(
+                    user_input,
+                    messages,
+                    provider=provider,
+                    model=model,
+                    api_base=api_base,
+                    api_key=api_key,
+                    automodel_enabled=automodel_enabled,
+                    plat=plat,
+                    confirm_fn=_confirm_fn,
+                    react_task_ref=react_task_ref,
+                    rebuild_system_message=rebuild_system_message,
+                    plan_mode=plan_mode_ref["on"],
+                )
+                await runtime_event("agent_end")
+            finally:
+                turn_active = False
+                while control.steering:
+                    queue.put_nowait(control.steering.popleft())
 
             _console.print()
             sys.stdout.flush()
@@ -511,3 +586,13 @@ async def main_loop(
     sys.stdout.write("\x1b[2K\r")
     sys.stdout.flush()
     _console.print("[dim]Bye![/dim]")
+    try:
+        store.save(messages)
+        for task in done:
+            task.result()
+    finally:
+        try:
+            await runtime_event("session_shutdown")
+        finally:
+            turn_control.reset(control_token)
+            store.close()

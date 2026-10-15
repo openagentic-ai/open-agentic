@@ -23,6 +23,9 @@ from openagentic.cli.auth import platform_authenticate_sync
 from openagentic.cli.model_router import route_model
 from openagentic.cli.providers import find_profile
 from openagentic.cli.react import react_loop
+from openagentic.cli.session_commands import COMMANDS as SESSION_COMMANDS
+from openagentic.cli.sessions import TEXT as SESSION_TEXT
+from openagentic.cli.turn_control import finish_interrupted_tools, turn_control
 
 logger = structlog.get_logger(__name__)
 _console = Console(file=_patchable_stdout)
@@ -38,6 +41,7 @@ SLASH_COMMANDS = [
     "/diff", "/review",
     "/login-platform", "/logout-platform", "/plan", "/quit", "/exit",
 ]
+SLASH_COMMANDS.extend(SESSION_COMMANDS)
 
 
 # ---------------------------------------------------------------------------
@@ -461,6 +465,12 @@ async def _run_react_turn(
     # ── Plan mode: filter tools to read/explore only ──
     from openagentic.cli.tools import TOOLS, filter_tools_for_plan_mode
     tools = filter_tools_for_plan_mode(TOOLS) if plan_mode else TOOLS
+    control = turn_control.get()
+    if control and control.extensions:
+        tools = [*tools, *control.extensions.schemas(plan_mode=plan_mode)]
+    if control and control.codemode:
+        from openagentic.runtime.codemode import tool_schema
+        tools = [*tools, tool_schema()]
 
     # ── Execute react loop（包成 task，让 producer 的 Ctrl+C 能取消）──
     react_task = asyncio.create_task(
@@ -488,6 +498,10 @@ async def _run_react_turn(
         _console.print(f"\n  [red bold]Error:[/red bold] {type(e).__name__}: {e}")
     finally:
         react_task_ref["task"] = None
+        finish_interrupted_tools(messages, SESSION_TEXT["interrupted"])
+        control = turn_control.get()
+        if control:
+            control.save(messages)
 
     # After execution, reset model back to simple_model for next triage
     if routed_model != current_model and automodel_enabled:
@@ -606,17 +620,21 @@ async def _handle_review(
 class SlashCompleter(Completer):
     """Auto-complete slash commands when input starts with '/'."""
 
+    def __init__(self, extra_commands=()):
+        self.commands = [*SLASH_COMMANDS, *extra_commands]
+
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
         if not text.startswith("/"):
             return
-        for cmd in SLASH_COMMANDS:
+        for cmd in self.commands:
             if cmd.startswith(text):
                 yield Completion(cmd, start_position=-len(text))
 
 
 def print_help() -> None:
     _console.print()
+    _console.print(SESSION_TEXT["usage"], markup=False)
     _console.print("[bold]Commands[/bold]")
     _console.print(
         "  /help  /config  /clear  /model <name>  /providers  /provider [id]  "
@@ -649,7 +667,7 @@ def _make_prompt_msg() -> HTML:
     return HTML('<b>❯</b> ')
 
 
-def _make_toolbar(pending: int = 0, *, plan_mode_ref: dict | None = None):
+def _make_toolbar(pending=0, *, plan_mode_ref: dict | None = None, extra_status=None, extra_commands=()):
     def _get_toolbar():
         try:
             app = get_app()
@@ -657,11 +675,12 @@ def _make_toolbar(pending: int = 0, *, plan_mode_ref: dict | None = None):
         except Exception:
             text = ""
 
-        pending_hint = f"  [{pending} pending]" if pending > 0 else ""
+        pending_count = pending() if callable(pending) else pending
+        pending_hint = f"  [{pending_count} pending]" if pending_count > 0 else ""
         plan_hint = " [bold yellow]PLAN MODE[/bold yellow]" if (plan_mode_ref and plan_mode_ref.get("on")) else ""
 
         if text.startswith("/"):
-            matching = [c for c in SLASH_COMMANDS if c.startswith(text)]
+            matching = [c for c in [*SLASH_COMMANDS, *extra_commands] if c.startswith(text)]
             if matching:
                 hint = "  ".join(matching)
             else:
@@ -669,7 +688,7 @@ def _make_toolbar(pending: int = 0, *, plan_mode_ref: dict | None = None):
             return HTML(
                 f'<style fg="#aaaaaa">{hint}{pending_hint}{plan_hint}</style>'
             )
-        return HTML(
-            f'<style fg="#555555">/help · 按 / 查看命令{pending_hint}{plan_hint}</style>'
-        )
+        from html import escape
+        status = escape(extra_status()) if extra_status else ""
+        return HTML(f'<style fg="#555555">/help · {SESSION_TEXT["input_hint"]}{pending_hint}{plan_hint} {status}</style>')
     return _get_toolbar

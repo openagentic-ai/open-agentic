@@ -163,6 +163,8 @@ asyncio.run(repl.main_loop("local/test", "local"))
     target.write_text("value = 1\n")
     child = pexpect.spawn(sys.executable, ["-c", script], encoding="utf-8", timeout=15,
                           env={**os.environ, "TERM": "xterm-256color",
+                               "PROMPT_TOOLKIT_NO_CPR": "1",
+                               "OPENAGENTIC_CLI_SESSION_DIR": str(tmp_path / "sessions"),
                                "OPENAGENTIC_TEST_FILE": str(target) if edit else ""})
     try:
         child.expect("❯")

@@ -14,17 +14,20 @@ Markdown) survives, which is safe under ``patch_stdout``.
 from __future__ import annotations
 
 import sys
+from contextvars import ContextVar
 from typing import IO, cast
+
+output_stream: ContextVar[IO[str] | None] = ContextVar("agent_output_stream", default=None)
 
 
 class _PatchableStdout:
     """File-like that delegates to whatever ``sys.stdout`` currently is."""
 
     def write(self, data: str) -> int:
-        return sys.stdout.write(data)
+        return (output_stream.get() or sys.stdout).write(data)
 
     def flush(self) -> None:
-        sys.stdout.flush()
+        (output_stream.get() or sys.stdout).flush()
 
     def isatty(self) -> bool:
         # Return False so Rich thinks it's writing to a pipe and skips ANSI

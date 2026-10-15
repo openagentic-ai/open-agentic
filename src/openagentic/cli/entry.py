@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import sys
 
 from dotenv import load_dotenv
 
@@ -12,6 +13,8 @@ from openagentic.cli.bootstrap import maybe_auto_install_editable
 from openagentic.cli.platform_adapter import CLI_PLATFORM
 from openagentic.cli.providers import DEFAULT_MODEL
 from openagentic.cli.repl import main_loop
+from openagentic.cli.sessions import TEXT as SESSION_TEXT
+from openagentic.runtime.extensions import TEXT as RUNTIME_TEXT
 from openagentic.config import SETTINGS
 from openagentic.observability.logging import configure_logging
 
@@ -21,9 +24,6 @@ configure_logging(level=SETTINGS.APP_LOG_LEVEL)
 
 
 def main() -> None:
-    maybe_auto_install_editable()
-    CLI_PLATFORM.configure_event_loop_policy()
-    CLI_PLATFORM.ensure_line_input_mode()
     parser = argparse.ArgumentParser(description="OpenAgentic Agent CLI (ReAct)")
     parser.add_argument(
         "-m",
@@ -44,6 +44,12 @@ def main() -> None:
         ),
     )
     parser.add_argument("-s", "--system", default=None, help="Custom system prompt")
+    restore = parser.add_mutually_exclusive_group()
+    restore.add_argument("-c", "--continue", dest="continue_session", action="store_true", help=SESSION_TEXT["continue_help"])
+    restore.add_argument("--resume", metavar="ID", help=SESSION_TEXT["resume_help"])
+    parser.add_argument("--extension", action="append", default=[], help=RUNTIME_TEXT["extension_help"])
+    parser.add_argument("--codemode", action="store_true", help=RUNTIME_TEXT["codemode_help"])
+    parser.add_argument("--mode", choices=["interactive", "rpc"], default="interactive", help=RUNTIME_TEXT["mode_help"])
     parser.add_argument(
         "--api-base",
         default=SETTINGS.OPENAGENTIC_API_BASE or None,
@@ -61,6 +67,10 @@ def main() -> None:
         help="跳过缺 API key 时的强制配置向导（CI/批量测试可用，等价于 OPENAGENTIC_SKIP_PROVIDER_CHECK=1）",
     )
     args = parser.parse_args()
+    if args.mode == "interactive":
+        maybe_auto_install_editable()
+        CLI_PLATFORM.configure_event_loop_policy()
+        CLI_PLATFORM.ensure_line_input_mode()
     if args.no_provider_check:
         SETTINGS.OPENAGENTIC_SKIP_PROVIDER_CHECK = True
 
@@ -75,10 +85,20 @@ def main() -> None:
     # If env vars set, auto-detect provider from model name or base_url
     if env_base_url or env_auth_token:
         if not env_model:
-            print("[WARN] OPENAGENTIC_BASE_URL/AUTH_TOKEN set but OPENAGENTIC_MODEL missing, using default model")
+            print("[WARN] OPENAGENTIC_BASE_URL/AUTH_TOKEN set but OPENAGENTIC_MODEL missing, using default model", file=sys.stderr)
         # Inject as a runtime override — provider will be resolved from model prefix
         if provider == "auto" and "/" in model:
             provider = model.split("/")[0]
+
+    if args.mode == "rpc":
+        if args.require_auth or args.api_base:
+            parser.error(RUNTIME_TEXT["rpc_platform_auth"])
+        from openagentic.runtime.rpc import stdio_main
+        asyncio.run(stdio_main(model=model, api_base=env_base_url or None, api_key=env_auth_token or None,
+            provider=provider,
+            extension_paths=args.extension, resume="latest" if args.continue_session else args.resume,
+            codemode=args.codemode, system_prompt=args.system))
+        return
 
     api_base = (args.api_base or "").strip() or None
     if args.require_auth and not api_base:
@@ -100,6 +120,9 @@ def main() -> None:
                 platform_access_token=platform_token,
                 env_base_url=env_base_url or None,
                 env_auth_token=env_auth_token or None,
+                resume_session="latest" if args.continue_session else args.resume,
+                extension_paths=args.extension,
+                codemode=args.codemode,
             )
         )
     except KeyboardInterrupt:

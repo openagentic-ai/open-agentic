@@ -1,0 +1,20 @@
+{
+  "missing_session": "没有找到当前目录的会话，或会话 ID 不唯一。",
+  "missing_node": "节点不存在或不属于当前会话。",
+  "pending_tools": "tool calls 尚未完成，不能在此节点分支。",
+  "concurrent_change": "session changed in another process; resume it before saving",
+  "interrupted": "[INTERRUPTED] Tool execution was interrupted; inspect existing effects before retrying.",
+  "saved": "会话：{id}",
+  "session_row": "{id}  {updated}  {title}",
+  "node_row": "{marker} {id} ← {parent}  {role}  {preview}",
+  "restored": "已恢复会话 {id}（{count} 条消息）",
+  "branched": "已切换到节点 {node}；后续对话将形成新分支，文件不会回滚。",
+  "new": "已创建会话 {id}",
+  "empty": "当前目录没有已保存的会话。",
+  "usage": "/sessions · /resume <id> · /new · /session · /tree [node] · /fork [node]",
+  "input_hint": "Enter 纠偏 · Alt+Enter 稍后追加",
+  "steered": "已收到纠偏，将在当前响应及工具调用完成后处理。",
+  "failed": "会话操作失败：{error}",
+  "continue_help": "恢复当前目录最近的 CLI 会话",
+  "resume_help": "恢复指定 ID 的 CLI 会话"
+}

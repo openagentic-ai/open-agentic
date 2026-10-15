@@ -15,6 +15,7 @@ from openagentic.cli._patchable_stdout import _patchable_stdout
 
 from openagentic.cli.llm import litellm_chat
 from openagentic.cli.status import activity_status
+from openagentic.cli.turn_control import turn_control
 from openagentic.cli.tools import TOOLS, ConfirmFn, execute_tool, PLAN_MODE_SYSTEM_PROMPT
 from openagentic.config import SETTINGS
 from openagentic.memory.manager import (
@@ -100,6 +101,9 @@ async def react_loop(
         return msg
 
     messages.append({"role": "user", "content": user_input})
+    control = turn_control.get()
+    if control:
+        control.save(messages)
 
     # ── Plan mode: inject exploration-only system prompt ──
     if plan_mode:
@@ -116,6 +120,8 @@ async def react_loop(
         logger.warning("context preparation failed", error=str(exc), exc_info=True)
 
     # ── Working memory compression: compress if over token budget ──
+    if control:
+        control.save(messages)
     if working_memory_compressible(messages):
         try:
             messages[:] = await compress_working_memory(
@@ -133,17 +139,26 @@ async def react_loop(
     max_iter = max(1, SETTINGS.CLI_REACT_MAX_ITERATIONS)
 
     for i in range(max_iter):
+        if control:
+            control.deliver(messages)
         if max_iter > 10 and i == max_iter - 6:
             _console.print(
                 f"[yellow]已接近单轮工具循环上限（{max_iter}），"
                 "若仍无终答将自动停止并给出明确说明。[/yellow]"
             )
 
+        completion = (
+            control.extensions.complete(messages, model, litellm_chat, api_base=api_base, api_key=api_key, tools=tools)
+            if control and control.extensions else
+            litellm_chat(messages, model, api_base=api_base, api_key=api_key, tools=tools)
+        )
         resp = await _spin_while(
-            litellm_chat(messages, model, api_base=api_base, api_key=api_key, tools=tools),
+            completion,
             text="思考中...",
         )
         msg = resp.get("message", {})
+        if control:
+            await control.notify("message", message=msg)
         content = msg.get("content", "")
         tool_calls = msg.get("tool_calls", [])
         thinking = msg.get("thinking", "")
@@ -164,6 +179,8 @@ async def react_loop(
             if thinking:
                 final_msg["reasoning_content"] = thinking
             messages.append(final_msg)
+            if control and control.deliver(messages):
+                continue
             return content
 
         assistant_msg: dict[str, Any] = {
@@ -174,7 +191,14 @@ async def react_loop(
         if thinking:
             assistant_msg["reasoning_content"] = thinking
         messages.append(assistant_msg)
+        # Persist the complete call batch before executing any side effects.
+        for tc in tool_calls:
+            if not tc.get("id"):
+                _ensure_tool_call_id(tc, assistant_msg)
+        if control:
+            control.save(messages)
 
+        done_summary = None
         for tc in tool_calls:
             func = tc.get("function", {})
             name = func.get("name", "")
@@ -190,9 +214,25 @@ async def react_loop(
                 _console.print(Markdown(summary))
                 tid_done = tc.get("id") or _ensure_tool_call_id(tc, assistant_msg)
                 messages.append({"role": "tool", "tool_call_id": tid_done, "content": summary})
-                return summary
+                done_summary = summary
+                if control:
+                    control.save(messages)
+                continue
 
-            result = await execute_tool(name, args, confirm_fn=confirm_fn)
+            if control:
+                await control.notify("tool_execution_start", name=name, arguments=args)
+            if name == "codemode" and control and control.codemode:
+                from openagentic.runtime.codemode import run_script
+                async def nested_tool(nested_name, nested_args):
+                    return await control.extensions.execute(nested_name, nested_args,
+                                                            confirm_fn=confirm_fn, plan_mode=plan_mode)
+                result = await run_script(args["code"], nested_tool,
+                                          tool_names=[t["function"]["name"] for t in tools])
+            elif control and control.extensions:
+                result = await control.extensions.execute(name, args, confirm_fn=confirm_fn,
+                                                          plan_mode=plan_mode, builtin=execute_tool)
+            else:
+                result = await execute_tool(name, args, confirm_fn=confirm_fn)
             last_tool_name = name
             last_result_preview = (result or "")[:400].replace("\n", " ")
             _console.print(f"  [dim]{result[:500]}[/dim]")
@@ -200,6 +240,14 @@ async def react_loop(
             tid = tc.get("id") or _ensure_tool_call_id(tc, assistant_msg)
             tool_msg: dict = {"role": "tool", "content": result, "tool_call_id": tid}
             messages.append(tool_msg)
+            if control:
+                control.save(messages)
+                await control.notify("tool_execution_end", name=name, result=result)
+
+        if done_summary is not None:
+            if control and control.deliver(messages):
+                continue
+            return done_summary
 
     conclusion = (
         f"本轮「模型 ↔ 工具」循环已达到上限（共 {max_iter} 轮），已自动停止，避免死循环或无限消耗 token。\n\n"
