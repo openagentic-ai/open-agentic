@@ -203,6 +203,8 @@ PYTHONPATH=src python -m openagentic.cli
 
 CLI 是一个带工具调用的 ReAct 终端，支持模型和 provider 配置、上下文压缩、成本查看、权限策略、git diff/review 和 Skills 管理。使用 `/help` 查看当前版本实际注册的命令；命令集合会随版本变化。
 
+借鉴 [Pi Agent](https://github.com/earendil-works/pi) 的交互与工具设计：等待状态由终端布局统一刷新，显示在输入框上方；`edit_file` 工具只替换唯一匹配的文本，沿用写入权限和确认流程，并显示高亮 diff。确认期间文件若被外部修改，会停止覆盖。上下文压缩保留工具调用与结果的完整配对，连续压缩继承旧摘要；摘要失败或为空时保留当前历史。
+
 ```text
 /providers       查看 provider 配置
 /model           查看或切换模型

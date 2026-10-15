@@ -16,6 +16,7 @@ from prompt_toolkit.patch_stdout import patch_stdout
 from rich.console import Console
 
 from openagentic.cli._patchable_stdout import _patchable_stdout
+from openagentic.cli.status import ActivityStatus, activity_status
 from openagentic.cli.auth import clear_cli_session_file
 from openagentic.cli.model_router import automodel_status, setup_automodel_interactive
 from openagentic.cli.prompt import (
@@ -73,7 +74,14 @@ async def main_loop(
     env_base_url: str | None = None,
     env_auth_token: str | None = None,
 ):  # noqa: C901
-    session: PromptSession[str] = PromptSession(completer=SlashCompleter())
+    status = ActivityStatus()
+    activity_status.set(status)
+    session: PromptSession[str] = PromptSession(
+        completer=SlashCompleter(), bottom_toolbar="", refresh_interval=0.08,
+    )
+    # Let one renderer own status, editor and footer; output never moves the cursor.
+    from prompt_toolkit.layout.containers import HSplit
+    session.app.layout.container = HSplit([status.container(), session.app.layout.container])
     queue: asyncio.Queue = asyncio.Queue()
 
     requested_provider = provider
@@ -157,6 +165,7 @@ async def main_loop(
     # During confirmation, pause the input producer so prompts don't collide.
     input_gate = asyncio.Event()
     input_gate.set()  # start open
+    input_prompt: asyncio.Task | None = None
 
     # ── 进行中的 react 任务引用：用于 Ctrl+C 中断当前轮而不退 CLI ──
     react_task_ref: dict[str, asyncio.Task | None] = {"task": None}
@@ -169,6 +178,10 @@ async def main_loop(
             return False
         input_gate.clear()  # pause producer
         try:
+            # Stop the active editor before reusing its Application for confirmation.
+            if input_prompt is not None and not input_prompt.done():
+                input_prompt.cancel()
+                await asyncio.gather(input_prompt, return_exceptions=True)
             _console.print()
             _console.print(f"[yellow bold]? {title}[/yellow bold]")
             _console.print(f"  [dim]{detail}[/dim]")
@@ -197,14 +210,20 @@ async def main_loop(
     # redirected above the prompt. The prompt stays fixed at the
     # bottom of the terminal at all times.
     async def _input_producer():
+        nonlocal input_prompt
         with patch_stdout():
             while True:
                 await input_gate.wait()  # pause during tool confirmation
                 try:
-                    user_input = await session.prompt_async(
+                    input_prompt = asyncio.create_task(session.prompt_async(
                         _make_prompt_msg(),
                         bottom_toolbar=_make_toolbar(queue.qsize(), plan_mode_ref=plan_mode_ref),
-                    )
+                    ))
+                    user_input = await input_prompt
+                except asyncio.CancelledError:
+                    if not input_gate.is_set() and not asyncio.current_task().cancelling():
+                        continue  # confirmation temporarily owns the editor
+                    raise
                 except EOFError:
                     await queue.put(_SENTINEL_QUIT)
                     return

@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import structlog
-import sys
 import uuid
 from typing import Any
 
@@ -16,6 +14,7 @@ from rich.panel import Panel
 from openagentic.cli._patchable_stdout import _patchable_stdout
 
 from openagentic.cli.llm import litellm_chat
+from openagentic.cli.status import activity_status
 from openagentic.cli.tools import TOOLS, ConfirmFn, execute_tool, PLAN_MODE_SYSTEM_PROMPT
 from openagentic.config import SETTINGS
 from openagentic.memory.manager import (
@@ -27,8 +26,6 @@ from openagentic.retrieval.prepare import prepare_context
 
 logger = structlog.get_logger(__name__)
 _console = Console(file=_patchable_stdout)
-
-_SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
 
 def _ensure_tool_call_id(tc: dict[str, Any], assistant_msg: dict[str, Any]) -> str:
@@ -47,38 +44,25 @@ def _ensure_tool_call_id(tc: dict[str, Any], assistant_msg: dict[str, Any]) -> s
     return new_id
 
 
-_CUU = "\x1b[F"  # cursor up one line
-_EL = "\x1b[K"   # erase to end of line
+# Cursor-up and erase-line escapes are now owned by prompt_toolkit's renderer.
 
 
 async def _spin_while(coro, text: str = "思考中..."):
     """Await *coro* while animating a braille spinner.
 
-    Uses cursor-up / erase-to-EOL escapes to overwrite the previous frame
-    in-place instead of adding a new line on every frame.  This keeps the
-    prompt at the bottom of the terminal even under ``patch_stdout()``.
+    The session layout refreshes one status row above the editor. No cursor
+    escapes or background output are written under ``patch_stdout()``.
     """
-    # Render through prompt_toolkit's patched stdout so the input prompt and
-    # toolbar stay at the bottom. Use carriage return only; raw CSI cursor
-    # sequences are displayed literally by some terminals.
-    done = False
-
-    async def animate() -> None:
-        i = 0
-        while not done:
-            sys.stdout.write(f"\r  {_SPINNER[i % len(_SPINNER)]} {text}")
-            sys.stdout.flush()
-            i += 1
-            await asyncio.sleep(0.08)
-        sys.stdout.write("\r                    \r")
-        sys.stdout.flush()
-
-    task = asyncio.create_task(animate())
+    # Render through the session layout so status never competes with output.
+    status = activity_status.get()
+    previous = status.text if status else ""
+    if status:
+        status.text = text
     try:
         return await coro
     finally:
-        done = True
-        await task
+        if status:
+            status.text = previous
 
 
 async def react_loop(

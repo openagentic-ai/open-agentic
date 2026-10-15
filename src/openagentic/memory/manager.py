@@ -448,8 +448,14 @@ async def compress_working_memory(
         return messages  # not enough to compress
 
     # Messages to compress: everything between system (idx 0) and recent window
-    old = messages[1:-keep_recent]
-    recent = messages[-keep_recent:]
+    boundary = max(1, len(messages) - keep_recent)
+    # A tool result must travel with its assistant tool call, never alone.
+    while boundary > 1 and messages[boundary].get("role") == "tool":
+        boundary -= 1
+    old = messages[1:boundary]
+    recent = messages[boundary:]
+    if not old:
+        return messages
 
     # Build summarization prompt
     conversation_text = ""
@@ -485,7 +491,7 @@ async def compress_working_memory(
         "- Errors encountered and how they were resolved\n\n"
         "Return ONLY the bullet points, in Chinese if the conversation was in Chinese.\n"
         "对话记录:\n"
-        f"{conversation_text[-6000:]}\n"
+        f"{conversation_text}\n"
     )
 
     try:
@@ -498,11 +504,14 @@ async def compress_working_memory(
         )
         summary = resp.get("message", {}).get("content", "") or ""
     except Exception:
-        # If summarization fails, just truncate
-        summary = "[Summarization failed — conversation truncated]"
+        # A failed summary must not erase the only copy of prior goals.
+        return messages
+    if not summary.strip():
+        return messages
 
     # Rebuild messages: summary 合并进 system(位置0) ——
     # strict_system_first 模型(Qwen3.8)拒绝位置 1 的 system 消息
     head = dict(messages[0])
-    head["content"] = head.get("content", "") + "\n\n[Conversation Summary]\n" + summary
+    base_prompt = head.get("content", "").split("\n\n[Conversation Summary]", 1)[0]
+    head["content"] = base_prompt + "\n\n[Conversation Summary]\n" + summary
     return [head, *recent]

@@ -12,11 +12,13 @@ from pathlib import Path
 from typing import Any, Callable, Coroutine
 
 from rich.console import Console
+from rich.syntax import Syntax
 
 from openagentic.cli._patchable_stdout import _patchable_stdout
 from openagentic.memory.manager import MemoryManager
 
 _tools_console = Console(file=_patchable_stdout)
+_edit_messages = json.loads(Path(__file__).with_name("edit_messages.json").read_text(encoding="utf-8"))
 
 _memory_manager: MemoryManager | None = None
 
@@ -30,6 +32,22 @@ def _get_memory_manager() -> MemoryManager:
     return _memory_manager
 
 TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "edit_file",
+            "description": _edit_messages["description"],
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "old_text": {"type": "string"},
+                    "new_text": {"type": "string"},
+                },
+                "required": ["path", "old_text", "new_text"],
+            },
+        },
+    },
     {
         "type": "function",
         "function": {
@@ -312,7 +330,7 @@ ConfirmFn = Callable[[str, str], Coroutine[Any, Any, bool]]
 
 # ── Plan Mode: 探索/设计阶段禁用的写入类工具 ──
 _PLAN_MODE_DISABLED = {
-    "write_file", "delete_file",
+    "write_file", "edit_file", "delete_file",
     "core_memory_save", "core_memory_delete",
     "episodic_save", "procedural_save",
 }
@@ -384,7 +402,7 @@ async def execute_tool(
     # "ask" leaves existing per-tool confirm_fn behavior intact.
     from openagentic.cli import permissions as _perm
     try:
-        decision, reason = _perm.decide(name, args)
+        decision, reason = _perm.decide("write_file" if name == "edit_file" else name, args)
     except Exception as exc:
         # Permissions must never break tool execution — log and treat as ask.
         import structlog as _structlog
@@ -432,7 +450,7 @@ async def execute_tool(
             content = await asyncio.to_thread(_read_file_sync, path)
             return content
 
-        elif name == "write_file":
+        elif name in {"write_file", "edit_file"}:
             path = args.get("path", "").strip()
             content = args.get("content", "")
             if not path:
@@ -441,19 +459,33 @@ async def execute_tool(
             if p.exists() and p.is_dir():
                 return f"[ERROR] write_file: 路径是目录，请指定具体文件路径: {p}"
             exists = p.is_file()
+            original = p.read_bytes() if exists else None
+            if name == "edit_file":
+                old_text, new_text = args.get("old_text"), args.get("new_text")
+                if not exists or not isinstance(old_text, str) or not old_text or not isinstance(new_text, str):
+                    return _edit_messages["invalid_arguments"]
+                source = original.decode("utf-8")
+                if source.count(old_text) != 1:
+                    return _edit_messages["ambiguous_match"]
+                content = source.replace(old_text, new_text, 1)
             op_label = "覆盖已有文件" if exists else "新建文件（增加文件）"
             title = "覆盖写入文件" if exists else "新建文件"
             preview = f"路径: {p}\n字节数: {len(content.encode('utf-8'))}\n操作: {op_label}"
+            diff_text = ""
             if exists:
                 diff_text = _build_unified_diff(p, content)
                 if diff_text:
                     preview += "\n\n" + diff_text
             if not await _ask(title, preview):
                 return "[REFUSED] 用户未确认写入，已取消（可用自然语言说明如何手动修改）"
+            if (p.read_bytes() if p.is_file() else None) != original:
+                return _edit_messages["concurrent_change"]
             _tools_console.print(f"  [dim]→ write[/dim] {p} [dim]({len(content)} chars)[/dim]")
             os.makedirs(str(p.parent), exist_ok=True)
             with open(p, "w", encoding="utf-8") as f:
                 f.write(content)
+            if diff_text:
+                _tools_console.print(Syntax(diff_text, "diff", word_wrap=True))
             return f"OK: wrote {len(content)} chars to {p}"
 
         elif name == "delete_file":

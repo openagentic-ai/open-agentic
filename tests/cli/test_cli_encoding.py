@@ -194,19 +194,18 @@ def test_react_no_raw_ansi_in_source():
 
 
 def test_react_no_live_spinner_in_source():
-    """react.py must not import Live or Spinner — uses \r-based spinner instead."""
+    """react.py must not start a second renderer alongside prompt_toolkit."""
     src = _read_src("openagentic", "cli", "react.py")
     assert "from rich.live import Live" not in src
     assert "from rich.spinner import Spinner" not in src
 
 
-def test_react_has_cr_spinner():
-    """react.py must have _spin_while with braille spinner and \\r."""
+def test_react_uses_layout_spinner():
+    """The renderer owns spinner frames; model execution must not write cursors."""
     src = _read_src("openagentic", "cli", "react.py")
     assert "_spin_while" in src, "must define _spin_while"
-    assert "_SPINNER" in src, "must have braille spinner frames"
-    assert "sys.stdout.write" in src, "must write spinner directly to stdout"
-    assert "asyncio.create_task" in src, "spinner must run as concurrent task"
+    assert "activity_status" in src
+    assert "sys.stdout.write" not in src
 
 
 # ============================================================================
@@ -246,26 +245,25 @@ def test_repl_has_sequential_main_loop():
     )
 
 
-def test_input_prompt_has_top_separator():
-    """The prompt must include full-width top border in round style: ╭...╮.
+def test_input_prompt_is_minimal():
+    """The prompt uses one marker without decorative borders.
 
     UI primitives moved into slash_commands.py during the repl.py refactor.
     """
-    src = _read_src("openagentic", "cli", "slash_commands.py")
-    assert "╭" in src, "must have top-left corner ╭"
-    assert "╮" in src, "must have top-right corner ╮"
+    from prompt_toolkit.formatted_text import to_formatted_text
+    from openagentic.cli.slash_commands import _make_prompt_msg
+    assert "".join(text for _, text in to_formatted_text(_make_prompt_msg())) == "❯ "
 
 
-def test_input_prompt_has_bottom_separator():
-    """The bottom_toolbar must include full-width bottom border: ╰...╯."""
+def test_input_prompt_has_no_bottom_separator():
+    """The bottom toolbar keeps hints without a decorative border."""
     src = _read_src("openagentic", "cli", "slash_commands.py")
-    assert "╰" in src, "must have bottom-left corner ╰"
-    assert "╯" in src, "must have bottom-right corner ╯"
-    assert "shutil.get_terminal_size" in src, "must dynamically compute width"
+    assert "╰" not in src
+    assert "╯" not in src
 
 
 def test_bottom_toolbar_has_hints():
-    """The bottom_toolbar must include hint text below the separator."""
+    """The bottom toolbar must include command hints."""
     src = _read_src("openagentic", "cli", "slash_commands.py")
     assert "SLASH_COMMANDS" in src, "must have slash command list"
     assert "/help" in src, "slash commands must include /help"

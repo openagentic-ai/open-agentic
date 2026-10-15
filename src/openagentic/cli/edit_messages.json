@@ -1,0 +1,6 @@
+{
+  "description": "Replace one unique exact text block in an existing file. Uses write_file permissions and confirmation.",
+  "invalid_arguments": "[ERROR] edit_file requires an existing file and non-empty old_text",
+  "ambiguous_match": "[ERROR] old_text must match exactly one region; read the file and retry",
+  "concurrent_change": "[ERROR] file changed during confirmation; read the file and retry"
+}
