@@ -46,10 +46,14 @@ openagentic --extension /absolute/path/project_rules.py
 扩展入口是 `setup(api)`。扩展属于可信宿主代码，具有当前 Python 进程的权限。与 Skill 的文本指引不同，它可以注册执行逻辑：
 
 ```python
+from pathlib import Path
+
 def setup(api):
+    migrations = (Path.cwd() / "migrations").resolve()
     async def protect(call):
         if call["name"] in {"edit_file", "write_file", "delete_file"}:
-            if "/migrations/" in call["arguments"].get("path", ""):
+            target = Path(call["arguments"].get("path", "")).resolve()
+            if target.is_relative_to(migrations):
                 return {**call, "blocked": "迁移文件受保护"}
     api.on("tool_call", protect)
 
@@ -130,3 +134,5 @@ CLI RPC 复用已保存的 provider 配置，支持 `--extension`、`--codemode`
 请求响应为 `{"id":1,"result":"..."}`，失败为 `{"id":1,"error":{"code":"...","message":"..."}}`。异步事件为 `{"event":{"type":"message","session_id":"...","message":{...}}}`。客户端必须按 ID 匹配响应，不能依赖返回顺序。
 
 方法还有 `state`、`tree`、`checkout`（`params.node`）、`command`（`params.name` 和 `params.args`）、`cancel`、`close`。`state` 返回会话 ID、busy 状态及当前工作消息。`prompt` 的响应在整次运行结束后返回；同时可发送纠偏、追加和取消请求。`close` 或 stdin EOF 会取消运行并关闭会话。单帧上限 8 MiB。RPC 没有远程确认 UI，需确认的写入和扩展工具默认拒绝。
+
+真实模型、工具、终端和跨进程恢复的验收入口见 [端侧模型集成验收](local-model-acceptance.md)。

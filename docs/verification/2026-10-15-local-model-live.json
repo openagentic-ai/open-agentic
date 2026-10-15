@@ -1,0 +1,132 @@
+{
+  "time_utc": "2026-10-15T02:15:44.968545+00:00",
+  "endpoint": "http://127.0.0.1:80/v1",
+  "model": "/Users/caihaolun/models/Qwen3.8-27B-MLX-4bit",
+  "duration_seconds": 274.65,
+  "phases": [
+    {
+      "phase": "cli",
+      "exit_code": 0
+    },
+    {
+      "phase": "runtime",
+      "exit_code": 0
+    },
+    {
+      "phase": "extension",
+      "exit_code": 0
+    }
+  ],
+  "cases": [
+    {
+      "case": "real_cli_greeting",
+      "passed": true,
+      "seconds": 4.42,
+      "tools": []
+    },
+    {
+      "case": "real_cli_read_file",
+      "passed": true,
+      "seconds": 26.49,
+      "tools": [
+        "read_file"
+      ]
+    },
+    {
+      "case": "real_cli_edit_confirm",
+      "passed": true,
+      "seconds": 18.3,
+      "tools": [
+        "read_file",
+        "edit_file"
+      ],
+      "actual": "limit = 7\nmode = \"draft\"\n"
+    },
+    {
+      "case": "real_cli_reject_edit",
+      "passed": true,
+      "seconds": 13.58,
+      "tools": [
+        "edit_file"
+      ],
+      "actual": "limit = 7\nmode = \"draft\"\n"
+    },
+    {
+      "case": "real_cli_resume_memory",
+      "passed": true,
+      "seconds": 8.5,
+      "same_session": true
+    },
+    {
+      "case": "real_cli_branch_isolation",
+      "passed": true,
+      "seconds": 6.43,
+      "original_branch_retained": true
+    },
+    {
+      "case": "real_sdk_steering_followup",
+      "passed": true,
+      "seconds": 34.73,
+      "busy_when_sent": true,
+      "assistant_replies": [
+        "\n\nSTEER_REAL_OK",
+        "\n\nFOLLOW_REAL_OK"
+      ],
+      "tool_events": [
+        "read_file"
+      ]
+    },
+    {
+      "case": "real_rpc_model_codemode",
+      "passed": true,
+      "seconds": 81.36,
+      "result": {
+        "id": 1,
+        "result": "\n\n50"
+      },
+      "tools": [
+        "codemode"
+      ]
+    },
+    {
+      "case": "real_rpc_write_permission",
+      "passed": true,
+      "result": {
+        "id": 2,
+        "result": "\n\nWRITE_REFUSED"
+      },
+      "file_created": false,
+      "denied_tools": [
+        "write_file"
+      ]
+    },
+    {
+      "case": "real_rpc_clean_exit",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "case": "real_extension_load_lifecycle_command",
+      "passed": true
+    },
+    {
+      "case": "real_extension_provider_and_custom_tool",
+      "passed": true,
+      "seconds": 20.29
+    },
+    {
+      "case": "real_extension_blocks_model_write",
+      "passed": true,
+      "result": "\n\nGUARD_REFUSED"
+    }
+  ],
+  "passed": true,
+  "evidence_directory": "/private/var/folders/qm/rx6z8b2d2w52m0g626xlx26r0000gn/T/openagentic-live-udb1k8q2",
+  "initial_failure": {
+    "case": "real_extension_blocks_model_write",
+    "passed": false,
+    "cause": "Acceptance extension compared a resolved target to an unresolved root; macOS /var and /private/var are aliases.",
+    "evidence_directory": "/private/var/folders/qm/rx6z8b2d2w52m0g626xlx26r0000gn/T/openagentic-live-cvdxj7s7",
+    "resolution": "Canonicalized both paths and retained the failed artifact. Alias-input retest and final full 13-case replay passed."
+  }
+}
